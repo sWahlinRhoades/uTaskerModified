@@ -679,8 +679,15 @@ extern void
     #endif
 #endif
 #ifdef EXTERNAL_CLOCK                                                    // first move from state FEI to state FBE (presently running from about 25MHz internal clock)
+#ifdef USE_EXTERN_OCILLATOR_NGRM
+    MCG_C2 = (MCG_C2_LOCRE0 | 0x40| MCG_C2_RANGE_8M_32M | MCG_C2_EREFS);//0xe4;
+    MCG_C1 = (MCG_C1_IREFS);
+    OSC0_CR = OSC_CR_ERCLKEN;
+
+#else
     MCG_C2 = (MCG_C2_RANGE_8M_32M);                                      // don't use oscillator
     MCG_C1 = (MCG_C1_CLKS_EXTERN_CLK | MCG_C1_FRDIV_1024);               // switch to external input clock (the FLL input clock is set to as close to its input range as possible, although this is not necessary since the FLL will not be used)
+#endif
 #else
     #if CRYSTAL_FREQUENCY > 8000000
     MCG_C2 = (MCG_C2_RANGE_8M_32M | MCG_C2_HGO | MCG_C2_EREFS);          // select crystal oscillator
@@ -696,24 +703,37 @@ extern void
     #endif
     }
 #endif
-    while (MCG_S & MCG_S_IREFST) {                                       // loop until the FLL source is no longer the internal reference clock
-#ifdef _WINDOWS
-        MCG_S &= ~MCG_S_IREFST;
-#endif
-    }
-    while ((MCG_S & MCG_S_CLKST_MASK) != MCG_S_CLKST_EXTERN_CLK) {       // loop until the external reference clock source is valid
-#ifdef _WINDOWS
-        MCG_S &= ~MCG_S_CLKST_MASK;
-        MCG_S |= MCG_S_CLKST_EXTERN_CLK;
-#endif
-    }    
+
+	#ifdef USE_EXTERN_OCILLATOR_NGRM
+    while(0U == (MCG_S & MCG_S_OSCINIT)){};
+	#else
+		while (MCG_S & MCG_S_IREFST) {                                       // loop until the FLL source is no longer the internal reference clock
+		#ifdef _WINDOWS
+				MCG_S &= ~MCG_S_IREFST;
+		#endif
+		}
+	#endif
+	#ifndef USE_EXTERN_OCILLATOR_NGRM
+		while ((MCG_S & MCG_S_CLKST_MASK) != MCG_S_CLKST_EXTERN_CLK) {       // loop until the external reference clock source is valid
+			#ifdef _WINDOWS
+					MCG_S &= ~MCG_S_CLKST_MASK;
+					MCG_S |= MCG_S_CLKST_EXTERN_CLK;
+			#endif
+			}
+	#endif
+#ifdef USE_EXTERN_OCILLATOR_NGRM
+	MCG_C5 = 0x45;
+	MCG_C6 = 0x46;
+
+#else
     MCG_C5 = (CLOCK_DIV - 1);                                            // now move from state FBE to state PBE
     MCG_C6 = ((CLOCK_MUL - 24) | MCG_C6_PLLS);
     while ((MCG_S & MCG_S_PLLST) == 0) {                                 // loop until the PLLS clock source becomes valid
-#ifdef _WINDOWS
-        MCG_S |= MCG_S_PLLST;
-#endif
+		#ifdef _WINDOWS
+				MCG_S |= MCG_S_PLLST;
+		#endif
     }
+#endif
     while ((MCG_S & MCG_S_LOCK) == 0) {                                  // loop until PLL locks
 #ifdef _WINDOWS
         MCG_S |= MCG_S_LOCK;

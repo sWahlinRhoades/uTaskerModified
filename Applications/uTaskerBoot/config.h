@@ -68,7 +68,8 @@
           //#define RUN_FROM_DEFAULT_CLOCK                               // default mode is FLL Engaged Internal - the 32kHz IRC is multiplied by FLL factor of 640 to obtain 20.9715MHz nominal frequency (20MHz..25MHz)
           //#define RUN_FROM_HIRC                                        // clock directly from internal 48MHz RC clock
             #define RUN_FROM_HIRC_PLL                                    // use 48MHz RC clock as input to the PLL
-          //#define RUN_FROM_HIRC_FLL                                    // use 48MHz RC clock as input to the FLL
+			#define USE_EXTERN_OCILLATOR_NGRM //specific clocking for NGRM board
+		  //#define RUN_FROM_HIRC_FLL                                    // use 48MHz RC clock as input to the FLL
           //#define RUN_FROM_RTC_FLL                                     // use 32.76kHz crystal clock as input to the FLL
             #if defined RUN_FROM_DEFAULT_CLOCK
               //#define FLL_FACTOR           2929                        // use FLL (factors available are 640, 732, 1280, 1464, 1920, 2197, 2560 and 2929)
@@ -93,7 +94,7 @@
                 #define FLASH_CLOCK_DIVIDE   4                           // 96/4 to give 24MHz
             #elif defined RUN_FROM_HIRC_PLL
                 #define EXTERNAL_CLOCK       48000000                    // this is not really external but the IRC48MCLK is otherwise selected as if it were (Ethernet not possible!)
-                #define _EXTERNAL_CLOCK      EXTERNAL_CLOCK
+#define _EXTERNAL_CLOCK      EXTERNAL_CLOCK
                 #define CLOCK_DIV            20                          // input must be divided to 2MHz..4MHz range (/1 to /24)
                 #define CLOCK_MUL            50                          // the PLL multiplication factor to achieve operating frequency of 120MHz (x24 to x55 possible)
                 #define FLEX_CLOCK_DIVIDE    3                           // 120/3 to give 40MHz
