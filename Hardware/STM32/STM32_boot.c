@@ -11,7 +11,7 @@
     File:        STM32_boot.c
     Project:     Single Chip Embedded Internet - boot loader hardware support
     ---------------------------------------------------------------------
-    Copyright (C) M.J.Butcher Consulting 2004..2019
+    Copyright (C) M.J.Butcher Consulting 2004..2020
     *********************************************************************
     06.03.2012 Add start_application()                                   {1}
     12.12.2012 Correct flash erase routine for F1 parts                  {2}
@@ -21,6 +21,10 @@
     01.11.2018 User flash driver instead of local code                   {6}
     01.11.2018 Use an include file for the clock configuration           {7}
     28.11.2018 Add automatic flash option configuration option           {8}
+    09.02.2019 Add STORAGE_AREA_ENTRY list when both internal and external flash drivers are used {9}
+    16.03.2019 Enable access to FPU before calling Keil initialisation   {10}
+    07.02.2020 Add fnRetriggerWatchdog()                                 {11}
+    06.03.2020 Use standard flash interface for fnGetPars()              {12}
 
 
 */
@@ -47,7 +51,7 @@
     #include "config.h"
     #if defined _COMPILE_KEIL
         extern void __main(void);                                        // Keil library initialisation routine
-        #define START_CODE __main
+        #define START_CODE _init                                         // {10}
     #elif defined COMPILE_IAR
         extern void __iar_program_start(void);                           // IAR library initialisation routine
         #define START_CODE __iar_program_start
@@ -60,76 +64,30 @@
     #define SIM_DMA(x)
 #endif
 
-#if defined FLASH_ROUTINES || defined FLASH_FILE_SYSTEM || defined USE_PARAMETER_BLOCK || defined SUPPORT_PROGRAM_ONCE // {6}
-/* =================================================================== */
-/*                           FLASH driver                              */
-/* =================================================================== */
-    #include "stm32_FLASH.h"                                             // include FLASH driver code
+#if !defined ONLY_INTERNAL_FLASH_STORAGE
+    static const STORAGE_AREA_ENTRY default_flash = {                    // {9}
+        0,                                                               // end of list
+        (unsigned char *)(FLASH_START_ADDRESS),                          // start address of internal flash
+        (unsigned char *)(FLASH_START_ADDRESS + (SIZE_OF_FLASH - 1)),    // end of internal flash
+        _STORAGE_INTERNAL_FLASH,                                         // type
+        0                                                                // not multiple devices
+    };
+
+    STORAGE_AREA_ENTRY *UserStorageListPtr = (STORAGE_AREA_ENTRY *)&default_flash; // default entry
 #endif
-
-
-// This routine is called to reset the card
-//
-extern void fnResetBoard(void)
-{
-    APPLICATION_INT_RESET_CTR_REG = (VECTKEY | SYSRESETREQ);
-}
-
-
-#if !defined _COMPILE_KEIL                                               // Keil doesn't support in-line assembler in Thumb mode so an assembler file is required
-// Allow the jump to a foreign application as if it were a reset (load SP and PC)
-//
-extern void start_application(unsigned long app_link_location)
-{
-    #if !defined _WINDOWS
-        #if defined ARM_MATH_CM0PLUS                                     // {67} cortex-M0+ assembler code
-    asm(" ldr r1, [r0,#0]");                                             // get the stack pointer value from the program's reset vector
-    asm(" mov sp, r1");                                                  // copy the value to the stack pointer
-    asm(" ldr r0, [r0,#4]");                                             // get the program counter value from the program's reset vector
-    asm(" blx r0");                                                      // jump to the start address
-        #else                                                            // cortex-M3/M4/M7 assembler code
-    asm(" ldr sp, [r0,#0]");                                             // load the stack pointer value from the program's reset vector
-    asm(" ldr pc, [r0,#4]");                                             // load the program counter value from the program's reset vector to cause operation to continue from there
-        #endif
-    #endif
-}
-#endif
-
-// The boot loader doesn't use interrupts so these routines are dummy
-//
-extern void uDisable_Interrupt(void)
-{
-}
-
-extern void uEnable_Interrupt(void)
-{
-}
-
-
-// CRC-16 routine
-//
-extern unsigned short fnCRC16(unsigned short usCRC, unsigned char *ptrInput, unsigned short usBlockSize)
-{
-    while (usBlockSize--) {
-        usCRC = (unsigned char)(usCRC >> 8) | (usCRC << 8);
-        usCRC ^= *ptrInput++;
-        usCRC ^= (unsigned char)(usCRC & 0xff) >> 4;
-        usCRC ^= (usCRC << 8) << 4;
-        usCRC ^= ((usCRC & 0xff) << 4) << 1;
-    }
-    return usCRC;
-}
-
 
 #if defined SPI_SW_UPLOAD
     #if defined SPI_SW_UPLOAD || (defined SPI_FILE_SYSTEM && defined FLASH_FILE_SYSTEM)
-        #if !defined SPI_FLASH_ST && !defined SPI_FLASH_SST25
+        #if !defined SPI_FLASH_ST && !defined SPI_FLASH_SST25 && !defined SPI_FLASH_MX25L
             #define SPI_FLASH_ATMEL                                      // default if not otherwise defined
         #endif
         #define _SPI_DEFINES
-            #include "spi_flash_STM32_atmel.h"
-            #include "spi_flash_STM32_stmicro.h"
-            #include "spi_flash_STM32_sst25.h"
+            #include "../SPI_Memory/spi_flash_STM32_atmel.h"
+            #include "../SPI_Memory/spi_flash_STM32_stmicro.h"
+            #include "../SPI_Memory/spi_flash_STM32_sst25.h"
+            #include "../SPI_Memory/spi_flash_STM32_MX66L.h"
+            #include "../SPI_Memory/spi_flash_MX25L.h"
+            #include "../SPI_Memory/spi_flash_s25fl1-k.h"
         #undef _SPI_DEFINES
     #endif
 
@@ -157,11 +115,92 @@ extern unsigned short fnCRC16(unsigned short usCRC, unsigned char *ptrInput, uns
         #define _EXTENDED_CS
     #endif
     #define _SPI_FLASH_INTERFACE                                         // insert manufacturer dependent SPI Flash driver code
-        #include "spi_flash_STM32_atmel.h"
-        #include "spi_flash_STM32_stmicro.h"
-        #include "spi_flash_STM32_sst25.h"
+        #include "../SPI_Memory/spi_flash_STM32_atmel.h"
+        #include "../SPI_Memory/spi_flash_STM32_stmicro.h"
+        #include "../SPI_Memory/spi_flash_STM32_sst25.h"
+        #include "../SPI_Memory/spi_flash_STM32_MX66L.h"
+        #include "../SPI_Memory/spi_flash_MX25L.h"
+        #include "../SPI_Memory/spi_flash_s25fl1-k.h"
     #undef _SPI_FLASH_INTERFACE
 #endif
+
+#if defined FLASH_ROUTINES || defined FLASH_FILE_SYSTEM || defined USE_PARAMETER_BLOCK || defined SUPPORT_PROGRAM_ONCE // {6}
+/* =================================================================== */
+/*                           FLASH driver                              */
+/* =================================================================== */
+    #include "stm32_FLASH.h"                                             // include FLASH driver code
+#endif
+
+
+
+// This routine is called to reset the card
+//
+extern void fnResetBoard(void)
+{
+    APPLICATION_INT_RESET_CTR_REG = (VECTKEY | SYSRESETREQ);
+}
+
+
+#if !defined _COMPILE_KEIL                                               // Keil doesn't support in-line assembler in Thumb mode so an assembler file is required
+// Allow the jump to a foreign application as if it were a reset (load SP and PC)
+//
+extern void start_application(unsigned long app_link_location)
+{
+    #if !defined _WINDOWS
+        #if defined ARM_MATH_CM0PLUS                                     // {67} cortex-M0+ assembler code
+    asm(" ldr r1, [r0,#0]");                                             // get the stack pointer value from the program's reset vector
+    asm(" mov sp, r1");                                                  // copy the value to the stack pointer
+    asm(" ldr r0, [r0,#4]");                                             // get the program counter value from the program's reset vector
+    asm(" blx r0");                                                      // jump to the start address
+        #else                                                            // cortex-M3/M4/M7 assembler code
+    asm(" ldr sp, [r0,#0]");                                             // load the stack pointer value from the program's reset vector
+    asm(" ldr pc, [r0,#4]");                                             // load the program counter value from the program's reset vector to cause operation to continue from there
+        #endif
+    #endif
+}
+#else
+// Keil demands the use of a __main() call to correctly initialise variables - it then calls main()
+//
+extern void _init(void)                                                  // {10}
+{
+    #if defined STM32_FPU                                                // if the processor has a floating point unit
+    CPACR |= (0xf << 20);                                                // enable access to FPU because the Keil initialisation will write to the FPU
+    #endif
+    __main();                                                            // Keil initialises variables and then calls main()
+}
+#endif
+
+// The boot loader doesn't use interrupts so these routines are dummy
+//
+extern void uDisable_Interrupt(void)
+{
+}
+
+extern void uEnable_Interrupt(void)
+{
+}
+
+// Support watchdog re-triggering of specific hardware
+//
+extern void fnRetriggerWatchdog(void)                                    // {11}
+{
+    RETRIGGER_WATCHDOG();                                                // retrigger the watchdog
+}
+
+// CRC-16 routine
+//
+extern unsigned short fnCRC16(unsigned short usCRC, unsigned char *ptrInput, unsigned long ulBlockSize)
+{
+    while (ulBlockSize-- != 0) {
+        usCRC = (unsigned char)(usCRC >> 8) | (usCRC << 8);
+        usCRC ^= *ptrInput++;
+        usCRC ^= (unsigned char)(usCRC & 0xff) >> 4;
+        usCRC ^= (usCRC << 8) << 4;
+        usCRC ^= ((usCRC & 0xff) << 4) << 1;
+    }
+    return usCRC;
+}
+
 
 
 // memcpy implementation
@@ -180,86 +219,6 @@ extern void *uMemcpy(void *ptrTo, const void *ptrFrom, size_t Size)
 }
 
 
-#if defined SPI_SW_UPLOAD
-// This routine reads data from the defined device into a buffer. The access details inform of the length to be read (already limited to maximum possible length for the device)
-// as well as the address in the specific device
-//
-static void fnReadSPI(ACCESS_DETAILS *ptrAccessDetails, unsigned char *ptrBuffer)
-{
-    #if !defined SPI_FLASH_SST25
-    unsigned short usPageNumber = (unsigned short)(ptrAccessDetails->ulOffset/SPI_FLASH_PAGE_LENGTH); // the page the address is in
-    unsigned short usPageOffset = (unsigned short)(ptrAccessDetails->ulOffset - (usPageNumber * SPI_FLASH_PAGE_LENGTH)); // offset in the page
-    #endif
-
-    #if defined SPI_FLASH_ST
-    fnSPI_command(READ_DATA_BYTES, (unsigned long)((unsigned long)(usPageNumber << 8) | (usPageOffset)), _EXTENDED_CS ptrBuffer, ptrAccessDetails->BlockLength);
-    #elif defined SPI_FLASH_SST25
-    fnSPI_command(READ_DATA_BYTES, ptrAccessDetails->ulOffset, _EXTENDED_CS ptrBuffer, ptrAccessDetails->BlockLength);
-    #else                                                                // ATMEL
-        #if SPI_FLASH_PAGE_LENGTH >= 1024
-    fnSPI_command(CONTINUOUS_ARRAY_READ, (unsigned long)((unsigned long)(usPageNumber << 11) | (usPageOffset)), _EXTENDED_CS ptrBuffer, ptrAccessDetails->BlockLength);
-        #elif SPI_FLASH_PAGE_LENGTH >= 512
-    fnSPI_command(CONTINUOUS_ARRAY_READ, (unsigned long)((unsigned long)(usPageNumber << 10) | (usPageOffset)), _EXTENDED_CS ptrBuffer, ptrAccessDetails->BlockLength);
-        #else
-    fnSPI_command(CONTINUOUS_ARRAY_READ, (unsigned long)((unsigned long)(usPageNumber << 9) | (usPageOffset)), _EXTENDED_CS ptrBuffer, ptrAccessDetails->BlockLength);
-        #endif
-    #endif
-}
-
-// The routine is used to delete an area in SPI Flash, whereby the caller has set the address to the start of a page and limited the erase to a single storage area and device
-//
-static MAX_FILE_LENGTH fnDeleteSPI(ACCESS_DETAILS *ptrAccessDetails)
-{
-    MAX_FILE_LENGTH BlockLength = SPI_FLASH_PAGE_LENGTH;
-    #if !defined SPI_FLASH_ST
-    unsigned char   ucCommand;
-    #endif
-    #if !defined SPI_FLASH_SST25
-    unsigned short usPageNumber = (unsigned short)(ptrAccessDetails->ulOffset/SPI_FLASH_PAGE_LENGTH); // the page the address is in
-    #endif
-    #if defined SPI_FLASH_ST
-    fnSPI_command(WRITE_ENABLE, 0, _EXTENDED_CS 0, 0);                   // enable the write
-        #ifdef SPI_DATA_FLASH
-    fnSPI_command(SUB_SECTOR_ERASE, ((unsigned long)usPageNumber << 8), _EXTENDED_CS 0, 0); // delete appropriate sub-sector
-    BlockLength = SPI_FLASH_SUB_SECTOR_LENGTH;
-        #else
-    fnSPI_command(SECTOR_ERASE, ((unsigned long)usPageNumber << 8), _EXTENDED_CS 0, 0); // delete appropriate sector
-    BlockLength = SPI_FLASH_SECTOR_LENGTH;
-        #endif
-    #elif defined SPI_FLASH_SST25
-    fnSPI_command(WRITE_ENABLE, 0, _EXTENDED_CS 0, 0);                   // command write enable to allow byte programming
-        #ifndef SST25_A_VERSION
-    if ((ptrAccessDetails->BlockLength >= SPI_FLASH_SECTOR_LENGTH) && ((ptrAccessDetails->ulOffset & (SPI_FLASH_SECTOR_LENGTH - 1)) == 0)) { // if a complete 64k sector can be deleted
-        ucCommand = SECTOR_ERASE;                                        // delete block of 64k
-        BlockLength = SPI_FLASH_SECTOR_LENGTH;
-    }
-    else 
-        #endif
-    if ((ptrAccessDetails->BlockLength >= SPI_FLASH_HALF_SECTOR_LENGTH) && ((ptrAccessDetails->ulOffset & (SPI_FLASH_HALF_SECTOR_LENGTH - 1)) == 0)) {
-        ucCommand = HALF_SECTOR_ERASE;                                   // delete block of 32k
-        BlockLength = SPI_FLASH_HALF_SECTOR_LENGTH;
-    }
-    else {
-        ucCommand = SUB_SECTOR_ERASE;                                    // delete smallest sector of 4k
-        BlockLength = SPI_FLASH_SUB_SECTOR_LENGTH;
-    }
-    fnSPI_command(ucCommand, ptrAccessDetails->ulOffset, _EXTENDED_CS 0, 0);    
-    #else                                                                // ATMEL
-    if ((ptrAccessDetails->BlockLength >= SPI_FLASH_BLOCK_LENGTH) && (usPageNumber % 8 == 0)) { // if delete range corresponds to a block, use faster block delete
-        BlockLength = SPI_FLASH_BLOCK_LENGTH;
-        ucCommand = BLOCK_ERASE;
-    }
-    else {
-        BlockLength = SPI_FLASH_PAGE_LENGTH;
-        ucCommand = PAGE_ERASE;
-    }
-    fnSPI_command(ucCommand, usPageNumber, _EXTENDED_CS 0, 0);           // delete appropriate page/block
-    #endif
-    return (BlockLength);
-}
-
-#endif
-
 extern int uFileErase(unsigned char *ptrFile, MAX_FILE_LENGTH FileLength)
 {
     return fnEraseFlashSector(ptrFile, FileLength);
@@ -268,28 +227,22 @@ extern int uFileErase(unsigned char *ptrFile, MAX_FILE_LENGTH FileLength)
 
 extern void fnGetPars(unsigned char *ParLocation, unsigned char *ptrValue, MAX_FILE_LENGTH Size)
 {
-#if defined SPI_SW_UPLOAD
-    if (ParLocation >= (unsigned char *)(FLASH_START_ADDRESS + SIZE_OF_FLASH)) { // if in SPI flash
-        ACCESS_DETAILS AccessDetails;
-        AccessDetails.ulOffset = (unsigned long)(ParLocation - (FLASH_START_ADDRESS + SIZE_OF_FLASH)); // offset in SPI flash
-        AccessDetails.BlockLength = Size;
-        fnReadSPI(&AccessDetails, ptrValue);                             // read from the SPI device
-        return;
-    }
-#endif
-    uMemcpy(ptrValue, fnGetFlashAdd(ParLocation), Size);                 // directly copy memory since this must be a pointer to code (embedded file)
+    fnGetParsFile(ParLocation, ptrValue, Size);                          // {12}
 }
 
 
-#ifdef SPI_SW_UPLOAD
+#if defined SPI_SW_UPLOAD
 extern int fnConfigSPIFileSystem(void)
 {
     POWER_UP_SPI_FLASH_INTERFACE();
     CONFIGURE_SPI_FLASH_INTERFACE();
     #define _CHECK_SPI_CHIPS                                             // insert manufacturer dependent code to detect the SPI Flash devices
-        #include "spi_flash_STM32_atmel.h"
-        #include "spi_flash_STM32_stmicro.h"
-        #include "spi_flash_STM32_sst25.h"
+        #include "../SPI_Memory/spi_flash_STM32_atmel.h"
+        #include "../SPI_Memory/spi_flash_STM32_stmicro.h"
+        #include "../SPI_Memory/spi_flash_STM32_sst25.h"
+        #include "../SPI_Memory/spi_flash_STM32_MX66L.h"
+        #include "../SPI_Memory/spi_flash_MX25L.h"
+        #include "../SPI_Memory/spi_flash_s25fl1-k.h"
     #undef _CHECK_SPI_CHIPS
     return (ucSPI_FLASH_Type[0] == NO_SPI_FLASH_AVAILABLE);
 }

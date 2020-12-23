@@ -1,0 +1,43 @@
+// We add 248 bytes of padding between the header and the start of code in order to
+// align the code on a 256 byte boundary (ensures on-the-fly decryption compatibility,
+// library compatibility and also allows interrupt vectors to remain in code)
+
+f8                     // first byte specifies the length
+ffffffffffffff         // padding should be 0xff by default and other content is reserved for future control of additional configurations
+ffffffffffffffff
+ffffffffffffffff
+
+ffffffffffffffff
+ffffffffffffffff
+ffffffffffffffff
+ffffffffffffffff
+
+ffffffffffffffff
+ffffffffffffffff
+ffffffffffffffff
+ffffffffffffffff
+
+ffffffffffffffff
+ffffffffffffffff
+ffffffffffffffff
+ffffffffffffffff
+
+ffffffffffffffff
+ffffffffffffffff
+ffffffffffffffff
+ffffffffffffffff
+
+ffffffffffffffff
+ffffffffffffffff
+ffffffffffffffff
+ffffffffffffffff
+
+ffffffffffffffff
+ffffffffffffffff
+ffffffffffffffff
+ffffffffffffffff
+
+ffffffffffffffff
+ffffffffffffffff
+ffffffffffffffff
+ffffffffffffffff

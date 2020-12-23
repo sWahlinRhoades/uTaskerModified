@@ -11,7 +11,7 @@
     File:      tcpip.h
     Project:   Single Chip Embedded Internet
     ---------------------------------------------------------------------
-    Copyright (C) M.J.Butcher Consulting 2004..2018
+    Copyright (C) M.J.Butcher Consulting 2004..2020
     *********************************************************************
     16.02.2007 Add SMTP LOGIN defines
     17.02.2007 Add TFTP support defines
@@ -127,6 +127,10 @@
     10.05.2017 Add optional Ethernet frame ucErrorFlags field            {104}
     09.01.2018 Add fnInsertTCPHeader(), fnSecureLayerTransmission() and SECURE_SOCKET_MODE {105}
     20.02.2018 Add buffered TCP extended option TCP_BUF_PREPARE in order to allow preparing data in the output buffer of an open connection but not start its transmission yet {106}
+    25.08.2019 Add TCP_CONNECTION_NETWORK_LIMITATION option and function fnTCP_Limit() {107}
+    11.02.2020 Add HTTP header content flags                             {108}
+    01.07.2020 Remlve packing of ETHERNET_FRAME to ensure variable alignment {109}
+
 
 */
 
@@ -151,6 +155,12 @@
 #if !defined DEFAULT_NETWORK                                             // {61}
     #define DEFAULT_NETWORK      (unsigned char)0
 #endif
+// For use with option TCP_CONNECTION_NETWORK_LIMITATION
+//
+#define REJECT_ALL_NETWORKS  ((1 << IP_NETWORK_COUNT) - 1)               // network rejection flag mask for all networks
+#define ACCEPT_ALL_NETWORKS  (0x00000000)                                // no network rejection (default)
+#define REJECT_NETWORK_FLASH(network) (1 << network)                     // individual network rejection flag mask
+
 #if !defined DEFAULT_IP_INTERFACE                                        // {61}
     #define DEFAULT_IP_INTERFACE (unsigned char)0
 #endif
@@ -217,7 +227,7 @@ typedef struct _PACK stETHERNET_CONTENT                                  // {1}
 #define IPV4_PROTOCOL_OFFSET 9                                           // fixed offset in Ethernet frame data where the IPv4 protcol is stored
 
 
-typedef struct _PACK stETHERNET_FRAME                                    // {1}
+typedef struct stETHERNET_FRAME                                          // {1}{109}
 {
     ETHERNET_FRAME_CONTENT *ptEth;                                       // pointer to the frame
 #if IP_INTERFACE_COUNT > 1
@@ -1045,6 +1055,9 @@ typedef struct stTCP_CONTROL                                             // {8} 
     unsigned long  ulNextTransmissionNumber;                             // sequence number to be sent next
     unsigned long  ulNextReceptionNumber;                                // sequence number which we expect to receive
     unsigned long  ulSendUnackedNumber;                                  // ack number to be sent
+#if defined TCP_CONNECTION_NETWORK_LIMITATION && (IP_NETWORK_COUNT > 1)  // {107}
+    unsigned long  ulConnectionLimitations;                              // connection limitation rules
+#endif
     int (*event_listener)(USOCKET, unsigned char, unsigned char *, unsigned short);
 #if defined USE_BUFFERED_TCP
     TCP_TX_BUFFER  *ptrTCP_Tx_Buffer;                                    // optional transmit buffer pointer
@@ -1489,6 +1502,9 @@ typedef struct stHTTP                                                    // {8} 
     unsigned short usUnackedPreviousContent;                             // {5} Content data size (can be different when dynmically filled)
     unsigned char  ucOpenWindows;                                        // the number of open acks when sending using windowing
 #endif
+#if defined SUPPORT_HTTP_CONTINUE
+    unsigned char ucContinue;                                            // HTTP 100 cont being sent
+#endif
 #if defined HTTP_DYNAMIC_CONTENT
     #if defined HTTP_WINDOWING_BUFFERS
     unsigned char  ucPresentFrame;                                       // counter of frame in a windowing sequence
@@ -1613,6 +1629,10 @@ typedef struct stWEB_SOCKET_FRAME_EXT_64_UNMASKED                        // if t
 
 #define WEB_SOCKET_MASK                    0x80                          // payload is masked
 #define WEB_SOCKET_PAYLOAD_LEN_MASK        0x7f
+
+
+#define CONTENT_TYPE_CACHE_ALLOWED                  0x00000001           // {108}
+#define CONTENT_TYPE_ACCESS_CONTROL_ALLOW_ORIGIN    0x00000002
 
 /************************** SMTP ************************************************************************************/
 
@@ -1948,30 +1968,30 @@ typedef struct _PACK stETH_IP_ENCAPSULATION_HEADER                       // fixe
 
 // UDP ports
 //
-#define DNS_UDP_PORT               53
-#define DHCP_SERVER_PORT           67
-#define DHCP_CLIENT_PORT           68
-#define TFTP_SERVER_PORT           69
-#define SNTP_PORT                  123                                   // {27}
-#define NetBIOS_PORT               137                                   // {7}
-#define SNMP_AGENT_PORT            161
-#define SNMP_MANAGER_PORT          162
-#define mDNS_PORT                  5353
+#define DNS_UDP_PORT               53                                    // 0x0035
+#define DHCP_SERVER_PORT           67                                    // 0x0043
+#define DHCP_CLIENT_PORT           68                                    // 0x0044
+#define TFTP_SERVER_PORT           69                                    // 0x0045
+#define SNTP_PORT                  123                                   // {27} 0x007b
+#define NetBIOS_PORT               137                                   // {7} 0x0089
+#define SNMP_AGENT_PORT            161                                   // 0x00a1
+#define SNMP_MANAGER_PORT          162                                   // 0x00a2
+#define mDNS_PORT                  5353                                  // 0x14e9
 #define ETHERNET_IP_PORT           44818                                 // 0xaf12 - at least 2 sockets expected
 
 // TCP ports
 //
-#define FTP_DATA_PORT              20
-#define FTP_CONTROL_PORT           21
-#define TELNET_SERVERPORT          23
-#define SMTP_PORT                  25
-#define TIME_PORT                  37
-#define HTTP_SERVERPORT            80
-#define POP_PORT                   110
-#define HTTPS_SERVERPORT           443
-//#define ETHERNET_IP_PORT         44818                                 // used by both UDP and TCP
-#define MQTT_PORT                  1883
-#define MQTTS_PORT                 8883
+#define FTP_DATA_PORT              20                                    // 0x0014
+#define FTP_CONTROL_PORT           21                                    // 0x0015
+#define TELNET_SERVERPORT          23                                    // 0x0017
+#define SMTP_PORT                  25                                    // 0x0019
+#define TIME_PORT                  37                                    // 0x0025
+#define HTTP_SERVERPORT            80                                    // 0x0050
+#define POP_PORT                   110                                   // 0x006e
+#define HTTPS_SERVERPORT           443                                   // 0x01bb
+//#define ETHERNET_IP_PORT         44818                                 // 0xaf12 used by both UDP and TCP
+#define MQTT_PORT                  1883                                  // 0x075b
+#define MQTTS_PORT                 8883                                  // 0x22b3
 
 
 // Cipher suites
@@ -2216,6 +2236,7 @@ extern USOCKET fnReleaseUDP_socket(USOCKET SocketHandle);
 extern USOCKET fnReleaseTCP_Socket(USOCKET TCPSocket);
 extern USOCKET fnBindSocket(USOCKET SocketHandle, unsigned short usLocalPort);
 extern USOCKET fnTCP_Listen(USOCKET TCP_socket, unsigned short usPort, unsigned short usMaxWindow);
+extern USOCKET fnTCP_Limit(USOCKET TCP_socket, unsigned long ulLimitations); // {107}
 extern unsigned short fnGetFreeTCP_Port(void);
 extern signed short fnSendUDP(USOCKET cSocketHandle, unsigned char *dest_IP, unsigned short ucRemotePort, unsigned char *ptrBuf, unsigned short usDataLen, UTASK_TASK OwnerTask);
 extern void fnReportUDP(unsigned short usSourcePort, unsigned short usDestPort, unsigned char ucEvent, unsigned char *ucIP);

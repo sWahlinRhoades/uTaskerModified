@@ -11,15 +11,21 @@
     File:      Watchdog.c
     Project:   Single Chip Embedded Internet
     ---------------------------------------------------------------------
-    Copyright (C) M.J.Butcher Consulting 2004..2016
+    Copyright (C) M.J.Butcher Consulting 2004..2020
     *********************************************************************
+    18.10.2020 Add user watchdog function option                         {1}
     
 */        
 
 #include "config.h"
 
+#define OWN_TASK    TASK_WATCHDOG
+
 
 extern void fnTaskWatchdog(TTASKTABLE *ptrTaskTable)                     // watchdog called regularly
 {
     fnRetriggerWatchdog();                                               // hardware dependent
+#if defined USER_WATCHDOG_FUNCTION                                       // {1}
+    USER_WATCHDOG_FUNCTION();
+#endif
 } 

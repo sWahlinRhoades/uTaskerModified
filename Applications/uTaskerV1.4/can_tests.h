@@ -11,7 +11,7 @@
     File:      can_tests.h
     Project:   uTasker project
     ---------------------------------------------------------------------
-    Copyright (C) M.J.Butcher Consulting 2004..2016
+    Copyright (C) M.J.Butcher Consulting 2004..2019
     *********************************************************************
     The file is otherwise not specifically linked in to the project since it
     is included by application.c when needed.
@@ -20,15 +20,20 @@
     14.12.2011 Construct CAN test messages to avoid compiler using memcpy() {2}
     23.12.2011 Add two port CAN test when two CAN controllers are present {3}
     27.12.2011 Add fnSendCAN_message() for general CAN message transmission {4}
+    19.02.2019 fnSendCAN() removed
 
 */
 
 #if defined CAN_INTERFACE && !defined _CAN_CONFIG
     #define _CAN_CONFIG
-
-  //#define TEST_CAN                                                     // test CAN operation
-      //#define PARTNER_CAN                                              // quick set of CAN partner addresses (use this when testing between two boards running the same test - one with and one without this)
-      //#define TEST_FIRST_CAN_ONLY
+    #if defined SUPPORT_CANopen
+        extern QUEUE_HANDLE CANopen_interface_ID0;
+        #define CAN_interface_ID0  CANopen_interface_ID0
+    #else
+        #define TEST_CAN                                                 // test CAN operation
+          //#define PARTNER_CAN                                          // quick set of CAN partner addresses (use this when testing between two boards running the same test - one with and one without this)
+          //#define TEST_FIRST_CAN_ONLY
+    #endif
 
 /* =================================================================== */
 /*                 local function prototype declarations               */
@@ -36,7 +41,6 @@
 
     #if defined CAN_INTERFACE && defined TEST_CAN
         static void fnInitCANInterface(void);
-        static void fnSendCAN(int key);
     #endif
 
 
@@ -45,9 +49,9 @@
 /* =================================================================== */
 
     #if defined CAN_INTERFACE && defined TEST_CAN
-        static QUEUE_HANDLE CAN_interface_ID0;
+        static QUEUE_HANDLE CAN_interface_ID0 = NO_ID_ALLOCATED;
         #if !defined TEST_FIRST_CAN_ONLY && (NUMBER_OF_CAN_INTERFACES > 1) // {3}
-            static QUEUE_HANDLE CAN_interface_ID1;
+            static QUEUE_HANDLE CAN_interface_ID1 = NO_ID_ALLOCATED;
         #endif
     #endif
 
@@ -86,7 +90,7 @@
     #endif
                 if (Length != 0) {
                     int i = 0;
-                    while (Length--) {                                   // display received message
+                    while (Length-- != 0) {                              // display received message
                         fnDebugHex(ucInputMessage[i++], (WITH_LEADIN | WITH_TERMINATOR | WITH_SPACE | 1));
                     }
                 }
@@ -163,7 +167,7 @@
                     ulID <<= 8;
                     ulID |= ucInputMessage[i++];
 
-                    if (ulID & CAN_EXTENDED_ID) {
+                    if ((ulID & CAN_EXTENDED_ID) != 0) {
                         fnDebugHex((ulID & ~CAN_EXTENDED_ID), (WITH_LEADIN | WITH_TERMINATOR | 4));
                     }
                     else {
@@ -195,9 +199,9 @@ static void fnInitCANInterface(void)                                     // {1}
 
     tCANParameters.Task_to_wake = OWN_TASK;                              // wake us on buffer events
     tCANParameters.Channel = 0;                                          // CAN0 interface
-    tCANParameters.ulSpeed = 1000000;                                    // 1 Meg speed
-  //tCANParameters.ulSpeed = 40000;                                      // slow speed for test
-    #ifdef PARTNER_CAN
+  //tCANParameters.ulSpeed = 1000000;                                    // 1 Meg speed
+    tCANParameters.ulSpeed = 40000;                                      // slow speed for test
+    #if defined PARTNER_CAN
     tCANParameters.ulTxID = (CAN_EXTENDED_ID | 0x00000105);              // our partner's ID on the bus (extended)
     tCANParameters.ulRxID = 0x102;                                       // our standard rx ID on the bus (not extended)
     tCANParameters.ulRxIDMask = CAN_STANDARD_MASK;                       // use all standard bits for compare
@@ -214,7 +218,7 @@ static void fnInitCANInterface(void)                                     // {1}
 
     #if !defined TEST_FIRST_CAN_ONLY && (NUMBER_OF_CAN_INTERFACES > 1)   // {3}
     tCANParameters.Channel = 1;                                          // CAN1 interface
-        #ifdef PARTNER_CAN
+        #if defined PARTNER_CAN
     tCANParameters.ulTxID = 0x102;                                       // default ID of destination (not extended)
     tCANParameters.ulRxID = (CAN_EXTENDED_ID | 0x00000105);              // our ID (extended)
     tCANParameters.ulRxIDMask = CAN_EXTENDED_MASK;
@@ -226,7 +230,8 @@ static void fnInitCANInterface(void)                                     // {1}
     CAN_interface_ID1 = fnOpen(TYPE_CAN, FOR_I_O, &tCANParameters);      // open interface
     #endif
 }
-
+#endif
+#if defined _CAN_INIT_CODE && defined CAN_INTERFACE && defined USE_MAINTENANCE
 // Test interface for sending CAN messages to the specified channel
 //
 extern void fnSendCAN_message(int iChannel, unsigned char ucType, unsigned char *ptrData, unsigned char ucMessageLength) // {4}
@@ -234,11 +239,11 @@ extern void fnSendCAN_message(int iChannel, unsigned char ucType, unsigned char 
     QUEUE_HANDLE CAN_interface = CAN_interface_ID0;
     #if !defined TEST_FIRST_CAN_ONLY && (NUMBER_OF_CAN_INTERFACES > 1)
     if (iChannel == 1) {
-        CAN_interface = CAN_interface_ID1;
+//        CAN_interface = CAN_interface_ID1;
     }
     #endif
 
-    if (TX_REMOTE_STOP & ucType) {
+    if ((TX_REMOTE_STOP & ucType) !=  0) {
         if (fnWrite(CAN_interface, ptrData, (QUEUE_TRANSFER)(ucMessageLength | ucType)) == 0) {
             fnDebugMsg("No remote message found\r\n");
         }
@@ -247,13 +252,19 @@ extern void fnSendCAN_message(int iChannel, unsigned char ucType, unsigned char 
         }
         return;
     }
-    else if (FREE_CAN_RX_REMOTE & ucType) {
+    else if ((FREE_CAN_RX_REMOTE & ucType) != 0) {
         if (fnRead(CAN_interface, 0, (QUEUE_TRANSFER)(ucType)) == 0) {
             fnDebugMsg("No Remote buffer found\r\n");
         }
         else {
             fnDebugMsg("Remote buffer freed\r\n");
         }
+        return;
+    }
+    else if ((FLUSH_CAN_TX_BLOCKED & ucType) != 0) {
+        QUEUE_TRANSFER freed = fnFlush(CAN_interface, FLUSH_RX);
+        fnDebugDec(freed, 0);
+        fnDebugMsg(" Tx buffers freed\r\n");
         return;
     }
     
@@ -308,29 +319,4 @@ extern void fnSendCAN_message(int iChannel, unsigned char ucType, unsigned char 
     #endif
     }
 }
-
-static void fnSendCAN(int key)
-{
-    unsigned char ucTestMessage[8];                                      // {2}
-    int i = 0;
-    if (key == 1) {
-        while (i < 8) {
-            ucTestMessage[i] = (i + 1);                                  // test message 1,2,3,4,5,6,7,8
-            i++;
-        }
-        fnSendCAN_message(0, CAN_TX_ACK_ON, ucTestMessage, (unsigned char)sizeof(ucTestMessage)); // send data to the default ID with acknowledge of successful delievery
-    }
-    else if (key == 7) {
-        while (i < 8) {
-            ucTestMessage[i] = (8 - i);                                  // test message 8,7,6,5,4,3,2,1
-            i++;
-        }
-    #if !defined TEST_FIRST_CAN_ONLY && (NUMBER_OF_CAN_INTERFACES > 1)   // {3}
-        fnSendCAN_message(1, CAN_TX_ACK_ON, ucTestMessage, (unsigned char)sizeof(ucTestMessage)); // send data to the default ID with acknowledge of successful delievery
-    #else
-        fnSendCAN_message(0, CAN_TX_ACK_ON, ucTestMessage, (unsigned char)sizeof(ucTestMessage));
-    #endif
-    }
-}
 #endif
-

@@ -11,7 +11,7 @@
     File:      GlobalTimer.c
     Project:   Single Chip Embedded Internet
     ---------------------------------------------------------------------
-    Copyright (C) M.J.Butcher Consulting 2004..2016
+    Copyright (C) M.J.Butcher Consulting 2004..2019
     *********************************************************************
     This task is used as global system timer task to allow multiple timers
     18.01.2007 Correct hardware timer check                              {1}
@@ -24,6 +24,9 @@
     24.05.2011 Make use of the uTaskerRemainingTime() routine            {8}
     24.06.2011 Code optimisations                                        {9}
     24.06.2011 Replace CLOCK_LIMIT with DELAY_LIMIT                      {10}
+    26.11.2018 Change uTaskerGlobalStopTimer() to return the remaining time when a timer is stopped (longest time remaining when stopping all timers) {11}
+    12.12.2018 Add return value to uTaskerGlobalMonoTimer()              {12}
+    30.08.2019 Set a zero delay to 1 Tick so that other longer timers still count down each time the zero delay timer fires {13}
 
  */
 
@@ -79,7 +82,7 @@ extern void fnTimer(TTASKTABLE *ptrTaskTable)                            // glob
     QUEUE_HANDLE PortIDInternal = ptrTaskTable->TaskID;                  // queue ID for task input
     unsigned char ucInputMessage[HEADER_LENGTH];                         // reserve space for receiving messages
 
-    while (fnRead( PortIDInternal, ucInputMessage, HEADER_LENGTH)) {     // check input queue
+    while (fnRead(PortIDInternal, ucInputMessage, HEADER_LENGTH) != 0) { // check task input queue
         switch (ucInputMessage[MSG_SOURCE_TASK]) {
         case TIMER_EVENT:
             fnSWTimerFired();
@@ -100,7 +103,7 @@ static TIMER_BLOCK *fnGetFreeTimer(void)
     TIMER_BLOCK *ptrTim = stTimer;
 
     while (iTimers++ < TIMER_QUANTITY) {
-        if (!ptrTim->OwnerTask) {
+        if (0 == ptrTim->OwnerTask) {
             return ptrTim;                                               // timer block is free
         }
         ptrTim++;
@@ -117,7 +120,7 @@ static TIMER_BLOCK *fnGetNotTimer(TIMER_BLOCK *ptrNewTimer)
 #if defined GLOBAL_HARDWARE_TIMER                                        // {2} - ignore hardware timers when checking for active software timers
         if ((ptrTim->OwnerTask) && (!(ptrTim->OwnerTask & HARDWARE_TIMER)) && (ptrTim != ptrNewTimer)) return ptrTim;
 #else
-        if ((ptrTim->OwnerTask) && (ptrTim != ptrNewTimer)) {
+        if ((ptrTim->OwnerTask != 0) && (ptrTim != ptrNewTimer)) {
             return ptrTim;
         }
 #endif
@@ -157,7 +160,7 @@ static TIMER_BLOCK *fnGetSWFired(DELAY_LIMIT Time)                       // {10}
     TIMER_BLOCK *ptrFired = 0;
 
     while (iTimers < TIMER_QUANTITY) {
-        if (((ptrTim->OwnerTask) && (ptrTim->TimerDelay <= Time)) && ((!ptrFired) || (ptrTim->TimerDelay < ptrFired->TimerDelay))) {
+        if (((ptrTim->OwnerTask != 0) && (ptrTim->TimerDelay <= Time)) && ((0 == ptrFired) || (ptrTim->TimerDelay < ptrFired->TimerDelay))) {
             ptrFired = ptrTim;                                           // lowest value
         }
         ptrTim++;
@@ -176,7 +179,7 @@ static void fnReduceSWTimers(TIMER_BLOCK *ptrNewTimer, DELAY_LIMIT TimerDelay) /
     }
 
     while (iTimers++ < TIMER_QUANTITY) {
-        if ((ptrTim->OwnerTask) && (ptrTim != ptrNewTimer)) {
+        if ((ptrTim->OwnerTask != 0) && (ptrTim != ptrNewTimer)) {
             ptrTim->TimerDelay -= TimerDelay;
         }
         ptrTim++;
@@ -269,7 +272,7 @@ static void fnStartNewTimer(TIMER_BLOCK *ptrNewTimer)
         return;
     }
 #endif
-    if (!fnGetNotTimer(ptrNewTimer)) {                                   // start new mono-stable timer
+    if (0 == fnGetNotTimer(ptrNewTimer)) {                               // start new mono-stable timer
         uTaskerMonoTimer(OWN_TASK, (DELAY_LIMIT)ptrNewTimer->TimerDelay, E_TIMER_FIRED); // if no other timer active, simply start ours
         NextFire = ptrNewTimer->TimerDelay;                              // the present delay
     }
@@ -282,7 +285,7 @@ static void fnStartNewTimer(TIMER_BLOCK *ptrNewTimer)
       //    RemainingTime = (uTaskerSystemTick - RemainingTime);
       //}
         UTASK_TICK RemainingTime;                                        // {9}
-        uDisable_Interrupt();                                            // ensure that the tick can not increment while doing the following
+        uDisable_Interrupt();                                            // ensure that the tick cannot increment while doing the following
             RemainingTime = uTaskerRemainingTime(OWN_TASK);              // {8} get the time remaining before the timer fires - if this is 0 it means that it has fired and is waiting to be handled
             if (RemainingTime > ptrNewTimer->TimerDelay) {               // the new timer value is shorter that the next firing time
               //fnReduceSWTimers(ptrNewTimer, (unsigned char)(NextFire - (unsigned char)RemainingTime)); {6}
@@ -299,12 +302,16 @@ static void fnStartNewTimer(TIMER_BLOCK *ptrNewTimer)
 
 // Start/or retrigger a mono-stable timer for the defined event number belonging to the calling task
 //
-extern void uTaskerGlobalMonoTimer(UTASK_TASK OwnerTask, DELAY_LIMIT delay, unsigned char time_out_event) // {10}
+extern int uTaskerGlobalMonoTimer(UTASK_TASK OwnerTask, DELAY_LIMIT delay, unsigned char time_out_event) // {10}{12}
 {
     TIMER_BLOCK *ptrTimer;
 
+    if (delay == 0) {                                                    // {13}
+        delay = 1;
+    }
+
     ptrTimer = fnGetOwnerTimer(OwnerTask, time_out_event);               // get the timer block
-    if (ptrTimer) {
+    if (ptrTimer != 0) {                                                 // if owner found
         ptrTimer->TimerDelay = delay;                                    // set new timeout (retrigger)
 #if defined GLOBAL_HARDWARE_TIMER
         if (ptrTimer->OwnerTask != OwnerTask) {                          // swapping from hardware to sw timer, or inverse is true
@@ -318,24 +325,30 @@ extern void uTaskerGlobalMonoTimer(UTASK_TASK OwnerTask, DELAY_LIMIT delay, unsi
     }
     else {
         ptrTimer = fnGetFreeTimer();                                     // define new timer
-        if (ptrTimer) {
+        if (ptrTimer != 0) {                                             // if a free timer was found
             ptrTimer->OwnerTask = OwnerTask;                             // enter timer details
             ptrTimer->TimerDelay = delay;
             ptrTimer->ucEvent = time_out_event;
             fnStartNewTimer(ptrTimer);                                   // start new timer delay
         }
+        else {
+            return GLOBAL_TIMER_NOT_STARTED;                             // {12} timer could not be started
+        }
     }
+    return 0;                                                            // timer started
 }
 
 // Stop a mono-stable timer belonging to calling task, with defined event number
 //
-extern void uTaskerGlobalStopTimer(UTASK_TASK OwnerTask, unsigned char time_out_event)
+extern DELAY_LIMIT uTaskerGlobalStopTimer(UTASK_TASK OwnerTask, unsigned char time_out_event)
 {
     TIMER_BLOCK *ptrTimer;
+    DELAY_LIMIT remaining_time = 0;                                      // {11}
 
-    if (time_out_event == 0) {                                           // {4} kill all timers belonging to the task
+    if (time_out_event == 0) {                                           // {4} kill all timers belonging to the task when a zero event is called with
         int iTimers = 0;
         TIMER_BLOCK *ptrTim = stTimer;
+        DELAY_LIMIT longest_remaining_time = 0;                          // {11}
 
         while (iTimers++ < TIMER_QUANTITY) {                             // search all timers belonging to the owner task
 #if defined GLOBAL_HARDWARE_TIMER
@@ -344,28 +357,33 @@ extern void uTaskerGlobalStopTimer(UTASK_TASK OwnerTask, unsigned char time_out_
             if (ptrTim->OwnerTask == OwnerTask)
 #endif
             {
-                if (ptrTim->ucEvent != 0) {                              // safety check before recursive call
-                    uTaskerGlobalStopTimer(ptrTim->OwnerTask, ptrTim->ucEvent);
+                if (ptrTim->ucEvent != 0) {                              // safety check before recursive call to stop the individual timer
+                    remaining_time = uTaskerGlobalStopTimer(ptrTim->OwnerTask, ptrTim->ucEvent);
+                    if (remaining_time > longest_remaining_time) {       // {11}
+                        longest_remaining_time = remaining_time;
+                    }
                 }
             }
             ptrTim++;
         }
-        return;
+        return longest_remaining_time;                                   // {11}
     }
 
     ptrTimer = fnGetOwnerTimer(OwnerTask, time_out_event);               // get the timer block
-    if (ptrTimer) {
+    if (ptrTimer != 0) {                                                 // if the timer was found
+        remaining_time = ptrTimer->TimerDelay;                           // {11} the time that is remaining until the timer would have fired
 #if defined GLOBAL_HARDWARE_TIMER
-        if (ptrTimer->OwnerTask & HARDWARE_TIMER) {                      // we need to stop a hardware timer
+        if ((ptrTimer->OwnerTask & HARDWARE_TIMER) != 0) {               // we need to stop a hardware timer
             ptrTimer->OwnerTask = (UTASK_TASK)HARDWARE_TIMER;            // we let the hardware timer continue since it is costing us nothing and will just be ignored when it fires
-            return;
+            return remaining_time;
         }
 #endif
-        ptrTimer->OwnerTask = 0;
-        if (!fnGetNotTimer(ptrTimer)) {
+        ptrTimer->OwnerTask = 0;                                         // remove the timer event
+        if (fnGetNotTimer(ptrTimer) == 0) {
             uTaskerStopTimer(OWN_TASK);                                  // since there are no other timers being used, simply stop the monostable timer
         }
     }
+    return remaining_time;                                               // {11}
 }
 
 // The global timer task's timer has fired
@@ -408,7 +426,7 @@ static void fnSWTimerFired(void)
         fnWrite(INTERNAL_ROUTE, ucMessage, HEADER_LENGTH);               // send timer event to defined task
         ptrRef = ptrTimer;
     }
-    if (ptrRef) {
+    if (ptrRef != 0) {
         fnReduceSWTimers(ptrRef, ptrRef->TimerDelay);
     }
     if ((ptrTimer = fnGetSWFired((DELAY_LIMIT)(0 - 1))) != 0) {          // {10} if there are still timers, set next timeout

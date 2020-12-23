@@ -8,7 +8,7 @@
 # 12.08.2013 Add glcd_st7565s.h dependency to GLCD
 # 09.03.2014 Add snmp_mib_handlers.c
 # 08.04.2014 Add igmp.c
-# 25.04.2014 Added iic_tests.h as application.c dependency
+# 25.04.2014 Added i2c_tests.h as application.c dependency
 # 05.08.2014 Modified compiler and linker options to achieve around 20% smaller code size
 # 27.12.2014 Add glcd_tft.h dependency to GLCD
 # 08.02.2015 Add time_keeper.c
@@ -16,9 +16,31 @@
 # 24.03.2015 Add kinetis hardware peripheral headers as dependencies
 # 04.06.2015 Add FreeMaster.c and nRF24201.c
 # 21.11.2015 Exchanged HW dependency to kinetis_USB_OTG.h
-# 30.03.2018 Add mqtt.c
-# 03.02.2019 Rename debug_hal.h to debug_hal_kinetis.h
-# 16.10.2019 Add FreeRTOS files and application
+# 14.12.2016 Add Cortex M4 FPU settings and CMSIS FFT components
+# 13.01.2017 Add AES and crypto
+# 17.01.2017 Add dsp
+# 01.03.2017 Add FT_CoPro_Cmds
+# 09.05.2017 Add ppp.c
+# 03.07.2017 Add FreeRTOS files and application
+# 21.10.2017 Add conditional mmcau_aes_functions.S/mmcau_aes_functions_M0.S depending on M4 or M0+ build
+# 26.10.2017 Add arm_sin_cos_f32
+# 07.11.2017 Modified method of including assember files requiring core specification
+# 10.11.2017 Add mqtt.c
+# 17.11.2017 Add kinetis_LPI2C.h and kinetis_timer_pins.h peripheral dependancies
+# 30.11.2017 Add make_uTaskerV1.4_GNU_Kinetis to dependencies to ensure clean each time this file is modified
+# 17.12.2017 Add secure_layer
+# 22.12.2017 Add mmcau_sha256_functions
+# 04.05.2018 Add DMX512.c
+# 29.05.2018 Add arm_abs_f32.c
+# 03.07.2018 Add -Wundef in order to discover any undefined definitions
+# 04.07.2018 Add ../../../Hardware/packages.h
+# 05.07.2018 Add SPI_drv.c
+# 06.09.2018 Add arm_bitreversal.c, arm_cfft_q15.c and arm_cfft_radix4_q15.c
+# 09.10.2018 Add sha256_mbedTLS.c
+# 13.10.2018 Add Kinetis/kinetis_CMP.h
+# 20.02.2019 Add CANopen
+# 09.03.2019 Change location of SPI memory includes (to ../SPI_Memory)
+# 15.05.2020 Change USB hardware dependencies to kinetis_USB_FS_OTG.h and kinetis_USB_HS_OTG.h
 
 
 #
@@ -27,23 +49,37 @@
 
 
 # Compiler flags (thumb mode - little endian)
-# (set to Cortex-M4 or Cortex-M0+ accordingly)
-#C_FLAGS = -mcpu=cortex-m0plus -mthumb -mlittle-endian -mthumb -Wall -Wstrict-prototypes -fmessage-length=0 -fsigned-char -ffunction-sections -fdata-sections
-#C_FLAGS = -mcpu=cortex-m4 -mthumb -mlittle-endian -mthumb -Wall -Wstrict-prototypes -fmessage-length=0 -fsigned-char -ffunction-sections -fdata-sections 
-C_FLAGS = -mcpu=cortex-m4 -mthumb -mfloat-abi=hard -mfpu=fpv4-sp-d16 -mlittle-endian -mthumb -Wall -Wstrict-prototypes -fmessage-length=0 -fsigned-char -ffunction-sections -fdata-sections 
-#C_FLAGS = -mcpu=cortex-m7 -mthumb -mlittle-endian -mthumb -Wall -Wstrict-prototypes -fmessage-length=0 -fsigned-char -ffunction-sections -fdata-sections 
+# (set to Cortex-M4, Cortex-M7 [with or without hard FPU] or Cortex-M0+ accordingly)
+C_FLAGS = -mcpu=cortex-m0plus -mthumb -mlittle-endian -mthumb -Wall -Wstrict-prototypes -fmessage-length=0 -fsigned-char -ffunction-sections -fdata-sections -Wundef
+#C_FLAGS = -mcpu=cortex-m4 -mthumb -mlittle-endian -mthumb -Wall -Wstrict-prototypes -fmessage-length=0 -fsigned-char -ffunction-sections -fdata-sections -Wundef
+#C_FLAGS = -mcpu=cortex-m4 -mthumb -mfloat-abi=hard -mfpu=fpv4-sp-d16 -mlittle-endian -mthumb -Wall -Wstrict-prototypes -fmessage-length=0 -fsigned-char -ffunction-sections -fdata-sections -Wundef
+#C_FLAGS = -mcpu=cortex-m7 -mthumb -mlittle-endian -mthumb -Wall -Wstrict-prototypes -fmessage-length=0 -fsigned-char -ffunction-sections -fdata-sections -Wundef
 
+
+LINKER_SCRIPT  = K32L_256_32
 
 # All objects (Hardware, application, uTasker, stack)
 #
-OBJS = Build/application.o Build/debug.o Build/webInterface.o Build/KeyScan.o Build/NetworkIndicator.o Build/usb_application.o Build/snmp_mib_handlers.o Build/FreeMaster.o Build/nRF24201.o Build/FreeRTOSapplication.o \
+OBJS = Build/application.o Build/debug.o Build/webInterface.o Build/KeyScan.o Build/DMX512.o Build/NetworkIndicator.o Build/usb_application.o Build/snmp_mib_handlers.o Build/FreeMaster.o Build/nRF24201.o Build/FreeRTOSapplication.o \
        Build/MODBUS.o Build/modbus_app.o \
+	   Build/uCANopenApp.o \
        Build/mass_storage.o \
-       Build/GLCD.o Build/LCD.o \
-       Build/eth_drv.o Build/Driver.o Build/uMalloc.o Build/uTasker.o Build/Tty_drv.o Build/iic_drv.o Build/USB_drv.o Build/uFile.o Build/Watchdog.o Build/GlobalTimer.o Build/time_keeper.o Build/low_power.o Build/can_drv.o \
+       Build/GLCD.o Build/LCD.o Build/FT_CoPro_Cmds.o \
+       Build/CANopen.o Build/CO_driver.o Build/CO_SDOmaster.o Build/CO_Emergency.o Build/CO_HBconsumer.o Build/CO_NMT_Heartbeat.o Build/CO_PDO.o Build/CO_SDO.o Build/CO_SYNC.o Build/crc16-ccitt.o \
+       Build/aes_mbedTLS.o Build/sha256_mbedTLS.o Build/w_aes.o Build/aes_cbc.o Build/cbc128.o Build/aes_core.o \
+       Build/arm_bitreversal2.o Build/arm_cfft_f32.o Build/arm_cfft_radix8_f32.o Build/arm_cmplx_mag_f32.o Build/arm_common_tables.o Build/arm_const_structs.o Build/arm_max_f32.o Build/arm_sin_cos_f32.o Build/arm_abs_f32.o \
+       Build/arm_bitreversal.o Build/arm_cfft_q15.o Build/arm_cfft_radix4_q15.o \
+       Build/eth_drv.o Build/Driver.o Build/uMalloc.o Build/uTasker.o Build/Tty_drv.o Build/SPI_drv.o Build/i2c_drv.o Build/USB_drv.o Build/uFile.o Build/Watchdog.o Build/GlobalTimer.o Build/time_keeper.o Build/low_power.o Build/can_drv.o \
        Build/Ethernet.o Build/arp.o Build/dhcp.o Build/dns.o Build/ftp.o Build/http.o Build/icmp.o Build/ip_utils.o Build/ip.o Build/pop3.o Build/smtp.o Build/snmp.o \
-       Build/tcp.o Build/telnet.o Build/tftp.o Build/udp.o Build/webutils.o Build/NetBIOS.o Build/zero_config.o Build/ftp_client.o Build/igmp.o Build/mqtt.o \
-	   Build/tasks.o Build/timers.o Build/queue.o Build/list.o Build/event_groups.o Build/croutine.o Build/port.o
+       Build/tcp.o Build/telnet.o Build/tftp.o Build/udp.o Build/webutils.o Build/NetBIOS.o Build/zero_config.o Build/ftp_client.o Build/igmp.o Build/ppp.o Build/mqtt.o Build/secure_layer.o \
+       Build/crypto.o Build/DSP.o Build/mmcau_aes_functions.o Build/mmcau_sha256_functions.o \
+       Build/tasks.o Build/timers.o Build/queue.o Build/list.o Build/event_groups.o Build/croutine.o Build/port.o
+
+ifeq (,$(findstring mcpu=cortex-m0plus,$(C_FLAGS)))
+A_FLAGS = -DARM_MATH_CM4
+else
+A_FLAGS = -DARM_MATH_CM0PLUS
+endif
 
 OBJS2 = Build/kinetis.o
 
@@ -53,12 +89,35 @@ OBJS2_BM = Build/kinetis_bm.o
 #General dependencies
 #
 DEPENDS = ../config.h ../app_hw_kinetis.h ../types.h ../TaskConfig.h ../../../uTasker/driver.h ../../../uTasker/usb.h ../../../uTasker/uTasker.h \
-       ../../../Hardware/hardware.h ../../../Hardware/Kinetis/kinetis.h \
+       ../../../Hardware/hardware.h ../../../Hardware/packages.h ../../../Hardware/Kinetis/kinetis.h \
        ../../../uTasker/MODBUS/modbus.h \
        ../../../uTasker/utFAT/mass_storage.h \
-       ../../../uTasker/uGLCDLIB/glcd.h \
+       ../../../uTasker/uGLCDLIB/glcd.h ../../../uTasker/uGLCDLIB/FT_Gpu.h ../../../uTasker/uGLCDLIB/FT_CoPro_Cmds.h \
        ../../../stack/tcpip.h \
        make_uTaskerV1.4_GNU_Kinetis
+
+DEPENDS_CMSIS = ../config.h \
+       ../../../Hardware/CMSIS_DSP/arm_math.h \
+       ../../../Hardware/CMSIS_DSP/arm_common_tables.h \
+       ../../../Hardware/CMSIS_DSP/arm_const_structs.h \
+       ../../../Hardware/CMSIS_DSP/core_cm4.h \
+       ../../../Hardware/CMSIS_DSP/cmsis_compiler.h \
+       ../../../Hardware/CMSIS_DSP/cmsis_gcc.h
+
+CANOPEN_DEPENDS = ../config.h \
+       ../CO_OD.h \
+       ../../../uTasker/uCANopen/CANopen.h \
+       ../../../uTasker/uCANopen/CO_driver.h \
+	   ../../../uTasker/uCANopen/CO_Emergency.h \
+	   ../../../uTasker/uCANopen/CO_HBconsumer.h \
+	   ../../../uTasker/uCANopen/CO_NMT_Heartbeat.h \
+	   ../../../uTasker/uCANopen/CO_PDO.h \
+	   ../../../uTasker/uCANopen/CO_SDO.h \
+	   ../../../uTasker/uCANopen/CO_SDOmaster.h \
+	   ../../../uTasker/uCANopen/CO_SYNC.h \
+	   ../../../uTasker/uCANopen/CO_trace.h \
+	   ../../../uTasker/uCANopen/crc16-ccitt.h
+       
 
 FREERTOS_INC = ../../../FreeRTOS/Source/include
 FREERTOS_PORT_INC = ../../../FreeRTOS/Source/portable/GCC/ARM_CM4F
@@ -71,11 +130,14 @@ DEPENDS_FREERTOS = $(FREERTOS_INC) \
 FREERTOS_INCLUDE = -I$(FREERTOS_INC) \
                    -I$(FREERTOS_PORT_INC)
 
-INC     = -I../
+
+INC     = -I../ 
 OPTS    = -D _GNU -D _KINETIS -g -c -Os
 CC      = arm-none-eabi-gcc
+CC_LNK  = arm-none-eabi-g++
 CC_OBJ  = arm-none-eabi-objcopy
 CC_SIZE = arm-none-eabi-size
+
 
 # Hardware peripheral dependencies
 #
@@ -83,33 +145,49 @@ PERIPH_DEP = ../../../Hardware/Kinetis/spi_sc16IS7xx.h \
              ../../../Hardware/Kinetis/kinetis_DMA.h \
              ../../../Hardware/Kinetis/kinetis_I2S.h \
              ../../../Hardware/Kinetis/kinetis_ENET.h \
-             ../../../Hardware/Kinetis/kinetis_USB_OTG.h \
-             ../../../Hardware/Kinetis/kinetis_USB_HS_Device.h \
+             ../../../Hardware/Kinetis/kinetis_USB_FS_OTG.h \
+             ../../../Hardware/Kinetis/kinetis_USB_HS_OTG.h \
              ../../../Hardware/Kinetis/kinetis_UART.h \
+             ../../../Hardware/Kinetis/kinetis_uart_pins.h \
+             ../../../Hardware/Kinetis/kinetis_SPI.h \
              ../../../Hardware/Kinetis/kinetis_CAN.h \
              ../../../Hardware/Kinetis/kinetis_I2C.h \
+             ../../../Hardware/Kinetis/kinetis_LPI2C.h \
              ../../../Hardware/Kinetis/kinetis_FLASH.h \
              ../../../Hardware/Kinetis/kinetis_SDHC.h \
              ../../../Hardware/Kinetis/kinetis_PWM.h \
+             ../../../Hardware/Kinetis/kinetis_timer_pins.h \
              ../../../Hardware/Kinetis/kinetis_PORTS.h \
              ../../../Hardware/Kinetis/kinetis_LLWU.h \
              ../../../Hardware/Kinetis/kinetis_FLEXTIMER.h \
              ../../../Hardware/Kinetis/kinetis_DAC.h \
              ../../../Hardware/Kinetis/kinetis_ADC.h \
+             ../../../Hardware/Kinetis/kinetis_CMP.h \
              ../../../Hardware/Kinetis/kinetis_low_power.h \
              ../../../Hardware/Kinetis/kinetis_KBI.h \
              ../../../Hardware/Kinetis/kinetis_RTC.h \
              ../../../Hardware/Kinetis/kinetis_PIT.h \
              ../../../Hardware/Kinetis/kinetis_LPTMR.h \
-             ../../../Hardware/Kinetis/kinetis_PDB.h
+             ../../../Hardware/Kinetis/kinetis_PDB.h \
+             ../../../Hardware/Kinetis/kinetis_K_CLOCK.h \
+             ../../../Hardware/Kinetis/kinetis_MCG_LITE.h \
+             ../../../Hardware/Kinetis/kinetis_HIRC.h \
+             ../../../Hardware/Kinetis/kinetis_KL_CLOCK.h \
+             ../../../Hardware/Kinetis/kinetis_KV_CLOCK.h \
+             ../../../Hardware/Kinetis/kinetis_KW_CLOCK.h \
+             ../../../Hardware/Kinetis/kinetis_KM_CLOCK.h \
+             ../../../Hardware/Kinetis/kinetis_KE_CLOCK.h \
+			 ../../../Hardware/SPI_Memory/spi_flash_interface.h
 
 # SPI FLASH dependencies
 #
-SPI_FLASH_DEP = ../../../Hardware/Kinetis/spi_flash_kinetis_atmel.h \
-                ../../../Hardware/Kinetis/spi_flash_kinetis_stmicro.h \
-				../../../Hardware/Kinetis/spi_flash_kinetis_sst25.h \
-				../../../Hardware/Kinetis/spi_flash_w25q.h \
-				../../../Hardware/Kinetis/spi_flash_kinetis_s25fl1-k.h
+SPI_FLASH_DEP = ../../../Hardware/SPI_Memory/spi_flash_kinetis_atmel.h \
+                ../../../Hardware/SPI_Memory/spi_flash_kinetis_stmicro.h \
+				../../../Hardware/SPI_Memory/spi_flash_kinetis_sst25.h \
+				../../../Hardware/SPI_Memory/spi_flash_w25q.h \
+				../../../Hardware/SPI_Memory/spi_flash_s25fl1-k.h \
+				../../../Hardware/SPI_Memory/spi_flash_MX25L.h \
+                ../../../Hardware/SPI_Memory/spi_eeprom_25AA160.h
 
 
 
@@ -117,7 +195,7 @@ all: uTaskerV1.4.elf uTaskerV1.4_BM.elf
 
 # Application files
 #
-Build/application.o: ../application.c $(DEPENDS) ../application.h ../application_lcd.h ../app_user_files.h ../Port_Interrupts.h ../ADC_Timers.h ../can_tests.h ../widgets.h ../iic_tests.h ../slcd_time.h
+Build/application.o: ../application.c $(DEPENDS) ../application.h ../application_lcd.h ../app_user_files.h ../Port_Interrupts.h ../ADC_Timers.h ../can_tests.h ../widgets.h ../i2c_tests.h ../spi_tests.h ../slcd_time.h
 		$(CC) $(C_FLAGS) $(INC) $(OPTS) ../application.c -o Build/application.o
 
 Build/debug.o: ../debug.c $(DEPENDS) ../application.h ../debug_hal_kinetis.h
@@ -126,11 +204,14 @@ Build/debug.o: ../debug.c $(DEPENDS) ../application.h ../debug_hal_kinetis.h
 Build/webInterface.o: ../webInterface.c $(DEPENDS) ../application.h
 		$(CC) $(C_FLAGS) $(INC) $(OPTS) ../webInterface.c -o Build/webInterface.o
 
-Build/usb_application.o: ../usb_application.c $(DEPENDS) ../application.h ../usb_cdc_descriptors.h ../usb_msd_descriptors.h ../usb_mouse_descriptors.h ../usb_keyboard_descriptors.h ../usb_hid_raw_descriptors.h ../usb_audio_descriptors.h
+Build/usb_application.o: ../usb_application.c $(DEPENDS) ../application.h ../usb_cdc_descriptors.h ../usb_msd_descriptors.h ../usb_mouse_descriptors.h ../usb_keyboard_descriptors.h ../usb_hid_raw_descriptors.h ../usb_audio_descriptors.h ../usb_RNDIS.h ../usb_CDC.h ../usb_MSD.h ../usb_HUB.h ../usb_Keyboard.h ../usb_Mouse.h ../usb_RAW.h ../usb_Audio.h
 		$(CC) $(C_FLAGS) $(INC) $(OPTS) ../usb_application.c -o Build/usb_application.o
 
 Build/KeyScan.o: ../KeyScan.c $(DEPENDS) ../application.h
 		$(CC) $(C_FLAGS) $(INC) $(OPTS) ../KeyScan.c -o Build/KeyScan.o
+
+Build/DMX512.o: ../DMX512.c $(DEPENDS) ../application.h
+		$(CC) $(C_FLAGS) $(INC) $(OPTS) ../DMX512.c -o Build/DMX512.o
 
 Build/NetworkIndicator.o: ../NetworkIndicator.c $(DEPENDS) ../application.h
 		$(CC) $(C_FLAGS) $(INC) $(OPTS) ../NetworkIndicator.c -o Build/NetworkIndicator.o
@@ -147,6 +228,9 @@ Build/nRF24201.o: ../nRF24201.c $(DEPENDS) ../application.h
 Build/FreeRTOSapplication.o: ../FreeRTOSapplication.c $(DEPENDS) $(DEPENDS_FREERTOS) ../application.h
 		$(CC) $(C_FLAGS) $(INC) $(FREERTOS_INCLUDE) $(OPTS) ../FreeRTOSapplication.c -o Build/FreeRTOSapplication.o
 
+Build/uCANopenApp.o: ../uCANopenApp.c $(DEPENDS) ../CO_OD.c ../CO_OD.h ../application.h
+		$(CC) $(C_FLAGS) $(INC) $(OPTS) ../uCANopenApp.c -o Build/uCANopenApp.o
+
 
 
 # Hardware files
@@ -154,7 +238,7 @@ Build/FreeRTOSapplication.o: ../FreeRTOSapplication.c $(DEPENDS) $(DEPENDS_FREER
 Build/kinetis.o: ../../../Hardware/Kinetis/kinetis.c $(DEPENDS) $(PERIPH_DEP) $(SPI_FLASH_DEP)
 		$(CC) $(C_FLAGS) $(INC) $(OPTS) ../../../Hardware/Kinetis/kinetis.c -o Build/kinetis.o
 
-Build/kinetis_bm.o: ../../../Hardware/Kinetis/kinetis.c $(DEPENDS) $(SPI_FLASH_DEP)
+Build/kinetis_bm.o: ../../../Hardware/Kinetis/kinetis.c $(DEPENDS) $(PERIPH_DEP) $(SPI_FLASH_DEP)
 		$(CC) $(C_FLAGS) $(INC) $(OPTS) -D _BM_BUILD ../../../Hardware/Kinetis/kinetis.c -o Build/kinetis_bm.o
 
 
@@ -172,14 +256,23 @@ Build/can_drv.o: ../../../uTasker/can_drv.c $(DEPENDS)
 Build/Driver.o: ../../../uTasker/Driver.c $(DEPENDS)
 		$(CC) $(C_FLAGS) $(INC) $(OPTS) ../../../uTasker/Driver.c -o Build/Driver.o
 
+Build/crypto.o: ../../../uTasker/crypto.c $(DEPENDS)
+		$(CC) $(C_FLAGS) $(INC) $(OPTS) ../../../uTasker/crypto.c -o Build/crypto.o
+
+Build/DSP.o: ../../../uTasker/DSP.c $(DEPENDS)
+		$(CC) $(C_FLAGS) $(INC) $(OPTS) ../../../uTasker/DSP.c -o Build/DSP.o
+
 Build/uMalloc.o: ../../../uTasker/uMalloc.c $(DEPENDS)
 		$(CC) $(C_FLAGS) $(INC) $(OPTS) ../../../uTasker/uMalloc.c -o Build/uMalloc.o
 
 Build/Tty_drv.o: ../../../uTasker/Tty_drv.c $(DEPENDS)
 		$(CC) $(C_FLAGS) $(INC) $(OPTS) ../../../uTasker/Tty_drv.c -o Build/Tty_drv.o
 
-Build/iic_drv.o: ../../../uTasker/iic_drv.c $(DEPENDS)
-		$(CC) $(C_FLAGS) $(INC) $(OPTS) ../../../uTasker/iic_drv.c -o Build/iic_drv.o
+Build/SPI_drv.o: ../../../uTasker/SPI_drv.c $(DEPENDS)
+		$(CC) $(C_FLAGS) $(INC) $(OPTS) ../../../uTasker/SPI_drv.c -o Build/SPI_drv.o
+
+Build/i2c_drv.o: ../../../uTasker/i2c_drv.c $(DEPENDS)
+		$(CC) $(C_FLAGS) $(INC) $(OPTS) ../../../uTasker/i2c_drv.c -o Build/i2c_drv.o
 
 Build/USB_drv.o: ../../../uTasker/USB_drv.c $(DEPENDS)
 		$(CC) $(C_FLAGS) $(INC) $(OPTS) ../../../uTasker/USB_drv.c -o Build/USB_drv.o
@@ -202,7 +295,7 @@ Build/low_power.o: ../../../uTasker/low_power.c $(DEPENDS)
 
 # uTasker TCP/IP files
 #
-Build/Ethernet.o: ../../../stack/Ethernet.c $(DEPENDS)
+Build/Ethernet.o: ../../../stack/Ethernet.c $(DEPENDS) ../../../stack/EthernetController/ENC424J600.h ../../../stack/WiFi/ATWINC15x0/ATWINC15.h
 		$(CC) $(C_FLAGS) $(INC) $(OPTS) ../../../stack/Ethernet.c -o Build/Ethernet.o
 
 Build/arp.o: ../../../stack/arp.c $(DEPENDS)
@@ -265,22 +358,62 @@ Build/ftp_client.o: ../../../stack/ftp_client.c $(DEPENDS)
 Build/igmp.o: ../../../stack/igmp.c $(DEPENDS)
 		$(CC) $(C_FLAGS) $(INC) $(OPTS) ../../../stack/igmp.c -o Build/igmp.o
 
+Build/ppp.o: ../../../stack/ppp.c $(DEPENDS)
+		$(CC) $(C_FLAGS) $(INC) $(OPTS) ../../../stack/ppp.c -o Build/ppp.o
+
 Build/mqtt.o: ../../../stack/mqtt.c $(DEPENDS)
 		$(CC) $(C_FLAGS) $(INC) $(OPTS) ../../../stack/mqtt.c -o Build/mqtt.o
 
+Build/secure_layer.o: ../../../stack/secure_layer.c $(DEPENDS)
+		$(CC) $(C_FLAGS) $(INC) $(OPTS) ../../../stack/secure_layer.c -o Build/secure_layer.o
 
 # uGLCDLIB files
 #
-Build/GLCD.o: ../../../uTasker/uGLCDLIB/GLCD.c $(DEPENDS) ../application.h ../../../uTasker/uGLCDLIB/glcd_fonts.h ../../../uTasker/uGLCDLIB/glcd_samsung.h ../../../uTasker/uGLCDLIB/glcd_toshiba.h ../../../uTasker/uGLCDLIB/glcd_oled.h ../../../uTasker/uGLCDLIB/glcd_cglcd.h ../../../uTasker/uGLCDLIB/glcd_st7565s.h ../../../uTasker/uGLCDLIB/glcd_tft.h
+Build/GLCD.o: ../../../uTasker/uGLCDLIB/GLCD.c $(DEPENDS) ../application.h ../../../uTasker/uGLCDLIB/glcd_fonts.h ../../../uTasker/uGLCDLIB/glcd_samsung.h ../../../uTasker/uGLCDLIB/glcd_toshiba.h ../../../uTasker/uGLCDLIB/glcd_oled.h ../../../uTasker/uGLCDLIB/glcd_cglcd.h ../../../uTasker/uGLCDLIB/glcd_st7565s.h ../../../uTasker/uGLCDLIB/glcd_tft.h ../../../uTasker/uGLCDLIB/touch.h
 		$(CC) $(C_FLAGS) $(INC) $(OPTS) ../../../uTasker/uGLCDLIB/GLCD.c -o Build/GLCD.o
 
 Build/LCD.o: ../../../uTasker/uGLCDLIB/LCD.c $(DEPENDS) ../application.h
 		$(CC) $(C_FLAGS) $(INC) $(OPTS) ../../../uTasker/uGLCDLIB/LCD.c -o Build/LCD.o
 
+Build/FT_CoPro_Cmds.o: ../../../uTasker/uGLCDLIB/FT_CoPro_Cmds.c $(DEPENDS) ../application.h
+		$(CC) $(C_FLAGS) $(INC) $(OPTS) ../../../uTasker/uGLCDLIB/FT_CoPro_Cmds.c -o Build/FT_CoPro_Cmds.o
+
 # utFAT files
 #
 Build/mass_storage.o: ../../../uTasker/utFAT/mass_storage.c $(DEPENDS) ../../../uTasker/utFAT/mass_storage.h ../../../uTasker/utFAT/NAND_driver.h
 		$(CC) $(C_FLAGS) $(INC) $(OPTS) ../../../uTasker/utFAT/mass_storage.c -o Build/mass_storage.o
+
+# CANopen
+#
+Build/CANopen.o: ../../../uTasker/uCANopen/CANopen.c $(DEPENDS) $(CANOPEN_DEPENDS)
+		$(CC) $(C_FLAGS) $(INC) $(OPTS) ../../../uTasker/uCANopen/CANopen.c -o Build/CANopen.o
+
+Build/CO_driver.o: ../../../uTasker/uCANopen/CO_driver.c $(DEPENDS) $(CANOPEN_DEPENDS)
+		$(CC) $(C_FLAGS) $(INC) $(OPTS) ../../../uTasker/uCANopen/CO_driver.c -o Build/CO_driver.o
+
+Build/CO_SDOmaster.o: ../../../uTasker/uCANopen/CO_SDOmaster.c $(DEPENDS) $(CANOPEN_DEPENDS)
+		$(CC) $(C_FLAGS) $(INC) $(OPTS) ../../../uTasker/uCANopen/CO_SDOmaster.c -o Build/CO_SDOmaster.o
+
+Build/CO_Emergency.o: ../../../uTasker/uCANopen/CO_Emergency.c $(DEPENDS) $(CANOPEN_DEPENDS)
+		$(CC) $(C_FLAGS) $(INC) $(OPTS) ../../../uTasker/uCANopen/CO_Emergency.c -o Build/CO_Emergency.o
+
+Build/CO_HBconsumer.o: ../../../uTasker/uCANopen/CO_HBconsumer.c $(DEPENDS) $(CANOPEN_DEPENDS)
+		$(CC) $(C_FLAGS) $(INC) $(OPTS) ../../../uTasker/uCANopen/CO_HBconsumer.c -o Build/CO_HBconsumer.o
+
+Build/CO_NMT_Heartbeat.o: ../../../uTasker/uCANopen/CO_NMT_Heartbeat.c $(DEPENDS) $(CANOPEN_DEPENDS)
+		$(CC) $(C_FLAGS) $(INC) $(OPTS) ../../../uTasker/uCANopen/CO_NMT_Heartbeat.c -o Build/CO_NMT_Heartbeat.o
+
+Build/CO_PDO.o: ../../../uTasker/uCANopen/CO_PDO.c $(DEPENDS) $(CANOPEN_DEPENDS)
+		$(CC) $(C_FLAGS) $(INC) $(OPTS) ../../../uTasker/uCANopen/CO_PDO.c -o Build/CO_PDO.o
+
+Build/CO_SDO.o: ../../../uTasker/uCANopen/CO_SDO.c $(DEPENDS) $(CANOPEN_DEPENDS)
+		$(CC) $(C_FLAGS) $(INC) $(OPTS) ../../../uTasker/uCANopen/CO_SDO.c -o Build/CO_SDO.o
+
+Build/CO_SYNC.o: ../../../uTasker/uCANopen/CO_SYNC.c $(DEPENDS) $(CANOPEN_DEPENDS)
+		$(CC) $(C_FLAGS) $(INC) $(OPTS) ../../../uTasker/uCANopen/CO_SYNC.c -o Build/CO_SYNC.o
+
+Build/crc16-ccitt.o: ../../../uTasker/uCANopen/crc16-ccitt.c $(DEPENDS) $(CANOPEN_DEPENDS)
+		$(CC) $(C_FLAGS) $(INC) $(OPTS) ../../../uTasker/uCANopen/crc16-ccitt.c -o Build/crc16-ccitt.o
 
 # Special packages
 ##################
@@ -291,6 +424,71 @@ Build/MODBUS.o: ../../../uTasker/MODBUS/MODBUS.c $(DEPENDS)
 
 Build/modbus_app.o: ../modbus_app.c $(DEPENDS)
 		$(CC) $(C_FLAGS) $(INC) $(OPTS) ../modbus_app.c -o Build/modbus_app.o
+
+#CRYPTO
+Build/mmcau_aes_functions.o: ../../../Hardware/Kinetis/Crypto/mmcau_aes_functions.S
+	 	$(CC) $(C_FLAGS) $(A_FLAGS) $(INC) $(OPTS) ../../../Hardware/Kinetis/Crypto/mmcau_aes_functions.S -o Build/mmcau_aes_functions.o
+
+Build/mmcau_sha256_functions.o: ../../../Hardware/Kinetis/Crypto/mmcau_sha256_functions.S
+	 	$(CC) $(C_FLAGS) $(A_FLAGS) $(INC) $(OPTS) ../../../Hardware/Kinetis/Crypto/mmcau_sha256_functions.S -o Build/mmcau_sha256_functions.o
+
+Build/w_aes.o: ../../../stack/SSL/wolfssl-3.9.6/w_aes.c $(DEPENDS) ../../../stack/SSL/wolfssl-3.9.6/aes.h
+		$(CC) $(C_FLAGS) $(INC) $(OPTS) ../../../stack/SSL/wolfssl-3.9.6/w_aes.c -o Build/w_aes.o
+
+Build/aes_mbedTLS.o: ../../../stack/SSL/mbedtls-1.3.10/aes_mbedTLS.c $(DEPENDS) ../../../stack/SSL/mbedtls-1.3.10/aes.h
+		$(CC) $(C_FLAGS) $(INC) $(OPTS) ../../../stack/SSL/mbedtls-1.3.10/aes_mbedTLS.c -o Build/aes_mbedTLS.o
+
+Build/sha256_mbedTLS.o: ../../../stack/SSL/mbedtls-1.3.10/sha256_mbedTLS.c $(DEPENDS) ../../../stack/SSL/mbedtls-1.3.10/sha256.h
+		$(CC) $(C_FLAGS) $(INC) $(OPTS) ../../../stack/SSL/mbedtls-1.3.10/sha256_mbedTLS.c -o Build/sha256_mbedTLS.o
+
+Build/aes_cbc.o: ../../../stack/SSL/openssl-1.0.2/aes_cbc.c $(DEPENDS) ../../../stack/SSL/openssl-1.0.2/aes.h
+		$(CC) $(C_FLAGS) $(INC) $(OPTS) ../../../stack/SSL/openssl-1.0.2/aes_cbc.c -o Build/aes_cbc.o
+
+Build/cbc128.o: ../../../stack/SSL/openssl-1.0.2/cbc128.c $(DEPENDS) ../../../stack/SSL/openssl-1.0.2/aes.h
+		$(CC) $(C_FLAGS) $(INC) $(OPTS) ../../../stack/SSL/openssl-1.0.2/cbc128.c -o Build/cbc128.o
+
+Build/aes_core.o: ../../../stack/SSL/openssl-1.0.2/aes_core.c $(DEPENDS) ../../../stack/SSL/openssl-1.0.2/aes.h
+		$(CC) $(C_FLAGS) $(INC) $(OPTS) ../../../stack/SSL/openssl-1.0.2/aes_core.c -o Build/aes_core.o
+
+
+#CMSIS DSP
+Build/arm_bitreversal2.o: ../../../Hardware/CMSIS_DSP/arm_bitreversal2.S make_uTaskerV1.4_GNU_Kinetis
+		$(CC) $(C_FLAGS) $(A_FLAGS) $(INC) $(OPTS) ../../../Hardware/CMSIS_DSP/arm_bitreversal2.S -o Build/arm_bitreversal2.o
+
+Build/arm_cfft_f32.o: ../../../Hardware/CMSIS_DSP/arm_cfft_f32.c $(DEPENDS_CMSIS)
+		$(CC) $(C_FLAGS) $(INC) $(OPTS) ../../../Hardware/CMSIS_DSP/arm_cfft_f32.c -o Build/arm_cfft_f32.o
+
+Build/arm_cfft_radix8_f32.o: ../../../Hardware/CMSIS_DSP/arm_cfft_radix8_f32.c $(DEPENDS_CMSIS)
+		$(CC) $(C_FLAGS) $(INC) $(OPTS) ../../../Hardware/CMSIS_DSP/arm_cfft_radix8_f32.c -o Build/arm_cfft_radix8_f32.o
+
+Build/arm_cmplx_mag_f32.o: ../../../Hardware/CMSIS_DSP/arm_cmplx_mag_f32.c $(DEPENDS_CMSIS)
+		$(CC) $(C_FLAGS) $(INC) $(OPTS) ../../../Hardware/CMSIS_DSP/arm_cmplx_mag_f32.c -o Build/arm_cmplx_mag_f32.o
+
+Build/arm_common_tables.o: ../../../Hardware/CMSIS_DSP/arm_common_tables.c $(DEPENDS_CMSIS)
+		$(CC) $(C_FLAGS) $(INC) $(OPTS) ../../../Hardware/CMSIS_DSP/arm_common_tables.c -o Build/arm_common_tables.o
+
+Build/arm_const_structs.o: ../../../Hardware/CMSIS_DSP/arm_const_structs.c $(DEPENDS_CMSIS)
+		$(CC) $(C_FLAGS) $(INC) $(OPTS) ../../../Hardware/CMSIS_DSP/arm_const_structs.c -o Build/arm_const_structs.o
+
+Build/arm_max_f32.o : ../../../Hardware/CMSIS_DSP/arm_max_f32.c $(DEPENDS_CMSIS)
+		$(CC) $(C_FLAGS) $(INC) $(OPTS) ../../../Hardware/CMSIS_DSP/arm_max_f32.c -o Build/arm_max_f32.o
+
+Build/arm_sin_cos_f32.o : ../../../Hardware/CMSIS_DSP/arm_sin_cos_f32.c $(DEPENDS_CMSIS)
+		$(CC) $(C_FLAGS) $(INC) $(OPTS) ../../../Hardware/CMSIS_DSP/arm_sin_cos_f32.c -o Build/arm_sin_cos_f32.o
+
+Build/arm_abs_f32.o : ../../../Hardware/CMSIS_DSP/arm_abs_f32.c $(DEPENDS_CMSIS)
+		$(CC) $(C_FLAGS) $(INC) $(OPTS) ../../../Hardware/CMSIS_DSP/arm_abs_f32.c -o Build/arm_abs_f32.o
+
+Build/arm_bitreversal.o : ../../../Hardware/CMSIS_DSP/arm_bitreversal.c $(DEPENDS_CMSIS)
+		$(CC) $(C_FLAGS) $(INC) $(OPTS) ../../../Hardware/CMSIS_DSP/arm_bitreversal.c -o Build/arm_bitreversal.o
+
+Build/arm_cfft_q15.o : ../../../Hardware/CMSIS_DSP/arm_cfft_q15.c $(DEPENDS_CMSIS)
+		$(CC) $(C_FLAGS) $(INC) $(OPTS) ../../../Hardware/CMSIS_DSP/arm_cfft_q15.c -o Build/arm_cfft_q15.o
+
+Build/arm_cfft_radix4_q15.o : ../../../Hardware/CMSIS_DSP/arm_cfft_radix4_q15.c $(DEPENDS_CMSIS)
+		$(CC) $(C_FLAGS) $(INC) $(OPTS) ../../../Hardware/CMSIS_DSP/arm_cfft_radix4_q15.c -o Build/arm_cfft_radix4_q15.o
+
+
 
 # Free RTOS
 Build/tasks.o : ../../../FreeRTOS/Source/tasks.c $(DEPENDS_FREERTOS)
@@ -317,16 +515,16 @@ Build/port.o : ../../../FreeRTOS/Source/portable/GCC/ARM_CM4F/port.c $(DEPENDS_F
 
 # Link
 # Create output file and show its size
-# $(LINKER) $(C_FLAGS) -I../../uTaskerV1.4 -D _GNU -D _KINETIS -g -Os -Wl,-Map=uTaskerV1.4.map -nostartfiles -TK_1M_256.ld -o uTaskerV1.4.elf $(OBJS) $(OBJS2)
-uTaskerV1.4.elf: $(OBJS) $(OBJS2) K_1M_256.ld K_1M_128.ld K_512_64.ld K_256_256.ld K_256_64.ld K_256_32.ld K_128_24.ld KL_256_32.ld KL_128_16.ld KL_64_8.ld KL_32_4.ld KV_32_8.ld KV_512_96.ld KE_64_4.ld KE_128_16.ld KE_8_1.ld KEA_128_16.ld
-	$(CC) $(C_FLAGS) -Os -g -TK_128_16.ld -nostartfiles -Xlinker --gc-sections -Wl,-Map,"uTaskerV1.4.map" -o "uTaskerV1.4.elf" $(OBJS) $(OBJS2)
+# $(LINKER) $(C_FLAGS) $(INC) -D _GNU -D _KINETIS -g -Os -Wl,-Map=uTaskerV1.4.map -nostartfiles -TK_1M_256.ld -o uTaskerV1.4.elf $(OBJS) $(OBJS2)
+uTaskerV1.4.elf: $(OBJS) $(OBJS2) $(LINKER_SCRIPT).ld
+	$(CC_LNK) $(C_FLAGS) -Os -g -T$(LINKER_SCRIPT).ld -nostartfiles -Xlinker --gc-sections -lm -Wl,-Map,"uTaskerV1.4.map" -o "uTaskerV1.4.elf" $(OBJS) $(OBJS2)
 	$(CC_OBJ) --only-section=.data --only-section=.init --only-section=.text --only-section=.rodata --only-section=.vectors --only-section=.f_config --output-target=srec uTaskerV1.4.elf uTaskerV1.4.srec
 	$(CC_OBJ) --only-section=.data --only-section=.init --only-section=.text --only-section=.rodata --only-section=.vectors --only-section=.f_config --output-target=ihex uTaskerV1.4.elf uTaskerV1.4.hex
 	$(CC_OBJ) --only-section=.data --only-section=.init --only-section=.text --only-section=.rodata --only-section=.vectors --only-section=.f_config --output-target=binary uTaskerV1.4.elf uTaskerV1.4.bin
 	$(CC_SIZE) uTaskerV1.4.elf
 
-uTaskerV1.4_BM.elf: $(OBJS) $(OBJS2_BM) K_1M_256_BM.ld K_1M_128_BM.ld K_512_64_BM.ld K_256_256_BM.ld K_256_64_BM.ld K_128_24_BM.ld K_128_16_BM.ld KL_256_32_BM.ld KL_128_16_BM.ld KL_64_8_BM.ld KL_32_4_BM.ld KV_32_8_BM.ld KV_512_96_BM.ld KE_128_16_BM.ld KE_64_4_BM.ld KEA_128_16_BM.ld
-	$(CC) $(C_FLAGS) -Os -g -TK_128_16_BM.ld -nostartfiles -Xlinker --gc-sections -Wl,-Map=uTaskerV1.4_BM.map -o uTaskerV1.4_BM.elf $(OBJS) $(OBJS2_BM)
+uTaskerV1.4_BM.elf: $(OBJS) $(OBJS2_BM) $(LINKER_SCRIPT)_BM.ld
+	$(CC_LNK) $(C_FLAGS) -Os -g -T$(LINKER_SCRIPT)_BM.ld -nostartfiles -Xlinker --gc-sections -lm -Wl,-Map=uTaskerV1.4_BM.map -o uTaskerV1.4_BM.elf $(OBJS) $(OBJS2_BM)
 	$(CC_OBJ) --only-section=.data --only-section=.init --only-section=.text --only-section=.rodata --only-section=.vectors --output-target=srec uTaskerV1.4_BM.elf uTaskerV1.4_BM.srec
 	$(CC_OBJ) --only-section=.data --only-section=.init --only-section=.text --only-section=.rodata --only-section=.vectors --output-target=ihex uTaskerV1.4_BM.elf uTaskerV1.4_BM.hex
 	$(CC_OBJ) --only-section=.data --only-section=.init --only-section=.text --only-section=.rodata --only-section=.vectors --output-target=binary uTaskerV1.4_BM.elf uTaskerV1.4_BM.bin

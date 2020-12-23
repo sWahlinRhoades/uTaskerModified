@@ -10,18 +10,19 @@
       <TargetName>uTaskerV1.4</TargetName>
       <ToolsetNumber>0x4</ToolsetNumber>
       <ToolsetName>ARM-ADS</ToolsetName>
+      <pCCUsed>5060300::V5.06 update 3 (build 300)::ARMCC</pCCUsed>
       <TargetOption>
         <TargetCommonOption>
-          <Device>MKL25Z128xxx4</Device>
-          <Vendor>Freescale</Vendor>
-          <PackID>Keil.Kinetis_KLxx_DFP.1.4.0</PackID>
+          <Device>MK66FN2M0xxx18</Device>
+          <Vendor>NXP</Vendor>
+          <PackID>Keil.Kinetis_K60_DFP.1.4.0</PackID>
           <PackURL>http://www.keil.com/pack/</PackURL>
-          <Cpu>IROM(0x00000000,0x20000) IRAM(0x1FFFF000,0x4000) CPUTYPE("Cortex-M0+") CLOCK(12000000) ELITTLE</Cpu>
+          <Cpu>IRAM(0x20000000,0x30000) IRAM2(0x1FFF0000,0x10000) IROM(0x00000000,0x200000) CPUTYPE("Cortex-M4") FPU2 CLOCK(12000000) ELITTLE</Cpu>
           <FlashUtilSpec></FlashUtilSpec>
           <StartupFile></StartupFile>
-          <FlashDriverDll>UL2CM3(-S0 -C0 -P0 -FD1FFFF000 -FC4000 -FN1 -FF0MK_P128_48MHZ -FS00 -FL020000 -FP0($$Device:MKL25Z128xxx4$Flash\MK_P128_48MHZ.FLM))</FlashDriverDll>
+          <FlashDriverDll>UL2CM3(-S0 -C0 -P0 -FD20000000 -FC1000 -FN1 -FF0MK_P2M0 -FS00 -FL0200000 -FP0($$Device:MK66FN2M0xxx18$Flash\MK_P2M0.FLM))</FlashDriverDll>
           <DeviceId>0</DeviceId>
-          <RegisterFile>$$Device:MKL25Z128xxx4$Device\Include\MKL25Z4.h</RegisterFile>
+          <RegisterFile>$$Device:MK66FN2M0xxx18$Device\Include\MK66F18.h</RegisterFile>
           <MemoryEnv></MemoryEnv>
           <Cmp></Cmp>
           <Asm></Asm>
@@ -31,7 +32,7 @@
           <SLE66CMisc></SLE66CMisc>
           <SLE66AMisc></SLE66AMisc>
           <SLE66LinkerMisc></SLE66LinkerMisc>
-          <SFDFile>$$Device:MKL25Z128xxx4$SVD\MKL25Z4.svd</SFDFile>
+          <SFDFile>$$Device:MK66FN2M0xxx18$SVD\MK66F18.svd</SFDFile>
           <bCustSvd>0</bCustSvd>
           <UseEnv>0</UseEnv>
           <BinPath></BinPath>
@@ -84,6 +85,8 @@
             <UserProg2Name></UserProg2Name>
             <UserProg1Dos16Mode>0</UserProg1Dos16Mode>
             <UserProg2Dos16Mode>0</UserProg2Dos16Mode>
+            <nStopA1X>0</nStopA1X>
+            <nStopA2X>0</nStopA2X>
           </AfterMake>
           <SelectedForBatchBuild>0</SelectedForBatchBuild>
           <SVCSIdString></SVCSIdString>
@@ -107,12 +110,12 @@
         <DllOption>
           <SimDllName>SARMCM3.DLL</SimDllName>
           <SimDllArguments> </SimDllArguments>
-          <SimDlgDll>DARMCM1.DLL</SimDlgDll>
-          <SimDlgDllArguments>-pCM0+</SimDlgDllArguments>
+          <SimDlgDll>DCM.DLL</SimDlgDll>
+          <SimDlgDllArguments>-pCM4</SimDlgDllArguments>
           <TargetDllName>SARMCM3.DLL</TargetDllName>
-          <TargetDllArguments> </TargetDllArguments>
-          <TargetDlgDll>TARMCM1.DLL</TargetDlgDll>
-          <TargetDlgDllArguments>-pCM0+</TargetDlgDllArguments>
+          <TargetDllArguments></TargetDllArguments>
+          <TargetDlgDll>TCM.DLL</TargetDlgDll>
+          <TargetDlgDllArguments>-pCM4</TargetDlgDllArguments>
         </DllOption>
         <DebugOption>
           <OPTHX>
@@ -122,47 +125,6 @@
             <HexOffset>0</HexOffset>
             <Oh166RecLen>16</Oh166RecLen>
           </OPTHX>
-          <Simulator>
-            <UseSimulator>0</UseSimulator>
-            <LoadApplicationAtStartup>1</LoadApplicationAtStartup>
-            <RunToMain>1</RunToMain>
-            <RestoreBreakpoints>1</RestoreBreakpoints>
-            <RestoreWatchpoints>1</RestoreWatchpoints>
-            <RestoreMemoryDisplay>1</RestoreMemoryDisplay>
-            <RestoreFunctions>1</RestoreFunctions>
-            <RestoreToolbox>1</RestoreToolbox>
-            <LimitSpeedToRealTime>0</LimitSpeedToRealTime>
-            <RestoreSysVw>1</RestoreSysVw>
-          </Simulator>
-          <Target>
-            <UseTarget>1</UseTarget>
-            <LoadApplicationAtStartup>1</LoadApplicationAtStartup>
-            <RunToMain>1</RunToMain>
-            <RestoreBreakpoints>1</RestoreBreakpoints>
-            <RestoreWatchpoints>1</RestoreWatchpoints>
-            <RestoreMemoryDisplay>1</RestoreMemoryDisplay>
-            <RestoreFunctions>0</RestoreFunctions>
-            <RestoreToolbox>1</RestoreToolbox>
-            <RestoreTracepoints>0</RestoreTracepoints>
-            <RestoreSysVw>1</RestoreSysVw>
-          </Target>
-          <RunDebugAfterBuild>0</RunDebugAfterBuild>
-          <TargetSelection>14</TargetSelection>
-          <SimDlls>
-            <CpuDll></CpuDll>
-            <CpuDllArguments></CpuDllArguments>
-            <PeripheralDll></PeripheralDll>
-            <PeripheralDllArguments></PeripheralDllArguments>
-            <InitializationFile></InitializationFile>
-          </SimDlls>
-          <TargetDlls>
-            <CpuDll></CpuDll>
-            <CpuDllArguments></CpuDllArguments>
-            <PeripheralDll></PeripheralDll>
-            <PeripheralDllArguments></PeripheralDllArguments>
-            <InitializationFile></InitializationFile>
-            <Driver>PEMicro\Pemicro_ArmCortexInterface.dll</Driver>
-          </TargetDlls>
         </DebugOption>
         <Utilities>
           <Flash1>
@@ -174,8 +136,8 @@
             <DriverSelection>4106</DriverSelection>
           </Flash1>
           <bUseTDR>0</bUseTDR>
-          <Flash2>PEMicro\Pemicro_ArmCortexInterface.dll</Flash2>
-          <Flash3>"" ()</Flash3>
+          <Flash2>BIN\UL2CM3.DLL</Flash2>
+          <Flash3></Flash3>
           <Flash4></Flash4>
           <pFcarmOut></pFcarmOut>
           <pFcarmGrp></pFcarmGrp>
@@ -211,7 +173,7 @@
             <AdsLsxf>1</AdsLsxf>
             <RvctClst>0</RvctClst>
             <GenPPlst>0</GenPPlst>
-            <AdsCpuType>"Cortex-M0+"</AdsCpuType>
+            <AdsCpuType>"Cortex-M4"</AdsCpuType>
             <RvctDeviceName></RvctDeviceName>
             <mOS>0</mOS>
             <uocRom>0</uocRom>
@@ -220,13 +182,14 @@
             <hadIRAM>1</hadIRAM>
             <hadXRAM>0</hadXRAM>
             <uocXRam>0</uocXRam>
-            <RvdsVP>0</RvdsVP>
-            <hadIRAM2>0</hadIRAM2>
+            <RvdsVP>2</RvdsVP>
+            <hadIRAM2>1</hadIRAM2>
             <hadIROM2>0</hadIROM2>
             <StupSel>8</StupSel>
             <useUlib>0</useUlib>
             <EndSel>0</EndSel>
             <uLtcg>0</uLtcg>
+            <nSecure>0</nSecure>
             <RoSelD>3</RoSelD>
             <RwSelD>3</RwSelD>
             <CodeSel>0</CodeSel>
@@ -279,13 +242,13 @@
               </Ocm6>
               <IRAM>
                 <Type>0</Type>
-                <StartAddress>0x1ffff000</StartAddress>
-                <Size>0x4000</Size>
+                <StartAddress>0x20000000</StartAddress>
+                <Size>0x30000</Size>
               </IRAM>
               <IROM>
                 <Type>1</Type>
                 <StartAddress>0x0</StartAddress>
-                <Size>0x20000</Size>
+                <Size>0x200000</Size>
               </IROM>
               <XRAM>
                 <Type>0</Type>
@@ -310,7 +273,7 @@
               <OCR_RVCT4>
                 <Type>1</Type>
                 <StartAddress>0x0</StartAddress>
-                <Size>0x20000</Size>
+                <Size>0x200000</Size>
               </OCR_RVCT4>
               <OCR_RVCT5>
                 <Type>1</Type>
@@ -334,13 +297,13 @@
               </OCR_RVCT8>
               <OCR_RVCT9>
                 <Type>0</Type>
-                <StartAddress>0x1ffff000</StartAddress>
-                <Size>0x4000</Size>
+                <StartAddress>0x20000000</StartAddress>
+                <Size>0x30000</Size>
               </OCR_RVCT9>
               <OCR_RVCT10>
                 <Type>0</Type>
-                <StartAddress>0x0</StartAddress>
-                <Size>0x0</Size>
+                <StartAddress>0x1fff0000</StartAddress>
+                <Size>0x10000</Size>
               </OCR_RVCT10>
             </OnChipMemories>
             <RvctStartVector></RvctStartVector>
@@ -361,6 +324,13 @@
             <uSurpInc>0</uSurpInc>
             <uC99>0</uC99>
             <useXO>0</useXO>
+            <v6Lang>1</v6Lang>
+            <v6LangP>1</v6LangP>
+            <vShortEn>1</vShortEn>
+            <vShortWch>1</vShortWch>
+            <v6Lto>0</v6Lto>
+            <v6WtE>0</v6WtE>
+            <v6Rtti>0</v6Rtti>
             <VariousControls>
               <MiscControls></MiscControls>
               <Define>_COMPILE_KEIL, _KINETIS</Define>
@@ -378,6 +348,7 @@
             <NoWarn>0</NoWarn>
             <uSurpInc>0</uSurpInc>
             <useXO>0</useXO>
+            <uClangAs>0</uClangAs>
             <VariousControls>
               <MiscControls></MiscControls>
               <Define>CORTEX_M0</Define>
@@ -395,7 +366,7 @@
             <TextAddressRange>0x00000000</TextAddressRange>
             <DataAddressRange>0x1FFF0000</DataAddressRange>
             <pXoBase></pXoBase>
-            <ScatterFile>settings/KL_128_16.sct</ScatterFile>
+            <ScatterFile>settings/K_1M_256.sct</ScatterFile>
             <IncludeLibs></IncludeLibs>
             <IncludeLibsPath></IncludeLibsPath>
             <Misc>--entry main
@@ -431,11 +402,6 @@
               <FileName>GlobalTimer.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\..\..\uTasker\GlobalTimer.c</FilePath>
-            </File>
-            <File>
-              <FileName>iic_drv.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\..\uTasker\iic_drv.c</FilePath>
             </File>
             <File>
               <FileName>low_power.c</FileName>
@@ -486,6 +452,26 @@
               <FileName>time_keeper.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\..\..\uTasker\time_keeper.c</FilePath>
+            </File>
+            <File>
+              <FileName>i2c_drv.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\uTasker\i2c_drv.c</FilePath>
+            </File>
+            <File>
+              <FileName>crypto.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\uTasker\crypto.c</FilePath>
+            </File>
+            <File>
+              <FileName>DSP.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\uTasker\DSP.c</FilePath>
+            </File>
+            <File>
+              <FileName>SPI_drv.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\uTasker\SPI_drv.c</FilePath>
             </File>
           </Files>
         </Group>
@@ -602,6 +588,16 @@
               <FileType>1</FileType>
               <FilePath>..\..\..\stack\igmp.c</FilePath>
             </File>
+            <File>
+              <FileName>mqtt.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\stack\mqtt.c</FilePath>
+            </File>
+            <File>
+              <FileName>secure_layer.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\stack\secure_layer.c</FilePath>
+            </File>
           </Files>
         </Group>
         <Group>
@@ -657,6 +653,16 @@
               <FileType>1</FileType>
               <FilePath>..\nRF24201.c</FilePath>
             </File>
+            <File>
+              <FileName>DMX512.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\DMX512.c</FilePath>
+            </File>
+            <File>
+              <FileName>uCANopenApp.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\uCANopenApp.c</FilePath>
+            </File>
           </Files>
         </Group>
         <Group>
@@ -698,11 +704,6 @@
               <FilePath>..\config.h</FilePath>
             </File>
             <File>
-              <FileName>iic_tests.h</FileName>
-              <FileType>5</FileType>
-              <FilePath>..\iic_tests.h</FilePath>
-            </File>
-            <File>
               <FileName>Port_Interrupts.h</FileName>
               <FileType>5</FileType>
               <FilePath>..\Port_Interrupts.h</FilePath>
@@ -731,6 +732,11 @@
               <FileName>tcpip.h</FileName>
               <FileType>5</FileType>
               <FilePath>..\..\..\stack\tcpip.h</FilePath>
+            </File>
+            <File>
+              <FileName>i2c_tests.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\i2c_tests.h</FilePath>
             </File>
           </Files>
         </Group>
@@ -844,6 +850,96 @@
             </File>
           </Files>
         </Group>
+        <Group>
+          <GroupName>mbedTLS</GroupName>
+          <Files>
+            <File>
+              <FileName>aes_mbedTLS.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\stack\SSL\mbedtls-1.3.10\aes_mbedTLS.c</FilePath>
+            </File>
+          </Files>
+        </Group>
+        <Group>
+          <GroupName>OpenSSL</GroupName>
+          <Files>
+            <File>
+              <FileName>aes_cbc.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\stack\SSL\openssl-1.0.2\aes_cbc.c</FilePath>
+            </File>
+            <File>
+              <FileName>aes_core.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\stack\SSL\openssl-1.0.2\aes_core.c</FilePath>
+            </File>
+            <File>
+              <FileName>cbc128.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\stack\SSL\openssl-1.0.2\cbc128.c</FilePath>
+            </File>
+          </Files>
+        </Group>
+        <Group>
+          <GroupName>wolfSSL</GroupName>
+          <Files>
+            <File>
+              <FileName>w_aes.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\stack\SSL\wolfssl-3.9.6\w_aes.c</FilePath>
+            </File>
+          </Files>
+        </Group>
+        <Group>
+          <GroupName>uCANopen</GroupName>
+          <Files>
+            <File>
+              <FileName>CANopen.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\uTasker\uCANopen\CANopen.c</FilePath>
+            </File>
+            <File>
+              <FileName>CO_driver.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\uTasker\uCANopen\CO_driver.c</FilePath>
+            </File>
+            <File>
+              <FileName>CO_Emergency.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\uTasker\uCANopen\CO_Emergency.c</FilePath>
+            </File>
+            <File>
+              <FileName>CO_HBconsumer.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\uTasker\uCANopen\CO_HBconsumer.c</FilePath>
+            </File>
+            <File>
+              <FileName>CO_NMT_Heartbeat.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\uTasker\uCANopen\CO_NMT_Heartbeat.c</FilePath>
+            </File>
+            <File>
+              <FileName>CO_PDO.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\uTasker\uCANopen\CO_PDO.c</FilePath>
+            </File>
+            <File>
+              <FileName>CO_SDO.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\uTasker\uCANopen\CO_SDO.c</FilePath>
+            </File>
+            <File>
+              <FileName>CO_SYNC.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\uTasker\uCANopen\CO_SYNC.c</FilePath>
+            </File>
+            <File>
+              <FileName>crc16-ccitt.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\uTasker\uCANopen\crc16-ccitt.c</FilePath>
+            </File>
+          </Files>
+        </Group>
       </Groups>
     </Target>
     <Target>
@@ -854,7 +950,7 @@
         <TargetCommonOption>
           <Device>MKL25Z128xxx4</Device>
           <Vendor>Freescale</Vendor>
-          <PackID>Keil.Kinetis_KLxx_DFP.1.4.0</PackID>
+          <PackID>Keil.Kinetis_KLxx_DFP.1.12.0</PackID>
           <PackURL>http://www.keil.com/pack/</PackURL>
           <Cpu>IROM(0x00000000,0x20000) IRAM(0x1FFFF000,0x4000) CPUTYPE("Cortex-M0+") CLOCK(12000000) ELITTLE</Cpu>
           <FlashUtilSpec></FlashUtilSpec>
@@ -924,6 +1020,8 @@
             <UserProg2Name></UserProg2Name>
             <UserProg1Dos16Mode>0</UserProg1Dos16Mode>
             <UserProg2Dos16Mode>0</UserProg2Dos16Mode>
+            <nStopA1X>0</nStopA1X>
+            <nStopA2X>0</nStopA2X>
           </AfterMake>
           <SelectedForBatchBuild>0</SelectedForBatchBuild>
           <SVCSIdString></SVCSIdString>
@@ -962,47 +1060,6 @@
             <HexOffset>0</HexOffset>
             <Oh166RecLen>16</Oh166RecLen>
           </OPTHX>
-          <Simulator>
-            <UseSimulator>0</UseSimulator>
-            <LoadApplicationAtStartup>1</LoadApplicationAtStartup>
-            <RunToMain>1</RunToMain>
-            <RestoreBreakpoints>1</RestoreBreakpoints>
-            <RestoreWatchpoints>1</RestoreWatchpoints>
-            <RestoreMemoryDisplay>1</RestoreMemoryDisplay>
-            <RestoreFunctions>1</RestoreFunctions>
-            <RestoreToolbox>1</RestoreToolbox>
-            <LimitSpeedToRealTime>0</LimitSpeedToRealTime>
-            <RestoreSysVw>1</RestoreSysVw>
-          </Simulator>
-          <Target>
-            <UseTarget>1</UseTarget>
-            <LoadApplicationAtStartup>1</LoadApplicationAtStartup>
-            <RunToMain>1</RunToMain>
-            <RestoreBreakpoints>1</RestoreBreakpoints>
-            <RestoreWatchpoints>1</RestoreWatchpoints>
-            <RestoreMemoryDisplay>1</RestoreMemoryDisplay>
-            <RestoreFunctions>0</RestoreFunctions>
-            <RestoreToolbox>1</RestoreToolbox>
-            <RestoreTracepoints>0</RestoreTracepoints>
-            <RestoreSysVw>1</RestoreSysVw>
-          </Target>
-          <RunDebugAfterBuild>0</RunDebugAfterBuild>
-          <TargetSelection>1</TargetSelection>
-          <SimDlls>
-            <CpuDll></CpuDll>
-            <CpuDllArguments></CpuDllArguments>
-            <PeripheralDll></PeripheralDll>
-            <PeripheralDllArguments></PeripheralDllArguments>
-            <InitializationFile></InitializationFile>
-          </SimDlls>
-          <TargetDlls>
-            <CpuDll></CpuDll>
-            <CpuDllArguments></CpuDllArguments>
-            <PeripheralDll></PeripheralDll>
-            <PeripheralDllArguments></PeripheralDllArguments>
-            <InitializationFile></InitializationFile>
-            <Driver>BIN\UL2CM3.DLL</Driver>
-          </TargetDlls>
         </DebugOption>
         <Utilities>
           <Flash1>
@@ -1067,6 +1124,7 @@
             <useUlib>0</useUlib>
             <EndSel>0</EndSel>
             <uLtcg>0</uLtcg>
+            <nSecure>0</nSecure>
             <RoSelD>3</RoSelD>
             <RwSelD>3</RwSelD>
             <CodeSel>0</CodeSel>
@@ -1201,6 +1259,13 @@
             <uSurpInc>0</uSurpInc>
             <uC99>0</uC99>
             <useXO>0</useXO>
+            <v6Lang>1</v6Lang>
+            <v6LangP>1</v6LangP>
+            <vShortEn>1</vShortEn>
+            <vShortWch>1</vShortWch>
+            <v6Lto>0</v6Lto>
+            <v6WtE>0</v6WtE>
+            <v6Rtti>0</v6Rtti>
             <VariousControls>
               <MiscControls></MiscControls>
               <Define>_COMPILE_KEIL, _KINETIS</Define>
@@ -1218,6 +1283,7 @@
             <NoWarn>0</NoWarn>
             <uSurpInc>0</uSurpInc>
             <useXO>0</useXO>
+            <uClangAs>0</uClangAs>
             <VariousControls>
               <MiscControls></MiscControls>
               <Define>CORTEX_M0</Define>
@@ -1273,11 +1339,6 @@
               <FilePath>..\..\..\uTasker\GlobalTimer.c</FilePath>
             </File>
             <File>
-              <FileName>iic_drv.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\..\..\uTasker\iic_drv.c</FilePath>
-            </File>
-            <File>
               <FileName>low_power.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\..\..\uTasker\low_power.c</FilePath>
@@ -1326,6 +1387,26 @@
               <FileName>time_keeper.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\..\..\uTasker\time_keeper.c</FilePath>
+            </File>
+            <File>
+              <FileName>i2c_drv.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\uTasker\i2c_drv.c</FilePath>
+            </File>
+            <File>
+              <FileName>crypto.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\uTasker\crypto.c</FilePath>
+            </File>
+            <File>
+              <FileName>DSP.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\uTasker\DSP.c</FilePath>
+            </File>
+            <File>
+              <FileName>SPI_drv.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\uTasker\SPI_drv.c</FilePath>
             </File>
           </Files>
         </Group>
@@ -1442,6 +1523,16 @@
               <FileType>1</FileType>
               <FilePath>..\..\..\stack\igmp.c</FilePath>
             </File>
+            <File>
+              <FileName>mqtt.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\stack\mqtt.c</FilePath>
+            </File>
+            <File>
+              <FileName>secure_layer.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\stack\secure_layer.c</FilePath>
+            </File>
           </Files>
         </Group>
         <Group>
@@ -1497,6 +1588,16 @@
               <FileType>1</FileType>
               <FilePath>..\nRF24201.c</FilePath>
             </File>
+            <File>
+              <FileName>DMX512.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\DMX512.c</FilePath>
+            </File>
+            <File>
+              <FileName>uCANopenApp.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\uCANopenApp.c</FilePath>
+            </File>
           </Files>
         </Group>
         <Group>
@@ -1538,11 +1639,6 @@
               <FilePath>..\config.h</FilePath>
             </File>
             <File>
-              <FileName>iic_tests.h</FileName>
-              <FileType>5</FileType>
-              <FilePath>..\iic_tests.h</FilePath>
-            </File>
-            <File>
               <FileName>Port_Interrupts.h</FileName>
               <FileType>5</FileType>
               <FilePath>..\Port_Interrupts.h</FilePath>
@@ -1571,6 +1667,11 @@
               <FileName>tcpip.h</FileName>
               <FileType>5</FileType>
               <FilePath>..\..\..\stack\tcpip.h</FilePath>
+            </File>
+            <File>
+              <FileName>i2c_tests.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\i2c_tests.h</FilePath>
             </File>
           </Files>
         </Group>
@@ -1681,6 +1782,96 @@
               <FileName>LCD.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\..\..\uTasker\uGLCDLIB\LCD.c</FilePath>
+            </File>
+          </Files>
+        </Group>
+        <Group>
+          <GroupName>mbedTLS</GroupName>
+          <Files>
+            <File>
+              <FileName>aes_mbedTLS.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\stack\SSL\mbedtls-1.3.10\aes_mbedTLS.c</FilePath>
+            </File>
+          </Files>
+        </Group>
+        <Group>
+          <GroupName>OpenSSL</GroupName>
+          <Files>
+            <File>
+              <FileName>aes_cbc.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\stack\SSL\openssl-1.0.2\aes_cbc.c</FilePath>
+            </File>
+            <File>
+              <FileName>aes_core.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\stack\SSL\openssl-1.0.2\aes_core.c</FilePath>
+            </File>
+            <File>
+              <FileName>cbc128.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\stack\SSL\openssl-1.0.2\cbc128.c</FilePath>
+            </File>
+          </Files>
+        </Group>
+        <Group>
+          <GroupName>wolfSSL</GroupName>
+          <Files>
+            <File>
+              <FileName>w_aes.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\stack\SSL\wolfssl-3.9.6\w_aes.c</FilePath>
+            </File>
+          </Files>
+        </Group>
+        <Group>
+          <GroupName>uCANopen</GroupName>
+          <Files>
+            <File>
+              <FileName>CANopen.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\uTasker\uCANopen\CANopen.c</FilePath>
+            </File>
+            <File>
+              <FileName>CO_driver.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\uTasker\uCANopen\CO_driver.c</FilePath>
+            </File>
+            <File>
+              <FileName>CO_Emergency.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\uTasker\uCANopen\CO_Emergency.c</FilePath>
+            </File>
+            <File>
+              <FileName>CO_HBconsumer.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\uTasker\uCANopen\CO_HBconsumer.c</FilePath>
+            </File>
+            <File>
+              <FileName>CO_NMT_Heartbeat.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\uTasker\uCANopen\CO_NMT_Heartbeat.c</FilePath>
+            </File>
+            <File>
+              <FileName>CO_PDO.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\uTasker\uCANopen\CO_PDO.c</FilePath>
+            </File>
+            <File>
+              <FileName>CO_SDO.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\uTasker\uCANopen\CO_SDO.c</FilePath>
+            </File>
+            <File>
+              <FileName>CO_SYNC.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\uTasker\uCANopen\CO_SYNC.c</FilePath>
+            </File>
+            <File>
+              <FileName>crc16-ccitt.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\..\uTasker\uCANopen\crc16-ccitt.c</FilePath>
             </File>
           </Files>
         </Group>

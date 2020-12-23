@@ -11,7 +11,7 @@
     File:      Ethereal.cpp
     Project:   Single Chip Embedded Internet
     ---------------------------------------------------------------------
-    Copyright (C) M.J.Butcher Consulting 2004..2016
+    Copyright (C) M.J.Butcher Consulting 2004..2018
     *********************************************************************
     08.01.2008 Content made conditional on Ethernet availability
     15.02.2009 Moved check of file open to before attempted read         {1}
@@ -20,7 +20,7 @@
 
 #include "config.h"
 
-#ifdef ETH_INTERFACE
+#if defined ETH_INTERFACE
 #include "WinSim.h"
 #include "Fcntl.h"
 #include "io.h"
@@ -114,8 +114,8 @@ static int fnDoEtherealSim(CHAR *szEthernetFileName)
         _read(iFileEth, ucData, 24);                                     // the first 24 are header
 	}
 
-	while (1) {
-        if (!ulDelayed) {		                                         // get frame number  
+	while ((int)1 != (int)0) {
+        if (ulDelayed == 0) {		                                     // get frame number  
 			if (_read(iFileEth, ucNewTime, 8) <= 0) break;               // time
 			if (_read(iFileEth, ucData, 4) <= 0) break;                  // packet length
 			ulLen = (ucData[0] + (ucData[1] << 8) + (ucData[2] << 16) + (ucData[3] << 24));

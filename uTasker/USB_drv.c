@@ -11,7 +11,7 @@
     File:      USB_drv.c
     Project:   Single Chip Embedded Internet
     ---------------------------------------------------------------------
-    Copyright (C) M.J.Butcher Consulting 2004..2018
+    Copyright (C) M.J.Butcher Consulting 2004..2020
     *********************************************************************
     06.10.2008 Adjust USB read/writes to support FIFO operation          {1}
     17.10.2008 Add control endpoint direction control and setup clear    {2}
@@ -49,6 +49,13 @@
     13.04.2016 Change parameter of fnGetUSB_string_entry() to unsigned char {33}
     12.04.2017 In host mode reset previous string reception length counter when reception completes with a zero length frame {34}
     12.04.2017 Use USB_DEVICE_TIMEOUT in host mode to repeat a get descriptor request {35}
+    24.07.2019 Host string request descriptor made static so that it remains stable when used directly by USB buffer descriptors {36}
+    13.08.2019 Add USB_HOST_CALLBACK_SETUP_ACK option (used by RNDIS host mode) {37}
+    31.03.2020 Add multiple-USB controller support
+    06.06.2020 Add fnDisplayEndpoint()
+    12.06.2020 Add host option to filter device interfaces to be supported {38}
+    30.06.2020 Add fnShowEndpoint
+    31.07.2020 Add option to send custom TX_FREE interrupt event         {39}
 
 */
 
@@ -70,6 +77,14 @@ static void fnError(int iErrorNumber)
 }
 #endif
 
+#if !defined USBS_AVAILABLE
+    #if (defined USB_HS_INTERFACE && defined USB_FS_INTERFACE)           // kinetis parts with FS and HS, and both in use
+        #define USBS_AVAILABLE     2
+    #else
+        #define USBS_AVAILABLE     1
+    #endif
+#endif
+
 /* =================================================================== */
 /*                          local definitions                          */
 /* =================================================================== */
@@ -78,14 +93,15 @@ static void fnError(int iErrorNumber)
     #define USB_DRV_MALLOC(x)      uMalloc((MAX_MALLOC)(x))
 #endif
 
+
 #define DIRECTION_OUT() ((ucFirstByte & STANDARD_DEVICE_TO_HOST) == 0)
 #define DIRECTION_IN()  ((ucFirstByte & STANDARD_DEVICE_TO_HOST) != 0)
 
 #if defined USB_FIFO && !defined _WINDOWS                                // {1}
-    #define GET_USB_DATA()         (unsigned char)(*(volatile unsigned char *)ptrData)
+    #define GET_USB_DATA()         (unsigned char)(*(volatile unsigned char *)ptrData) // get from a fifo
     #define GET_USB_DATA_NO_INC()  (unsigned char)(*(volatile unsigned char *)ptrData)
 #else
-    #define GET_USB_DATA()         *ptrData++
+    #define GET_USB_DATA()         *ptrData++                            // get from a linear buffer
     #define GET_USB_DATA_NO_INC()  *ptrData
 #endif
 
@@ -120,6 +136,10 @@ static void fnError(int iErrorNumber)
     #define HOST_ENUMERATION_CONFIGURED_ACK                  12
     #define HOST_ENUMERATION_CONFIGURED_IDLE                 13
 
+    #if !defined MAX_CONFIGURATION_DESCRIPTOR_LENGTH
+        #define MAX_CONFIGURATION_DESCRIPTOR_LENGTH     255
+    #endif
+
 
     #define SUCCESSFUL_TERMINATION   0                                   // host state-event-machine events
     #define ZERO_DATA_TERMINATOR     1
@@ -150,34 +170,35 @@ static void fnError(int iErrorNumber)
 /* =================================================================== */
 /*                             constants                               */
 /* =================================================================== */
-
-static const unsigned short usInterfaceStatus = 0x0000;                  // the interface status is presently reserved in the USB specification so a fixed value of zeros can be used
-static const unsigned short usEndpointStalled = LITTLE_SHORT_WORD(ENDPOINT_STATUS_STALLED);
-#define usEndpointOK usInterfaceStatus                                   // use the same zero status
+#if defined USB_DEVICE_SUPPORT
+    static const unsigned short usInterfaceStatus = 0x0000;              // the interface status is presently reserved in the USB specification so a fixed value of zeros can be used
+    static const unsigned short usEndpointStalled = LITTLE_SHORT_WORD(ENDPOINT_STATUS_STALLED);
+    #define usEndpointOK usInterfaceStatus                               // use the same zero status
+#endif
 
 
 /* =================================================================== */
 /*                      local variable definitions                     */
 /* =================================================================== */
 
-static USB_ENDPOINT  *usb_endpoint_control = 0;                          // pointer to a list of endpoint control structures
-static unsigned char  ucActiveConfiguration = 0;                         // present active configuration
+static USB_ENDPOINT  *usb_endpoint_control[USBS_AVAILABLE] = {0};        // pointer to a list of endpoint control structures
+static unsigned char  ucActiveConfiguration[USBS_AVAILABLE] = {0};       // present active configuration
 //static unsigned char  usEndPoints = 0;                                 // {8} the number of endpoints configured
 #if defined USB_DEVICE_SUPPORT
-    static unsigned short usDeviceStatus = 0;                            // state of device (SELF_POWERED_BIT, REMOTE_WAKEUP_BIT)
-    static USB_SETUP_HEADER *prtUSBcontrolSetup = 0;                     // {30}
+    static unsigned short usDeviceStatus[USBS_AVAILABLE] = {0};          // state of device (SELF_POWERED_BIT, REMOTE_WAKEUP_BIT)
+    static USB_SETUP_HEADER *prtUSBcontrolSetup[USBS_AVAILABLE] = {0};   // {30}
 #endif
 #if defined USB_HOST_SUPPORT                                             // {29}
-    static USB_DEVICE_DESCRIPTOR device_descriptor = {0};                // device descriptor of connected device
-    static unsigned char ucRequestType = HOST_ENUMERATION_IDLE;
-    static unsigned char ucRequestingReceived = 0;
-    static unsigned char ucRequestLengthRemaining = 0;
-    static unsigned char ucStalledEndpoint = 0;
-    static unsigned char config_descriptor[255] = {0};
-    static unsigned char ucConfigDescriptorLength = 0;
+    static unsigned short usRequestingReceived[USBS_AVAILABLE] = {0};
+    static unsigned short usRequestLengthRemaining[USBS_AVAILABLE] = {0};
+    static unsigned short usConfigDescriptorLength[USBS_AVAILABLE] = {0};
+    static USB_DEVICE_DESCRIPTOR device_descriptor[USBS_AVAILABLE] = {{0}}; // device descriptor of connected device
+    static unsigned char ucRequestType[USBS_AVAILABLE] = {HOST_ENUMERATION_IDLE};
+    static unsigned char ucStalledEndpoint[USBS_AVAILABLE] = {0};
+    static unsigned char config_descriptor[USBS_AVAILABLE][MAX_CONFIGURATION_DESCRIPTOR_LENGTH] = {0};
     #if defined USB_STRING_OPTION
-        static unsigned char ucStringList[USB_MAX_STRINGS + 1][(USB_MAX_STRING_LENGTH + 1) * 2] = {{0}}; // unicode string space (first is language ID)
-        static int iStringReference = 0;
+        static unsigned char ucStringList[USB_MAX_STRINGS + 1][(USB_MAX_STRING_LENGTH + 1) * 2] = {{0}}; // uni-code string space (first is language ID)
+        static int iStringReference[USBS_AVAILABLE] = {0};
     #endif
 #endif
 
@@ -191,20 +212,19 @@ static unsigned char  ucActiveConfiguration = 0;                         // pres
     static QUEUE_TRANSFER fnPrepareOutData(unsigned char *ptrData, unsigned short usLength, unsigned short ucMaxLength, int iEndpoint, USB_HW *ptrUSB_HW);
 #endif
 #if defined USB_DEVICE_SUPPORT                                           // {29}
-    static void *fnSetUSBInterfaceState(int iCommand, unsigned char ucInterface, unsigned char ucAlternativeInterface);
+    static void *fnSetUSBInterfaceState(int iCommand, unsigned char ucInterface, unsigned char ucAlternativeInterface, int iChannel);
           #define USB_INTERFACE_DEACTIVATE 0
           #define USB_INTERFACE_ACTIVATE   1
           #define USB_INTERFACE_ALTERNATE  2
 #endif
 
 #if defined USB_HOST_SUPPORT                                             // {29}
-    static int fnHostEmumeration(int iEndpoint, int iEvent, USB_HW *ptrUSB_HW);
+    static int fnHostEnumeration(int iEndpoint, int iEvent, USB_HW *ptrUSB_HW);
 #endif
 
 /* =================================================================== */
 /*                      global function definitions                    */
 /* =================================================================== */
-
 
 
 // Standard entry call to driver - dispatches required sub-routine
@@ -220,11 +240,22 @@ extern QUEUE_TRANSFER entry_usb(QUEUE_HANDLE channel, unsigned char *ptBuffer, Q
     case CALL_DRIVER:                                                    // request changes and return status
         if ((TX_ON & Counter) != 0) {                                    // enable a configuration
 #if defined USB_HOST_SUPPORT
-            ucActiveConfiguration = (unsigned char)(CAST_POINTER_ARITHMETIC)ptBuffer; // set the configuration number that will be activated
-            if (fnHostEmumeration(0, HOST_APPLICATION_ON, 0) == USB_HOST_ERROR) {
-                ucActiveConfiguration = 0;
+            USB_HW temp_usb_hardware;
+            USB_HW *ptr_usb_hardware = &temp_usb_hardware;
+            fnGetUSB_HW(channel, &ptr_usb_hardware);                     // get a pointer to the hardware details
+    #if defined USB_DEVICE_SUPPORT
+            if ((ptr_usb_hardware->ucModeType & USB_HOST_MODE) != 0) {
+    #endif
+                ucActiveConfiguration[UBS_HANDLE_TO_CHANNEL(channel)] = (unsigned char)(CAST_POINTER_ARITHMETIC)ptBuffer; // set the configuration number that will be activated
+                if (fnHostEnumeration(0, HOST_APPLICATION_ON, ptr_usb_hardware) == USB_HOST_ERROR) {
+                    ucActiveConfiguration[UBS_HANDLE_TO_CHANNEL(channel)] = 0;
+                }
+    #if defined USB_DEVICE_SUPPORT
+                break;
             }
-#else
+    #endif
+#endif
+#if defined USB_DEVICE_SUPPORT
             ptrUsbQueue = (USBQUE *)que_ids[DriverID].output_buffer_control; // set to output control block
             // Enable continuous isochronous transmission
             //
@@ -238,9 +269,20 @@ extern QUEUE_TRANSFER entry_usb(QUEUE_HANDLE channel, unsigned char *ptBuffer, Q
         }
         else if ((TX_OFF & Counter) != 0) {                              // disable a configuration
 #if defined USB_HOST_SUPPORT
-            ucActiveConfiguration = 0;
-            fnHostEmumeration(0, HOST_APPLICATION_OFF, 0);
-#else
+            USB_HW temp_usb_hardware;
+            USB_HW *ptr_usb_hardware = &temp_usb_hardware;
+            fnGetUSB_HW(channel, &ptr_usb_hardware);                     // get a pointer to the hardware details
+    #if defined USB_DEVICE_SUPPORT
+            if ((ptr_usb_hardware->ucModeType & USB_HOST_MODE) != 0) {
+    #endif
+                ucActiveConfiguration[UBS_HANDLE_TO_CHANNEL(channel)] = 0;
+                fnHostEnumeration(0, HOST_APPLICATION_OFF, 0);
+    #if defined USB_DEVICE_SUPPORT
+                break;
+            }
+    #endif
+#endif
+#if defined USB_DEVICE_SUPPORT
             // Disable continuous isochronous transmission
             //
             ptrUsbQueue = (USBQUE *)que_ids[DriverID].output_buffer_control; // set to output control block
@@ -275,6 +317,9 @@ extern QUEUE_TRANSFER entry_usb(QUEUE_HANDLE channel, unsigned char *ptBuffer, Q
 #else
                 ptrUsbQueue->endpoint_control->event_task = (UTASK_TASK)((CAST_POINTER_ARITHMETIC)ptBuffer & 0x7f);
 #endif
+#if defined CUSTOM_USB_TX_FREE
+                ptrUsbQueue->endpoint_control->ucCustomTxFree_event = (unsigned char)(((CAST_POINTER_ARITHMETIC)ptBuffer >> 8) & 0xf);
+#endif
             }
         }
         rtn_val = ptrUsbQueue->endpoint_control->ucState;                // return the present state
@@ -294,11 +339,20 @@ extern QUEUE_TRANSFER entry_usb(QUEUE_HANDLE channel, unsigned char *ptBuffer, Q
             if (fnGetUSB_HW(channel, &ptr_usb_hardware) == ENDPOINT_FREE) { // if hardware is ready and buffers not full (the routine fills out needed hardware information)
                 unsigned short usMaxLength = Counter;
 #if defined USB_DEVICE_SUPPORT
-                if ((channel == 0) && (prtUSBcontrolSetup != 0)) {       // {30} if device control endpoint 0 is sending setup IN data
-                    usMaxLength = (prtUSBcontrolSetup->wLength[0] | (prtUSBcontrolSetup->wLength[1] << 8)); // pass the limit so that zero termination can be handled appropriately
+    #if defined USB_HOST_SUPPORT
+                if ((ptr_usb_hardware->ucModeType & USB_HOST_MODE) == 0) {
+    #endif
+                    if ((UBS_HANDLE_TO_ENDPOINT(channel) == 0) && (prtUSBcontrolSetup[UBS_HANDLE_TO_CHANNEL(channel)] != 0)) { // {30} if device control endpoint 0 is sending setup IN data
+                        usMaxLength = (prtUSBcontrolSetup[UBS_HANDLE_TO_CHANNEL(channel)]->wLength[0] | (prtUSBcontrolSetup[UBS_HANDLE_TO_CHANNEL(channel)]->wLength[1] << 8)); // pass the limit so that zero termination can be handled appropriately
+                    }
+    #if defined USB_HOST_SUPPORT
                 }
+    #endif
 #endif
-                rtn_val = fnPrepareOutData(DEVICE_DATA_HOST_SETUP ptBuffer, Counter, usMaxLength, channel, ptr_usb_hardware);
+                rtn_val = fnPrepareOutData(DEVICE_DATA_HOST_SETUP ptBuffer, Counter, usMaxLength, UBS_HANDLE_TO_ENDPOINT(channel), ptr_usb_hardware);
+            }
+            else {
+                fnDebugMsg("Not Free!\r\n");
             }
             break;
         }
@@ -322,6 +376,11 @@ extern QUEUE_TRANSFER entry_usb(QUEUE_HANDLE channel, unsigned char *ptBuffer, Q
 #endif
                 if ((ptrUsbQueue->USB_queue.buf_length - ptrUsbQueue->USB_queue.chars) >= Counter) {
                     rtn_val = (ptrUsbQueue->USB_queue.buf_length - ptrUsbQueue->USB_queue.chars); // the remaining space
+#if defined HS_USB_AVAILABLE
+                    if ((ptrUsbQueue->endpoint_control->usParameters & USB_ENDPOINT_ZERO_COPY_ISO_IN) != 0) {
+                        fnStartUSB_send(channel, ptrUsbQueue, Counter);  // start sending alternating half-buffer message content
+                    }
+#endif
                 }
 #if defined USB_TX_MESSAGE_MODE
             }
@@ -417,7 +476,7 @@ extern QUEUE_TRANSFER fnStartUSB_send(QUEUE_HANDLE channel, USBQUE *ptrUsbQueue,
 {
 #if defined USB_DMA_TX && defined USB_RAM_START
     ptrUsbQueue->endpoint_control->ucState |= TX_ACTIVE;                 // mark that the transmitter is active
-    (usb_endpoint_control + channel)->usCompleteMessage = (usb_endpoint_control + channel)->usSent = txLength = fnPrepareUSBOutData(ptrUsbQueue, txLength, channel, ptr_usb_hardware);
+    (usb_endpoint_control[0] + channel)->usCompleteMessage = (usb_endpoint_control[0] + channel)->usSent = txLength = fnPrepareUSBOutData(ptrUsbQueue, txLength, channel, ptr_usb_hardware);
     return txLength;
 #else
     USB_HW temp_usb_hardware;                                            // temporary copy of the present hardware information
@@ -437,8 +496,8 @@ extern QUEUE_TRANSFER fnStartUSB_send(QUEUE_HANDLE channel, USBQUE *ptrUsbQueue,
             }
     #if defined USB_TX_MESSAGE_MODE
         }
-     #endif
-        return (fnPrepareOutData(DEVICE_HOST_DATA ptrUsbQueue->USB_queue.get, usLength, usLength, channel, ptr_usb_hardware));
+    #endif
+        return (fnPrepareOutData(DEVICE_HOST_DATA ptrUsbQueue->USB_queue.get, usLength, usLength, UBS_HANDLE_TO_ENDPOINT(channel), ptr_usb_hardware));
     }
     else {                                                               // the transmitter is not busy but it was not possible to send the data
         return (0);                                                      // signal that there was a problem that may need to be handled
@@ -450,15 +509,29 @@ extern QUEUE_TRANSFER fnStartUSB_send(QUEUE_HANDLE channel, USBQUE *ptrUsbQueue,
 //
 extern QUEUE_HANDLE fnOpenUSB(USBTABLE *pars, unsigned char driver_mode)
 {
+    register int iController = 0;
     QUEUE_HANDLE DriverID;
     QUEUE_TRANSFER (*entry_add)(QUEUE_HANDLE channel, unsigned char *ptBuffer, QUEUE_TRANSFER Counter, unsigned char ucCallType, QUEUE_HANDLE DriverID) = entry_usb;
-    USB_ENDPOINT *usb_endpoint_queue = usb_endpoint_control;
+    USB_ENDPOINT *usb_endpoint_queue;
     #if defined USB_HOST_SUPPORT && defined USB_DEVICE_SUPPORT
-    if ((DriverID = fnSearchID(entry_add, pars->Endpoint)) == NO_ID_ALLOCATED) {
-        DriverID = fnAllocateQueue(&pars->queue_sizes, pars->Endpoint, entry_add, sizeof(USBQUE)); // allocate queue and buffers
+        #if (defined USB_HS_INTERFACE && defined USB_FS_INTERFACE) || (defined _iMX && (HSUSB_CONTROLLERS > 1))
+    unsigned char ucControllerEndpoint;
+    iController = pars->ucUSB_controller;
+    ucControllerEndpoint = USB_CONTROLLER_ENDPOINT(pars->Endpoint, iController);
+    usb_endpoint_queue = usb_endpoint_control[iController];
+        #else
+    unsigned char ucControllerEndpoint = pars->Endpoint;
+    usb_endpoint_queue = usb_endpoint_control[iController];
+        #endif
+    if ((DriverID = fnSearchID(entry_add, ucControllerEndpoint)) == NO_ID_ALLOCATED) {
+        DriverID = fnAllocateQueue(&pars->queue_sizes, ucControllerEndpoint, entry_add, sizeof(USBQUE)); // allocate queue and buffers
     }
-    #else
-    DriverID = fnAllocateQueue(&pars->queue_sizes, pars->Endpoint, entry_add, sizeof(USBQUE)); // allocate queue and buffers
+    #else                                                                // either only device or only host mode used
+        #if (defined USB_HS_INTERFACE && defined USB_FS_INTERFACE) || (defined _iMX && (HSUSB_CONTROLLERS > 1))
+    iController = pars->ucUSB_controller;                                // the controller interface to be used
+        #endif
+    usb_endpoint_queue = usb_endpoint_control[iController];
+    DriverID = fnAllocateQueue(&pars->queue_sizes, USB_CONTROLLER_ENDPOINT(pars->Endpoint, iController), entry_add, sizeof(USBQUE)); // allocate queue and buffers
     #endif
     if (pars->Endpoint != 0) {                                           // endpoint 0, used for general configuration
         usb_endpoint_queue += pars->Endpoint;
@@ -472,6 +545,16 @@ extern QUEUE_HANDLE fnOpenUSB(USBTABLE *pars, unsigned char driver_mode)
         if ((pars->usConfig & USB_IN_ZERO_COPY) != 0) {                  // {31}
             usb_endpoint_queue->usParameters |= USB_ENDPOINT_ZERO_COPY_IN; // set endpoint's mode parameter
         }
+    #if defined USB_HOST_SUPPORT
+        if ((pars->usConfig & USB_IN_AUTO_POLL) != 0) {                  // {40}
+            usb_endpoint_queue->usParameters |= USB_ENDPOINT_AUTO_IN;    // set endpoint's mode parameter
+        }
+    #endif
+    #if defined HS_USB_AVAILABLE
+        if ((pars->usConfig & USB_IN_ZERO_COPY_ISO) != 0) {
+            usb_endpoint_queue->usParameters |= USB_ENDPOINT_ZERO_COPY_ISO_IN;
+        }
+    #endif
     #if defined USB_TX_MESSAGE_MODE
         if ((pars->usConfig & USB_IN_MESSAGE_MODE) != 0) {               // {32}
             unsigned char ucQuantity = (unsigned char)((pars->usConfig & USB_IN_FIFO_MASK) >> USB_IN_FIFO_SHIFT);
@@ -485,12 +568,14 @@ extern QUEUE_HANDLE fnOpenUSB(USBTABLE *pars, unsigned char driver_mode)
     #endif
     }
     else {                                                               // default control endpoint
-      //fnConfigUSB(0, pars);                                            // configure hardware for control end point
-      //usEndPoints = (pars->ucEndPoints + 1);                           // {8}
-        usb_endpoint_control = usb_endpoint_queue = USB_DRV_MALLOC(((pars->ucEndPoints + 1) * sizeof(USB_ENDPOINT))); // {8} create the control queue for all end points
+        usb_endpoint_control[iController] = usb_endpoint_queue = USB_DRV_MALLOC(((pars->ucEndPoints + 1) * sizeof(USB_ENDPOINT))); // {8} create the control queue for all end points
         usb_endpoint_queue->usMax_frame_length = ENDPOINT_0_SIZE;        // enter end point 0 limit
         usb_endpoint_queue->event_task = pars->owner_task;               // the task notified of USB state changes
+    #if (defined USB_HS_INTERFACE && defined USB_FS_INTERFACE) || (defined _iMX && (HSUSB_CONTROLLERS > 1))
+        fnConfigUSB(iController, pars);                                  // configure hardware for control end point
+    #else
         fnConfigUSB(0, pars);                                            // configure hardware for control end point {20}
+    #endif
     }
     if ((usb_endpoint_queue->ptrEndpointInCtr = (que_ids[DriverID - 1].output_buffer_control)) != 0) { // set to output control block
         ((USBQUE *)(usb_endpoint_queue->ptrEndpointInCtr))->endpoint_control = usb_endpoint_queue;
@@ -499,11 +584,11 @@ extern QUEUE_HANDLE fnOpenUSB(USBTABLE *pars, unsigned char driver_mode)
       //usb_endpoint_queue->event_task = 0;                              // uMalloc returns this as zero
     #endif
     }
-    usb_endpoint_queue->ucEndpointNumber = pars->Endpoint;               // enter the endpoint number
+    usb_endpoint_queue->ucEndpointNumber = USB_CONTROLLER_ENDPOINT(pars->Endpoint, iController); // enter the endpoint number
     if ((pars->Endpoint != 0) && (pars->Paired_RxEndpoint != 0)) {       // this is a paired endpoint, where this endpoint is the receiver (OUT) in the paired channel
         unsigned short usParameters = usb_endpoint_queue->usParameters;
-        usb_endpoint_queue = (usb_endpoint_control + pars->Paired_RxEndpoint);
-        usb_endpoint_queue->ucEndpointNumber = pars->Paired_RxEndpoint;  // enter the endpoint number
+        usb_endpoint_queue = (usb_endpoint_control[iController] + pars->Paired_RxEndpoint);
+        usb_endpoint_queue->ucEndpointNumber = USB_CONTROLLER_ENDPOINT(pars->Paired_RxEndpoint, iController); // enter the endpoint number
         usb_endpoint_queue->ucPaired_IN = pars->Endpoint;                // {16}
         usb_endpoint_queue->usMax_frame_length = pars->usEndpointSize;   // enter endpoint size limit
         usb_endpoint_queue->usParameters = usParameters;                 // copy the endpoint parameters to the paired endpoint
@@ -525,12 +610,12 @@ extern QUEUE_HANDLE fnOpenUSB(USBTABLE *pars, unsigned char driver_mode)
 //
 static void fnUSB_message(unsigned char ucEvent, unsigned char *ptrData, unsigned char ucDataLength, UTASK_TASK destination)
 {
-#if defined USE_USB_AUDIO
+#if defined USE_USB_AUDIO || defined USE_HS_USB_AUDIO
     unsigned char ucMessage[HEADER_LENGTH + 1 + 4];                      // interface and alternative configuration as payload
 #else
-    unsigned char ucMessage[HEADER_LENGTH + 1 + 1];                      // single byte configuration as payload
+    unsigned char ucMessage[HEADER_LENGTH + 1 + 1];                      // maximum 1 byte configuration as payload
 #endif
-    if (destination == 0) {
+    if (destination == 0) {                                              // ignore if there is no destination task
         return;
     }
 #if defined _WINDOWS
@@ -539,7 +624,7 @@ static void fnUSB_message(unsigned char ucEvent, unsigned char *ptrData, unsigne
     }
 #endif
 
-    uMemcpy(&ucMessage[HEADER_LENGTH + 1], ptrData, ucDataLength);
+    uMemcpy(&ucMessage[HEADER_LENGTH + 1], ptrData, ucDataLength);       // add the payload
 
     ucMessage[MSG_DESTINATION_NODE] = INTERNAL_ROUTE;                    // destination node
     ucMessage[MSG_SOURCE_NODE]      = INTERNAL_ROUTE;                    // own node
@@ -605,15 +690,15 @@ static unsigned short fnOutstandingData(USB_ENDPOINT *endpoint_control)
 
 // Request whether an endpoint is a control endpoint
 //
-static int fnControlEndpoint(int iEndpoint, unsigned char ucCheck)       // {11}
+static int fnControlEndpoint(int iEndpoint, int iChannel, unsigned char ucCheck) // {11}
 {
     /* {26}
     if (iEndpoint == 0) {
         return 1;                                                        // endpoint 0 is always a control endpoint
     }
     else {*/
-        USB_ENDPOINT *usb_endpoint_queue = (usb_endpoint_control + iEndpoint);
-        if (usb_endpoint_queue->ucState & ucCheck) {                     // this endpoint is configured as the check state
+        USB_ENDPOINT *usb_endpoint_queue = (usb_endpoint_control[iChannel] + iEndpoint);
+        if ((usb_endpoint_queue->ucState & ucCheck) != 0) {              // this endpoint is configured as the check state
             return 1;
         }
     //}
@@ -623,15 +708,20 @@ static int fnControlEndpoint(int iEndpoint, unsigned char ucCheck)       // {11}
 // Enter the data to be transmitted into the management queue of its specific end point and start first packet transfer
 //
 #if defined USB_HOST_SUPPORT                                             // {29}
-    static QUEUE_TRANSFER fnPrepareOutData(int iMode, unsigned char *ptrData, unsigned short usLength, unsigned short ucMaxLength, int iEndpoint, USB_HW *ptrUSB_HW)
+static QUEUE_TRANSFER fnPrepareOutData(int iMode, unsigned char *ptrData, unsigned short usLength, unsigned short ucMaxLength, int iEndpoint, USB_HW *ptrUSB_HW)
 #else
-    static QUEUE_TRANSFER fnPrepareOutData(unsigned char *ptrData, unsigned short usLength, unsigned short ucMaxLength, int iEndpoint, USB_HW *ptrUSB_HW)
+static QUEUE_TRANSFER fnPrepareOutData(unsigned char *ptrData, unsigned short usLength, unsigned short ucMaxLength, int iEndpoint, USB_HW *ptrUSB_HW)
 #endif
 {
+#if (defined USB_HS_INTERFACE && defined USB_FS_INTERFACE) || (defined _iMX && (HSUSB_CONTROLLERS > 1))
+    register int iChannel = ptrUSB_HW->ucController;
+#else
+    register int iChannel = 0;
+#endif
 #if defined USB_HOST_SUPPORT
     unsigned char ucTransferType;
 #endif
-    USB_ENDPOINT *tx_queue = (usb_endpoint_control + iEndpoint);
+    USB_ENDPOINT *tx_queue = (usb_endpoint_control[iChannel] + iEndpoint);
     unsigned short usAdditionalLength;                                   // {21}
 
     if (tx_queue->usCompleteMessage != 0) {                              // transmission already in progress
@@ -639,7 +729,7 @@ static int fnControlEndpoint(int iEndpoint, unsigned char ucCheck)       // {11}
     }
 #if defined USB_HOST_SUPPORT                                             // {29}
     if (_USB_HOST_MODE()) {
-        if ((_HOST_SETUP == iMode) || ((iEndpoint == 0) && ((_DEVICE_DATA_HOST_SETUP == iMode)))) { // is host setup data is to be prepared
+        if ((_HOST_SETUP == iMode) || ((iEndpoint == 0) && (_DEVICE_DATA_HOST_SETUP == iMode) && (8 == usLength))) { // is host setup data is to be prepared
             fnPrepareSetup(ptrUSB_HW);                                   // prepare for setup frame transmission (this often requires the data token to be resysnchronised because the next transmitted data token is DATA0 and the next received data token is DATA1)
             ucTransferType = SETUP_PID;                                  // a SETUP token is to be sent
         }
@@ -704,9 +794,9 @@ static int fnControlEndpoint(int iEndpoint, unsigned char ucCheck)       // {11}
                 break;                                                   // {6} all available buffers have been prepared
             }
         }
-        if (fnGetUSB_HW(iEndpoint, &ptrUSB_HW) != ENDPOINT_FREE) {       // {28} get the next free buffer if possible
+        if (fnGetUSB_HW(USB_CONTROLLER_ENDPOINT(iEndpoint, iChannel), &ptrUSB_HW) != ENDPOINT_FREE) { // {28} get the next free buffer if possible
             //return tx_queue->usCompleteMessage;
-            break;                                                       // {6} no further buffer ready to accet data
+            break;                                                       // {6} no further buffer ready to accept data
         }
         usLength -= usAdditionalLength;                                  // remaining length to be queued
         ptrData += usAdditionalLength;
@@ -746,7 +836,7 @@ static void fnExtract(unsigned char *ptrData, unsigned char ucFlags, unsigned sh
     #define INDEX_INDEX   0x02
     #define LENGTH_INDEX  0x04
 
-    if (ucFlags & VALUE_INDEX) {
+    if ((ucFlags & VALUE_INDEX) != 0) {
         *usValues =  GET_USB_DATA();
         *usValues++ |= (GET_USB_DATA() << 8);
     }
@@ -757,7 +847,7 @@ static void fnExtract(unsigned char *ptrData, unsigned char ucFlags, unsigned sh
         ptrData += sizeof(unsigned short);
 #endif
     }
-    if (ucFlags & INDEX_INDEX) {
+    if ((ucFlags & INDEX_INDEX) != 0) {
         *usValues =  GET_USB_DATA();
         *usValues++ |= (GET_USB_DATA() << 8);
     }
@@ -768,7 +858,7 @@ static void fnExtract(unsigned char *ptrData, unsigned char ucFlags, unsigned sh
         ptrData += sizeof(unsigned short);
 #endif
     }
-    if (ucFlags & LENGTH_INDEX) {
+    if ((ucFlags & LENGTH_INDEX) != 0) {
         *usValues =  GET_USB_DATA();
         *usValues |= (GET_USB_DATA() << 8);
     }
@@ -778,14 +868,15 @@ static void fnExtract(unsigned char *ptrData, unsigned char ucFlags, unsigned sh
 #if defined WAKE_BLOCKED_USB_TX
 // Wake a blocked USB IN endpoint queue by informing its owner task that there is space available to put new data to
 //
-static void fnWakeBlockedTx(USBQUE *ptrUsbQueue, QUEUE_TRANSFER low_water)
+static void fnWakeBlockedTxUSB(USBQUE *ptrUsbQueue)
 {
+    QUEUE_TRANSFER low_water = ptrUsbQueue->endpoint_control->low_water_level;
     #if defined USB_SIMPLEX_ENDPOINTS || defined SUPPORT_USB_SIMPLEX_HOST_ENDPOINTS
     if ((ptrUsbQueue->endpoint_control->event_task_in != 0) && (ptrUsbQueue->USB_queue.chars <= low_water))
     #else
     if ((ptrUsbQueue->endpoint_control->event_task != 0) && (ptrUsbQueue->USB_queue.chars <= low_water))
     #endif
-    {                                                                    // we have just adeqately emptied buffer content so inform waiting transmitter task
+    {                                                                    // we have just adequately emptied buffer content so inform waiting transmitter task
         unsigned char tx_continue_message[HEADER_LENGTH]; // = { INTERNAL_ROUTE, INTERNAL_ROUTE , ptrUsbQueue->tx_queue->event_task, INTERRUPT_EVENT, TX_FREE };  // define standard interrupt event
         tx_continue_message[MSG_DESTINATION_NODE] = INTERNAL_ROUTE;
         tx_continue_message[MSG_SOURCE_NODE]      = INTERNAL_ROUTE;
@@ -795,7 +886,11 @@ static void fnWakeBlockedTx(USBQUE *ptrUsbQueue, QUEUE_TRANSFER low_water)
         tx_continue_message[MSG_DESTINATION_TASK] = ptrUsbQueue->endpoint_control->event_task;
     #endif
         tx_continue_message[MSG_SOURCE_TASK]      = INTERRUPT_EVENT;
-        tx_continue_message[MSG_INTERRUPT_EVENT]  = TX_FREE;
+    #if defined CUSTOM_USB_TX_FREE
+        tx_continue_message[MSG_INTERRUPT_EVENT] = (unsigned char)(TX_FREE - ptrUsbQueue->endpoint_control->ucCustomTxFree_event); // {39}
+    #else
+        tx_continue_message[MSG_INTERRUPT_EVENT] = (unsigned char)TX_FREE;
+    #endif
         fnWrite(INTERNAL_ROUTE, (unsigned char*)tx_continue_message, HEADER_LENGTH); // inform the blocked task
     #if defined USB_SIMPLEX_ENDPOINTS || defined SUPPORT_USB_SIMPLEX_HOST_ENDPOINTS
         ptrUsbQueue->endpoint_control->event_task_in = 0;                // remove task since this is only performed once
@@ -808,43 +903,69 @@ static void fnWakeBlockedTx(USBQUE *ptrUsbQueue, QUEUE_TRANSFER low_water)
 
 #if defined USB_HOST_SUPPORT                                             // {29}
     #if defined USB_STRING_OPTION                                        // requests strings if required
-// Search for next string in the device descriptor (it is assumed that they count from 1..max but the order is not important)
+// Search for next string in the device descriptor (it is assumed that they count from 1..max. but the order is not important)
 //
-static int fnNeedString(int iStringReference)
+static int fnNeedString(int iStringReference, int iChannel)
 {
-    unsigned char *ptrStringRef = &device_descriptor.iManufacturer;
+    unsigned char *ptrStringRef = &device_descriptor[iChannel].iManufacturer;
     if (iStringReference == 0) {                                         // language id is always valid
         return 0;
     }
-    while (ptrStringRef <= &device_descriptor.iSerialNumber) {           // check manufacturer, product and serial number references
+    while (ptrStringRef <= &device_descriptor[iChannel].iSerialNumber) { // check manufacturer, product and serial number references
         if (*ptrStringRef++ == (unsigned char)(iStringReference)) {
             return 0;
         }
     }
     return -1;
 }
+    #endif
 
 // Clears a stalled device endpoint by sending the ClearFeature
 //
-extern QUEUE_TRANSFER fnClearFeature(QUEUE_LIMIT control_handle, unsigned char ucEndpoint)
+extern int iDebug;
+extern QUEUE_TRANSFER fnClearFeature(QUEUE_LIMIT control_handle, unsigned char ucEndpoint, int iChannel)
 {
-    static unsigned char ucClearFeature[8];                              // use static memory so that it remains stable when sending on non-buffered endpoint
-    ucStalledEndpoint = (IN_ENDPOINT | ucEndpoint);                      // note the endpoint that has stalled and will be cleared
-    ucClearFeature[0] = REQUEST_ENDPOINT_STANDARD;                       // 0x02 request type standard, recipient is endpoint, host to device
-    ucClearFeature[1] = USB_REQUEST_CLEAR_FEATURE;                       // 0x01 clear feature
-    ucClearFeature[2] = 0x00;                                            // endpoint halt
-    ucClearFeature[3] = 0x00;
-    ucClearFeature[4] = ucStalledEndpoint;                               // IN endpoint and number
-    ucClearFeature[5] = 0x00;
-    ucClearFeature[6] = 0x00;                                            // length 0
-    ucClearFeature[7] = 0x00;
-    return (fnWrite(control_handle, (unsigned char *)&ucClearFeature, 8)); // send clear feature on endpoint 0
+    static unsigned char ucClearFeature[USBS_AVAILABLE][8];              // use static memory so that it remains stable when sending on non-buffered endpoint
+    ucStalledEndpoint[iChannel] = ucEndpoint;                            // note the endpoint that has stalled and will be cleared
+    ucClearFeature[iChannel][0] = REQUEST_ENDPOINT_STANDARD;             // 0x02 request type standard, recipient is endpoint, host to device
+    ucClearFeature[iChannel][1] = USB_REQUEST_CLEAR_FEATURE;             // 0x01 clear feature
+    ucClearFeature[iChannel][2] = 0x00;                                  // endpoint halt
+    ucClearFeature[iChannel][3] = 0x00;
+    ucClearFeature[iChannel][4] = ucStalledEndpoint[iChannel];           // endpoint reference
+    ucClearFeature[iChannel][5] = 0x00;
+    ucClearFeature[iChannel][6] = 0x00;                                  // length 0
+    ucClearFeature[iChannel][7] = 0x00;
+  //iDebug = 2;
+    return (fnWrite(control_handle, (unsigned char *)&ucClearFeature[iChannel], 8)); // send clear feature on endpoint 0
 }
+
+// Zero data reception on control endpoint received after sending a request endpoint feature
+//
+static int fnUnstallAck(USB_HW *ptrUSB_HW)
+{
+    #if (defined USB_HS_INTERFACE && defined USB_FS_INTERFACE) || (defined _iMX && (HSUSB_CONTROLLERS > 1))
+    register int iChannel = ptrUSB_HW->ucController;                     // the interface the acknowlege was received on
+    #else
+    register int iChannel = 0;
     #endif
+    if (ucStalledEndpoint[iChannel] != 0) {                              // acknowledge from unstalling endpoint is expected
+      //ucStalledEndpoint[iChannel] &= ~(IN_ENDPOINT);
+        // After clearing an endpoint the data toggle needs to be resynchronised (DATA 1 is next transmission and DATA 0 is next reception)
+        //
+        fnResetDataToggle(iChannel, ucStalledEndpoint[iChannel], ptrUSB_HW);
+        fnUSB_message((E_USB_DEVICE_CLEARED + iChannel), &ucStalledEndpoint[iChannel], 1, usb_endpoint_control[iChannel]->event_task); // inform the owner task so that it can decide what to do
+        ucStalledEndpoint[iChannel] = 0;                                 // the endpoint has been cleared
+        return 1;
+    }
+    return 0;
+}
+
+int iDebug = 0;
+
 
 // USB host enumeration controller
 //
-static int fnHostEmumeration(int iEndpoint, int iEvent, USB_HW *ptrUSB_HW)
+static int fnHostEnumeration(int iEndpoint, int iEvent, USB_HW *ptrUSB_HW)
 {
     static const USB_HOST_DESCRIPTOR get_device_descriptor = {
         (STANDARD_DEVICE_TO_HOST),                                       // 0x80 - recipient host, type standard, device-to-host
@@ -867,100 +988,110 @@ static int fnHostEmumeration(int iEndpoint, int iEvent, USB_HW *ptrUSB_HW)
         USB_REQUEST_GET_DESCRIPTOR,                                      // 0x06 - get descriptor from device
         {LITTLE_SHORT_WORD_BYTES(STANDARD_CONFIG_DESCRIPTOR)},           // standard device descriptor
         {LITTLE_SHORT_WORD_BYTES(0)},                                    // no index
-        {LITTLE_SHORT_WORD_BYTES(255)}                                   // size of response that is possible
+        {LITTLE_SHORT_WORD_BYTES(MAX_CONFIGURATION_DESCRIPTOR_LENGTH)}   // size of response that is possible
     };
 
-    USB_ENDPOINT *usb_endpoint_queue = usb_endpoint_control;
+    #if (defined USB_HS_INTERFACE && defined USB_FS_INTERFACE) || (defined _iMX && (HSUSB_CONTROLLERS > 1))
+    register int iChannel = ptrUSB_HW->ucController;
+    #else
+    register int iChannel = 0;
+    #endif
+    USB_ENDPOINT *usb_endpoint_queue = usb_endpoint_control[iChannel];
     usb_endpoint_queue += iEndpoint;
-    if ((iEvent == HOST_APPLICATION_ON) && (ucRequestType != HOST_ENUMERATION_SET_CONFIGURATION)) {
+
+    if ((iEvent == HOST_APPLICATION_ON) && (ucRequestType[iChannel] != HOST_ENUMERATION_SET_CONFIGURATION)) {
         return USB_HOST_ERROR;                                           // only allow the application to set the configuration when in the required state
     }
   //if (DEVICE_TIMEOUT == iEvent) {
-  //    ucRequestType--;                                                 // repeat last request due to no response
+  //    ucRequestType[iChannel]--;                                       // repeat last request due to no response
   //}
-    switch (ucRequestType) {
+    switch (ucRequestType[iChannel]) {
     case HOST_ENUMERATION_IDLE:                                          // starting from device connection
     #if defined USB_STRING_OPTION
-        iStringReference = 0;
+        iStringReference[iChannel] = 0;
     #endif
-        ucRequestLengthRemaining = sizeof(USB_DEVICE_DESCRIPTOR);
-        fnPrepareOutData(HOST_SETUP  (unsigned char *)&get_device_descriptor, sizeof(get_device_descriptor), 8, 0, ptrUSB_HW); // prepare setup stage of get device descriptor
-        fnInterruptMessage(usb_endpoint_control->event_task, (unsigned char)(EVENT_USB_DETECT_LS + ptrUSB_HW->ucDeviceSpeed)); // inform of the attachment and bus speed
-        ucRequestType = HOST_ENUMERATION_STANDARD_DEVICE_DESCRIPTOR;     // note the request type that is in operation
+        usRequestLengthRemaining[iChannel] = sizeof(USB_DEVICE_DESCRIPTOR);
+      //iDebug = 1;
+        fnPrepareOutData(HOST_SETUP (unsigned char *)&get_device_descriptor, sizeof(get_device_descriptor), 8, 0, ptrUSB_HW); // prepare setup stage of get device descriptor
+        fnInterruptMessage(usb_endpoint_control[iChannel]->event_task, (unsigned char)(EVENT_USB_DETECT_LS + iChannel + (ptrUSB_HW->ucDeviceSpeed * 2))); // inform of the attachment and bus speed (+2 is EVENT_USB_DETECT_FS, +4 is EVENT_USB_DETECT_HS)
+        ucRequestType[iChannel] = HOST_ENUMERATION_STANDARD_DEVICE_DESCRIPTOR; // note the request type that is in operation
         break;
 
     case HOST_ENUMERATION_STANDARD_DEVICE_DESCRIPTOR:                    // standard device descriptor has been received        
-        ucRequestType = HOST_ENUMERATION_STANDARD_DEVICE_DESCRIPTOR_ACK; // set next state since we expect an ack
+        ucRequestType[iChannel] = HOST_ENUMERATION_STANDARD_DEVICE_DESCRIPTOR_ACK; // set next state since we expect an ack
         return TERMINATE_ZERO_DATA;                                      // reception buffer has been consumed and we need to send a zero termination
 
     case HOST_ENUMERATION_STANDARD_DEVICE_DESCRIPTOR_ACK:
         fnPrepareOutData(HOST_SETUP  (unsigned char *)&set_address, sizeof(set_address), 8, 0, ptrUSB_HW);
-        ucRequestType = HOST_ENUMERATION_SET_ADDRESS;
+        ucRequestType[iChannel] = HOST_ENUMERATION_SET_ADDRESS;
         break;
 
     case HOST_ENUMERATION_SET_ADDRESS:                                   // address has been acknowledged by the device
         fnSetUSB_device_address(USB_DEVICE_ADDRESS);                     // set the device address since it has been acknowledged
-        ucRequestLengthRemaining = 255;                                  // up to 255 bytes possible
-        fnPrepareOutData(HOST_SETUP  (unsigned char *)&get_configuration_descriptor, sizeof(get_configuration_descriptor), 8, 0, ptrUSB_HW); // send setup stage of get device descriptor (this is sent to the new address)
-        ucRequestType = HOST_ENUMERATION_CONFIGURATION_DESCRIPTOR;       // set next state
+        usRequestLengthRemaining[iChannel] = MAX_CONFIGURATION_DESCRIPTOR_LENGTH; // maximum response length
+        fnPrepareOutData(HOST_SETUP  (unsigned char *)&get_configuration_descriptor, sizeof(get_configuration_descriptor), 8, 0, ptrUSB_HW); // send setup stage of get configuration descriptor (this is sent to the new address)
+        ucRequestType[iChannel] = HOST_ENUMERATION_CONFIGURATION_DESCRIPTOR; // set next state
         break;
 
     case HOST_ENUMERATION_CONFIGURATION_DESCRIPTOR:
-        ucConfigDescriptorLength = ucRequestingReceived;                 // the length of the received configuration descriptor
-        ucRequestType = HOST_ENUMERATION_CONFIGURATION_DESCRIPTOR_ACK;   // set next state
+        usConfigDescriptorLength[iChannel] = usRequestingReceived[iChannel]; // the length of the received configuration descriptor
+        ucRequestType[iChannel] = HOST_ENUMERATION_CONFIGURATION_DESCRIPTOR_ACK; // set next state
         return TERMINATE_ZERO_DATA;                                      // reception buffer has been consumed and we need to send a zero termination
     #if defined USB_STRING_OPTION
     case HOST_ENUMERATION_REQUEST_STRING_ACK:
-        iStringReference++;
+        iStringReference[iChannel]++;
         // Fall through intentional
         //
     #endif
     case HOST_ENUMERATION_CONFIGURATION_DESCRIPTOR_ACK:                  // when we arrive here we have received the standard device descriptor and configuration descriptor and so have adequate information concerning the device attached to decide whether to work with it
     #if defined USB_STRING_OPTION                                        // requests strings if required
-        if ((iStringReference <= USB_MAX_STRINGS) && (fnNeedString(iStringReference) == 0)) { // get next string
-            USB_HOST_DESCRIPTOR get_string;
+        if ((iStringReference[iChannel] <= USB_MAX_STRINGS) && (fnNeedString(iStringReference[iChannel], iChannel) == 0)) { // get next string
+            static USB_HOST_DESCRIPTOR get_string = {0};                 // {36} static descriptor space so that the memory remains stable when used directly by the buffer descriptor
             get_string.bmRecipient_device_direction = STANDARD_DEVICE_TO_HOST; // 0x80 - recipient host, type standard, device-to-host
             get_string.bRequest = USB_REQUEST_GET_DESCRIPTOR;            // 0x06 - get descriptor from device
-            get_string.wValue[0] = (unsigned char)iStringReference;
+            get_string.wValue[0] = (unsigned char)iStringReference[iChannel];
             get_string.wValue[1] = DESCRIPTOR_TYPE_STRING;               // 0x03
-            if (iStringReference == 0) {                                 // if requesting string language
+            if (iStringReference[iChannel] == 0) {                       // if requesting string language
                 get_string.wIndex[0] = get_string.wIndex[1] = 0;
             }
             else {
                 get_string.wIndex[0] = ucStringList[0][2];
                 get_string.wIndex[1] = ucStringList[0][3];
             }
-            get_string.wLength[0] = (unsigned char)((USB_MAX_STRING_LENGTH * 2) + 1); // length and unicode string
+            get_string.wLength[0] = (unsigned char)((USB_MAX_STRING_LENGTH * 2) + 1); // length and uni-code string
             get_string.wLength[1] = 0;
 
-            ucRequestLengthRemaining = (unsigned char)(USB_MAX_STRING_LENGTH * 2); // up to maximum string length
+            usRequestLengthRemaining[iChannel] = (unsigned char)(USB_MAX_STRING_LENGTH * 2); // up to maximum string length
             fnPrepareOutData(HOST_SETUP  (unsigned char *)&get_string, sizeof(get_string), 8, 0, ptrUSB_HW); // send setup stage of get device descriptor
-            ucRequestType = HOST_ENUMERATION_REQUEST_STRING;
+            ucRequestType[iChannel] = HOST_ENUMERATION_REQUEST_STRING;
             break;
         }
     #endif
-        fnUSB_message(E_USB_DEVICE_INFO, 0, 0, usb_endpoint_queue->event_task); // inform the USB application that this information is ready
-        ucRequestType = HOST_ENUMERATION_SET_CONFIGURATION;              // enumeration information has been collected - the application will decide whether a configuration is set
+        fnUSB_message((E_USB_DEVICE_INFO + iChannel), 0, 0, usb_endpoint_queue->event_task); // inform the USB application that this information is ready
+        ucRequestType[iChannel] = HOST_ENUMERATION_SET_CONFIGURATION;    // enumeration information has been collected - the application will decide whether a configuration is set
         break;
     #if defined USB_STRING_OPTION
     case HOST_ENUMERATION_REQUEST_STRING:
-        ucRequestingReceived = 0;                                        // {34} reset previous string reception length counter since this transaction has completed
-        ucRequestType = HOST_ENUMERATION_REQUEST_STRING_ACK;             // set next state since we expect an ack
+        usRequestingReceived[iChannel] = 0;                              // {34} reset previous string reception length counter since this transaction has completed
+        ucRequestType[iChannel] = HOST_ENUMERATION_REQUEST_STRING_ACK;   // set next state since we expect an ack
         return TERMINATE_ZERO_DATA;                                      // reception buffer has been consumed and we need to send a zero termination
     #endif
     case HOST_ENUMERATION_SET_CONFIGURATION:                             // the configuration is to be set
         {
             static USB_HOST_DESCRIPTOR set_configuration;
-            USB_HW *ptrUSB_HW;                                           // pointer to be set to the present host hardware information
-            if (fnGetUSB_HW(0, &ptrUSB_HW) != ENDPOINT_FREE) {           // {28} get details about the transmitter hardware (endpoint 0)
-                return USB_HOST_ERROR;                                   // hardware must never be blocked
+    #if defined USB_HOST_HUB
+            if (usb_endpoint_queue->usb_callback != 0) {                 // during hub enumeration the application may perform transactions in this state and so an event is generate
+                if (usb_endpoint_queue->usb_callback(0, 0, STATUS_STAGE_RECEPTION_ENUM, iChannel) == USB_HOST_ERROR) { // inform the user of the fact that the transaction was completed successfully (the user can also prepare new control data)
+                    break;                                               // the event has been consumed by the application so we do not handle it in the enumeration state-event machine
+                }
             }
+    #endif
             uMemset(&set_configuration, 0, sizeof(set_configuration));
             set_configuration.bmRecipient_device_direction = STANDARD_HOST_TO_DEVICE; // 0x00 - recipient device, type standard, host-to-device
             set_configuration.bRequest = USB_REQUEST_SET_CONFIGURATION;  // 0x09 - set configuration
-            set_configuration.wValue[0] = ucActiveConfiguration;
+            set_configuration.wValue[0] = ucActiveConfiguration[iChannel];
             fnPrepareOutData(HOST_SETUP  (unsigned char *)&set_configuration, sizeof(set_configuration), 8, 0, ptrUSB_HW); // send setup stage of set configuration
-            ucRequestType = HOST_ENUMERATION_SET_CONFIGURATION_ACK;
+            ucRequestType[iChannel] = HOST_ENUMERATION_SET_CONFIGURATION_ACK;
             break;
         }
         break;
@@ -976,35 +1107,36 @@ static int fnHostEmumeration(int iEndpoint, int iEvent, USB_HW *ptrUSB_HW)
     };
 
             fnPrepareOutData(HOST_SETUP  (unsigned char *)&set_interface, sizeof(set_interface), 8, 0, ptrUSB_HW); // send setup stage of set configuration
-            ucRequestType = HOST_ENUMERATION_SET_INTERFACE_ACK;
+            ucRequestType[iChannel] = HOST_ENUMERATION_SET_INTERFACE_ACK;
         }
         break;
     case HOST_ENUMERATION_SET_INTERFACE_ACK:
     #endif
-        ucRequestType = HOST_ENUMERATION_CONFIGURED;                     // the device has been configured and the host is fully operating
-        fnUSB_message(E_USB_ACTIVATE_CONFIGURATION, &ucActiveConfiguration, sizeof(ucActiveConfiguration), usb_endpoint_control->event_task); // enumeration has completed
+        ucRequestType[iChannel] = HOST_ENUMERATION_CONFIGURED;           // the device has been configured and the host is fully operating
+    #if (defined USB_HS_INTERFACE && defined USB_FS_INTERFACE) || (defined _iMX && (HSUSB_CONTROLLERS > 1))
+        fnUSB_message((E_USB_ACTIVATE_CONFIGURATION + iChannel), &ucActiveConfiguration[iChannel], sizeof(ucActiveConfiguration[iChannel]), usb_endpoint_control[iChannel]->event_task); // enumeration has completed
+    #else
+        fnUSB_message(E_USB_ACTIVATE_CONFIGURATION, &ucActiveConfiguration[0], sizeof(ucActiveConfiguration[0]), usb_endpoint_control[0]->event_task); // enumeration has completed
+    #endif
         break;
 
     case HOST_ENUMERATION_CONFIGURED:
-        ucRequestType = HOST_ENUMERATION_CONFIGURED_ACK;                 // we will send a zero data frame once the device has responded
+        ucRequestType[iChannel] = HOST_ENUMERATION_CONFIGURED_ACK;       // we will send a zero data frame once the device has responded
         return TERMINATE_ZERO_DATA;                                      // reception buffer has been consumed and we need to send a zero termination
 
     case HOST_ENUMERATION_CONFIGURED_ACK:
-      //ucRequestType = HOST_ENUMERATION_CONFIGURED;                     // return to configured state
-        ucRequestType = HOST_ENUMERATION_CONFIGURED_IDLE;
+    #if defined USB_RNDIS_HOST
+        ucRequestType[iChannel] = HOST_ENUMERATION_CONFIGURED;           // return to configured state
+    #else
+        ucRequestType[iChannel] = HOST_ENUMERATION_CONFIGURED_IDLE;
+    #endif
+      //fnDebugMsg("IDLE\r\n");
         if (usb_endpoint_queue->usb_callback != 0) {
-            return (usb_endpoint_queue->usb_callback(0, 0, STATUS_STAGE_RECEPTION)); // inform the user of the fact that the transaction was completed successfully (the user can also prepare new control data)
+            return (usb_endpoint_queue->usb_callback(0, 0, STATUS_STAGE_RECEPTION, iChannel)); // inform the user of the fact that the transaction was completed successfully (the user can also prepare new control data)
         }
         break;
     case HOST_ENUMERATION_CONFIGURED_IDLE:
-        if (ucStalledEndpoint != 0) {                                    // acknowledge from unstalling endpoint
-            ucStalledEndpoint &= ~(IN_ENDPOINT);
-            // After clearing an endpoint the data toggle needs to be resynchronised (DATA 1 is next transmission and DATA 0 is next reception)
-            //
-            fnResetDataToggle(ucStalledEndpoint, ptrUSB_HW);
-            fnUSB_message(E_USB_DEVICE_CLEARED, &ucStalledEndpoint, 1, usb_endpoint_control->event_task); // inform the owner task so that it can decide what to do
-            ucStalledEndpoint = 0;                                       // the endpoint has been cleared
-        }
+        fnUnstallAck(ptrUSB_HW);                                         // only a confirmation of an uninstalled endpoint is expected in this state
         break;
     default:
         break;
@@ -1014,13 +1146,13 @@ static int fnHostEmumeration(int iEndpoint, int iEvent, USB_HW *ptrUSB_HW)
 
 // Interface for application to access device information
 //
-extern void *fnGetDeviceInfo(int iInfoRef)
+extern void *fnGetDeviceInfo(int iInfoRef, int iChannel)
 {
     if (iInfoRef == REQUEST_USB_DEVICE_DESCRIPTOR) {                     // return pointer to device descriptor
-        return &device_descriptor;
+        return &device_descriptor[iChannel];
     }
     else if (iInfoRef == REQUEST_USB_CONFIG_DESCRIPTOR) {                // return pointer to configuration descriptor
-        return &config_descriptor;
+        return &config_descriptor[iChannel];
     }
     #if defined USB_STRING_OPTION
     else {                                                               // strings
@@ -1040,15 +1172,20 @@ extern void *fnGetDeviceInfo(int iInfoRef)
 //
 extern int fnUSB_handle_frame(unsigned char ucType, unsigned char *ptrData, int iEndpoint, USB_HW *ptrUSB_HW)
 {
+#if (defined USB_HS_INTERFACE && defined USB_FS_INTERFACE) || (defined _iMX && (HSUSB_CONTROLLERS > 1))
+    register int iChannel = ptrUSB_HW->ucController;
+#else
+    register int iChannel = 0;
+#endif
     switch (ucType) {                                                    // depending on the event
     case USB_TX_ACKED:                                                   // a previous transmission has been successfully acked
         {
-            USB_ENDPOINT *tx_queue = (usb_endpoint_control + iEndpoint);
+            USB_ENDPOINT *tx_queue = (usb_endpoint_control[iChannel] + iEndpoint);
             USBQUE *ptrUsbQueue = (USBQUE *)(tx_queue->ptrEndpointInCtr);
             if (tx_queue->usCompleteMessage == 0) {                      // no message in queue
 #if defined USB_HOST_SUPPORT                                             // {29}
                 if ((iEndpoint == 0) && _USB_HOST_MODE()) {              // acknowledgement to a zero data termination
-                    return (fnHostEmumeration(iEndpoint, SUCCESSFUL_TERMINATION, ptrUSB_HW));
+                    return (fnHostEnumeration(iEndpoint, SUCCESSFUL_TERMINATION, ptrUSB_HW));
                 }
 #endif
                 if (ptrUsbQueue == 0) {
@@ -1069,11 +1206,19 @@ extern int fnUSB_handle_frame(unsigned char ucType, unsigned char *ptrData, int 
                     fnPrepareOutData(DEVICE_HOST_DATA  ptrUsbQueue->USB_queue.get, usLength, usLength, iEndpoint, ptrUSB_HW); // prepare next buffer(s)
 #endif
 #if defined WAKE_BLOCKED_USB_TX
-                    fnWakeBlockedTx(ptrUsbQueue, ptrUsbQueue->endpoint_control->low_water_level); // we have just emptied buffer content so inform waiting transmitter task
+                    fnWakeBlockedTxUSB(ptrUsbQueue);                     // we have just emptied buffer content so inform waiting transmitter task
 #endif
                 }
                 else {
                     ptrUsbQueue->endpoint_control->ucState &= ~TX_ACTIVE;// mark that the transmitter is idle and should be started when the next data is added to the buffer
+#if defined IN_COMPLETE_CALLBACK
+                    if (tx_queue->fnINcomplete != 0) {                   // if there is an IN complete callback execute it now
+                        tx_queue->usSent = 0;
+                        tx_queue->usCompleteMessage = 0;
+                        tx_queue->ucFIFO_depth = 0; // temp during development!!
+                        tx_queue->fnINcomplete(tx_queue->ucEndpointNumber);
+                    }
+#endif
                 }
                 break;
             }
@@ -1082,7 +1227,7 @@ extern int fnUSB_handle_frame(unsigned char ucType, unsigned char *ptrData, int 
 #if defined USB_DMA_TX && defined USB_RAM_START
                     ptrUsbQueue->USB_queue.chars -= tx_queue->usCompleteMessage;
     #if defined WAKE_BLOCKED_USB_TX
-                    fnWakeBlockedTx(ptrUsbQueue, ptrUsbQueue->endpoint_control->low_water_level); // we have just reduced buffer content so inform waiting transmitter task
+                    fnWakeBlockedTxUSB(ptrUsbQueue);                     // we have just reduced buffer content so inform waiting transmitter task
     #endif
                     ptrUsbQueue->USB_queue.get += tx_queue->usCompleteMessage; // set get pointer to end of outstanding block
                     tx_queue->usCompleteMessage = 0;
@@ -1090,7 +1235,7 @@ extern int fnUSB_handle_frame(unsigned char ucType, unsigned char *ptrData, int 
                     if (ptrUsbQueue->USB_queue.get >= ptrUsbQueue->USB_queue.buffer_end) { // handle circular buffer
                         ptrUsbQueue->USB_queue.get -= ptrUsbQueue->USB_queue.buf_length;
                     }
-                    if (ptrUsbQueue->USB_queue.chars == 0) {         // no more data queued
+                    if (ptrUsbQueue->USB_queue.chars == 0) {             // no more data queued
                         ptrUsbQueue->endpoint_control->ucState &= ~TX_ACTIVE;// mark that the transmitter is idle
                     }
                     else {
@@ -1102,7 +1247,7 @@ extern int fnUSB_handle_frame(unsigned char ucType, unsigned char *ptrData, int 
                     usNonAcknowledged = fnOutstandingData(ptrUsbQueue->endpoint_control);
                     if (ptrUsbQueue->USB_queue.chars == usNonAcknowledged) { // no further data waiting in the output buffer which has not already been placed in the output FIFO buffers
                         if (ptrUsbQueue->USB_queue.chars == 0) {         // no more data queued
-                            if (fnControlEndpoint(iEndpoint, (USB_CONTROL_ENDPOINT | USB_ENDPOINT_TERMINATES)) != 0) { // {9}{11} if the endpoint is a control end point send zero data on termination if last frame was the same length as the endpoint
+                            if (fnControlEndpoint(iEndpoint, iChannel, (USB_CONTROL_ENDPOINT | USB_ENDPOINT_TERMINATES)) != 0) { // {9}{11} if the endpoint is a control end point send zero data on termination if last frame was the same length as the endpoint
                                 if ((tx_queue->usCompleteMessage % tx_queue->usMax_frame_length) == 0) {
                                     FNSEND_ZERO_DATA(ptrUSB_HW, iEndpoint); // send a zero frame to terminate status stage
                                     usNonAcknowledged = 1;               // ensure that the transmitter state is not deactivated yet
@@ -1169,7 +1314,7 @@ extern int fnUSB_handle_frame(unsigned char ucType, unsigned char *ptrData, int 
                         fnPrepareOutData(DEVICE_HOST_DATA  ptrUsbQueue->USB_queue.get, usLength, usLength, iEndpoint, ptrUSB_HW); // prepare next buffer(s)
                     }
     #if defined WAKE_BLOCKED_USB_TX
-                    fnWakeBlockedTx(ptrUsbQueue, ptrUsbQueue->endpoint_control->low_water_level); // we have just emptied buffer content so inform waiting transmitter task
+                    fnWakeBlockedTxUSB(ptrUsbQueue);                     // we have just emptied buffer content so inform waiting transmitter task
     #endif
 #endif
                 }
@@ -1177,7 +1322,14 @@ extern int fnUSB_handle_frame(unsigned char ucType, unsigned char *ptrData, int 
 #if defined USB_HOST_SUPPORT                                             // {29}
                     if (_USB_HOST_MODE()) {                              // if host transmission has been acked
                         tx_queue->usCompleteMessage = 0;                 // message completely sent
-                        if (ucRequestType != HOST_ENUMERATION_IDLE) {    // if we are requesting setup information
+                        if (ucRequestType[iChannel] != HOST_ENUMERATION_IDLE) { // if we are requesting setup information
+    #if defined USB_HOST_CALLBACK_SETUP_ACK                              // {37}
+                            if (ucRequestType[iChannel] >= HOST_ENUMERATION_CONFIGURED) {
+                                if (usb_endpoint_control[iChannel]->usb_callback != 0) {
+                                    return (usb_endpoint_control[iChannel]->usb_callback(0, 0, HOST_SETUP_ACKED, iChannel));
+                                }
+                            }
+    #endif
                             return INITIATE_IN_TOKEN;                    // initiate IN token stage since we expect a reply from the device
                         }
                         return BUFFER_CONSUMED;
@@ -1185,9 +1337,7 @@ extern int fnUSB_handle_frame(unsigned char ucType, unsigned char *ptrData, int 
 #endif
 #if defined USB_DEVICE_SUPPORT                                           // {29}
                     if ((tx_queue->usCompleteMessage % tx_queue->usMax_frame_length) == 0) { // if the transmitted data length was divisible by the frame length
-                      //if ((tx_queue->usLimitLength != tx_queue->usCompleteMessage) || (fnControlEndpoint(iEndpoint, USB_CONTROL_ENDPOINT) == 0))
-                        if ((tx_queue->usLimitLength != tx_queue->usCompleteMessage) || (fnControlEndpoint(iEndpoint, (USB_ENDPOINT_TERMINATES)) != 0)) // {26}
-                        {
+                        if ((tx_queue->usLimitLength != tx_queue->usCompleteMessage) || (fnControlEndpoint(iEndpoint, iChannel, (USB_ENDPOINT_TERMINATES)) != 0)) { // {26}
                             FNSEND_ZERO_DATA(ptrUSB_HW, iEndpoint);      // send a zero frame to terminate status stage
                         }
                     }
@@ -1213,13 +1363,13 @@ extern int fnUSB_handle_frame(unsigned char ucType, unsigned char *ptrData, int 
                     unsigned short usLastLength = fnPullLastLength(ptrUsbQueue->endpoint_control); // the amount of data being acknowledged
                     ptrUsbQueue->USB_queue.chars -= usLastLength;        // make space for fresh data to be queued
     #if defined WAKE_BLOCKED_USB_TX
-                    fnWakeBlockedTx(ptrUsbQueue, ptrUsbQueue->endpoint_control->low_water_level); // we have just emptied buffer content so inform waiting transmitter task
+                    fnWakeBlockedTxUSB(ptrUsbQueue);                     // we have just emptied buffer content so inform waiting transmitter task
     #endif
     #if defined USB_TX_MESSAGE_MODE
                     if (ptrUsbQueue->endpoint_control->messageQueue != 0) { // {32} if in message mode
                         if ((tx_queue->ptrStart + tx_queue->usSent) > (ptrUsbQueue->USB_queue.buffer_end - tx_queue->usMax_frame_length)) { // if there is less that a complete endpoint size in the circular buffer
                             if (usRemaining > (ptrUsbQueue->USB_queue.buffer_end - (tx_queue->ptrStart + tx_queue->usSent))) { // if the remaining message required a message wrap-around
-                                tx_queue->ptrStart = (ptrUsbQueue->USB_queue.QUEbuffer - tx_queue->usSent); // set the start porinter to compenate for the message wrap-around
+                                tx_queue->ptrStart = (ptrUsbQueue->USB_queue.QUEbuffer - tx_queue->usSent); // set the start pointer to compensate for the message wrap-around
                             }
                         }
                     }
@@ -1242,7 +1392,7 @@ extern int fnUSB_handle_frame(unsigned char ucType, unsigned char *ptrData, int 
             int iReturn;
             unsigned char ucFirstByte = GET_USB_DATA();
             unsigned char ucRequest;                                     // {1}
-            usb_endpoint_control->usCompleteMessage = 0;                 // a setup frame will cancel any existing transmissions so ensure the count is reset
+            usb_endpoint_control[iChannel]->usCompleteMessage = 0;       // a setup frame will cancel any existing transmissions so ensure the count is reset
             SET_CONTROL_DIRECTION(ptrUSB_HW, ucFirstByte);               // {2} prepare the direction of endpoint response
             switch ((ucFirstByte & ~STANDARD_DEVICE_TO_HOST)) {          // set up packet recipient and type, masking the direction
             case REQUEST_DEVICE_STANDARD:                                // 0x00 - bmRequestType.Recipient == Device, bmRequestType.Type == Standard
@@ -1264,7 +1414,7 @@ extern int fnUSB_handle_frame(unsigned char ucType, unsigned char *ptrData, int 
                             {
                                 unsigned char *ptrDecr;
                                 unsigned short usLength;
-                                ptrDecr = fnGetUSB_device_descriptor(&usLength); // the application must return the device descriptor
+                                ptrDecr = fnGetUSB_device_descriptor(&usLength, iChannel); // the application must return the device descriptor
                                 fnPrepareOutData(DEVICE_DATA  ptrDecr, usLength, wLength, 0, ptrUSB_HW); // send the device descriptor back to the host on the control endpoint
                             }
                             break;
@@ -1273,7 +1423,7 @@ extern int fnUSB_handle_frame(unsigned char ucType, unsigned char *ptrData, int 
                             {
                                 unsigned char *ptrDecr;
                                 unsigned short usLength;
-                                ptrDecr = fnGetUSB_config_descriptor(&usLength); // the application must return the configuration descriptor
+                                ptrDecr = fnGetUSB_config_descriptor(&usLength, iChannel); // the application must return the configuration descriptor
                                 fnPrepareOutData(DEVICE_DATA  ptrDecr, usLength, wLength, 0, ptrUSB_HW); // send the configuration descriptor back to the host on the control endpoint
                             }
                             break;
@@ -1292,7 +1442,7 @@ extern int fnUSB_handle_frame(unsigned char ucType, unsigned char *ptrData, int 
                                 }
                                 else {
                 #endif
-                                    ptrStart = fnGetUSB_string_entry((unsigned char)wValue, &usLength); // {33} get the corresponding string (passing its index [0..255])
+                                    ptrStart = fnGetUSB_string_entry((unsigned char)wValue, &usLength, iChannel); // {33} get the corresponding string (passing its index [0..255])
                                     if (ptrStart == 0) {                 // check for invalid string index receptions
                                         return STALL_ENDPOINT;           // stall endpoint - this happens, for example, when the String Microsoft OS string is requested
                                     }
@@ -1322,7 +1472,7 @@ extern int fnUSB_handle_frame(unsigned char ucType, unsigned char *ptrData, int 
                             break;
             #endif
                         default:
-                            if (usb_endpoint_control->usb_callback == 0) {
+                            if (usb_endpoint_control[iChannel]->usb_callback == 0) {
                                 return STALL_ENDPOINT;                   // stall on any unknown requests if no application support
                             }
             #if defined USB_FIFO                                         // {1}
@@ -1336,7 +1486,7 @@ extern int fnUSB_handle_frame(unsigned char ucType, unsigned char *ptrData, int 
                             *ptrData++ = (unsigned char)(wLength >> 8);
             #endif
                             CLEAR_SETUP(ptrUSB_HW);                      // {2}
-                            return (usb_endpoint_control->usb_callback((ptrData - 6), ptrUSB_HW->usLength, SETUP_DATA_RECEPTION)); // allow the USB application to handle any non-standard (or non-supported) requests
+                            return (usb_endpoint_control[iChannel]->usb_callback((ptrData - 6), ptrUSB_HW->usLength, SETUP_DATA_RECEPTION, iChannel)); // allow the USB application to handle any non-standard (or non-supported) requests
                         }
                     }
                     break;
@@ -1347,24 +1497,28 @@ extern int fnUSB_handle_frame(unsigned char ucType, unsigned char *ptrData, int 
                     return TERMINATE_ZERO_DATA;
 
                 case USB_REQUEST_SET_CONFIGURATION:                      // 0x09 - activate a configuration
-                    ucActiveConfiguration = GET_USB_DATA_NO_INC();       // save the active configuration
-                    if (fnSetUSBConfigState(USB_CONFIG_ACTIVATE, ucActiveConfiguration) != 0) {
-                        ucActiveConfiguration = 0;
+                    ucActiveConfiguration[iChannel] = GET_USB_DATA_NO_INC(); // save the active configuration
+                    if (fnSetUSBConfigState(USB_CONFIG_ACTIVATE, ucActiveConfiguration[iChannel], iChannel) != 0) {
+                        ucActiveConfiguration[iChannel] = 0;
                         return STALL_ENDPOINT;                           // invalid configuration so stall
                     }
                     VALIDATE_NEW_CONFIGURATION();                        // {16}
-                    fnUSB_message(E_USB_ACTIVATE_CONFIGURATION, ptrData, 1, usb_endpoint_control->event_task); // inform the task of successful activation of this configuration
+            #if (defined USB_HS_INTERFACE && defined USB_FS_INTERFACE) || (defined _iMX && (HSUSB_CONTROLLERS > 1))
+                    fnUSB_message((E_USB_ACTIVATE_CONFIGURATION + iChannel), ptrData, 1, usb_endpoint_control[iChannel]->event_task); // inform the task of successful activation of this configuration
+            #else
+                    fnUSB_message(E_USB_ACTIVATE_CONFIGURATION, ptrData, 1, usb_endpoint_control[0]->event_task); // inform the task of successful activation of this configuration
+            #endif
                     CLEAR_SETUP(ptrUSB_HW);                              // {2}
                     return TERMINATE_ZERO_DATA;
 
                 case USB_REQUEST_GET_CONFIGURATION:                      // 0x08 - answer with presently active configuration
                     CLEAR_SETUP(ptrUSB_HW);                              // {4}
-                    fnPrepareOutData(DEVICE_DATA  &ucActiveConfiguration, sizeof(ucActiveConfiguration), sizeof(ucActiveConfiguration), 0, ptrUSB_HW);
+                    fnPrepareOutData(DEVICE_DATA  &ucActiveConfiguration[iChannel], sizeof(ucActiveConfiguration[iChannel]), sizeof(ucActiveConfiguration[iChannel]), 0, ptrUSB_HW);
                     break;
 
                 case USB_REQUEST_GET_STATUS:                             // 0x00
                     CLEAR_SETUP(ptrUSB_HW);                              // {4}
-                    fnPrepareOutData(DEVICE_DATA  (unsigned char *)&usDeviceStatus, sizeof(usDeviceStatus), sizeof(usDeviceStatus), 0, ptrUSB_HW);
+                    fnPrepareOutData(DEVICE_DATA  (unsigned char *)&usDeviceStatus[iChannel], sizeof(usDeviceStatus[iChannel]), sizeof(usDeviceStatus[iChannel]), 0, ptrUSB_HW);
                     break;
 
               //case USB_REQUEST_CLEAR_FEATURE:                          // 0x01 - not supported
@@ -1372,7 +1526,7 @@ extern int fnUSB_handle_frame(unsigned char ucType, unsigned char *ptrData, int 
               //case USB_REQUEST_SET_DESCRIPTOR:                         // 0x07
               //case USB_REQUEST_SYNCH_FRAME:                            // 0x0c
                 default:
-                    if ((usb_endpoint_control->usb_callback) == 0) {
+                    if ((usb_endpoint_control[iChannel]->usb_callback) == 0) {
                         return STALL_ENDPOINT;                           // stall on any unknown requests if no application support
                     }
             #if defined USB_FIFO                                         // {1}
@@ -1381,7 +1535,7 @@ extern int fnUSB_handle_frame(unsigned char ucType, unsigned char *ptrData, int 
                     *ptrData++ = ucRequest;
             #endif
                     CLEAR_SETUP(ptrUSB_HW);                              // {2}
-                    return (usb_endpoint_control->usb_callback((ptrData - 2), ptrUSB_HW->usLength, SETUP_DATA_RECEPTION)); // allow the USB application to handle any non-standard (or non-supported) requests
+                    return (usb_endpoint_control[iChannel]->usb_callback((ptrData - 2), ptrUSB_HW->usLength, SETUP_DATA_RECEPTION, iChannel)); // allow the USB application to handle any non-standard (or non-supported) requests
                 }
                 break;
 
@@ -1389,19 +1543,19 @@ extern int fnUSB_handle_frame(unsigned char ucType, unsigned char *ptrData, int 
                 ucRequest = GET_USB_DATA();                              // {1}
                 switch (ucRequest) {                                     // bRequest
                 case USB_REQUEST_SET_INTERFACE:                          // 0x0b - set an alternative interface
-                    if (ucActiveConfiguration == 0) {
+                    if (ucActiveConfiguration[iChannel] == 0) {
                         return STALL_ENDPOINT;                           // stall if not configured
                     }
                     else {
                         unsigned short usReferences[2];
                         fnExtract(ptrData, (INDEX_INDEX | VALUE_INDEX), usReferences); // extract the interface and alternative interface from the request
-                        fnSetUSBInterfaceState(USB_INTERFACE_DEACTIVATE, (unsigned char)usReferences[1], 0xff); // deactivate all endpoints on this interface
-                        if (fnSetUSBInterfaceState(USB_INTERFACE_ACTIVATE, (unsigned char)usReferences[1], (unsigned char)usReferences[0]) != 0) { // activate this alternative interface, adjusting endpoint sizes where needed
+                        fnSetUSBInterfaceState(USB_INTERFACE_DEACTIVATE, (unsigned char)usReferences[1], 0xff, iChannel); // deactivate all endpoints on this interface
+                        if (fnSetUSBInterfaceState(USB_INTERFACE_ACTIVATE, (unsigned char)usReferences[1], (unsigned char)usReferences[0], iChannel) != 0) { // activate this alternative interface, adjusting endpoint sizes where needed
                             return STALL_ENDPOINT;                       // stall if alternative interface not valid
                         }
-            #if defined USE_USB_AUDIO
+            #if defined USE_USB_AUDIO || defined USE_HS_USB_AUDIO
                         else {
-                            fnUSB_message(E_USB_SET_INTERFACE, (unsigned char *)&usReferences, sizeof(usReferences), usb_endpoint_control->event_task);
+                            fnUSB_message((E_USB_SET_INTERFACE + iChannel), (unsigned char *)&usReferences, sizeof(usReferences), usb_endpoint_control[iChannel]->event_task);
                         }
             #endif
                     }
@@ -1409,14 +1563,14 @@ extern int fnUSB_handle_frame(unsigned char ucType, unsigned char *ptrData, int 
                     return TERMINATE_ZERO_DATA;
 
                 case USB_REQUEST_GET_INTERFACE:                          // 0x0a - request alternative interface
-                    if (ucActiveConfiguration == 0) {
+                    if (ucActiveConfiguration[iChannel] == 0) {
                         return STALL_ENDPOINT;                           // stall if not configured
                     }
                     else {
                         unsigned short alternative_interface;
                         const USB_INTERFACE_DESCRIPTOR *interface_descriptor;
                         fnExtract(ptrData, (INDEX_INDEX), &alternative_interface); // extract the interface and alternative interface from the request
-                        interface_descriptor = (const USB_INTERFACE_DESCRIPTOR *)fnSetUSBInterfaceState(USB_INTERFACE_ALTERNATE, (unsigned char)alternative_interface, 0); // get alternative interface
+                        interface_descriptor = (const USB_INTERFACE_DESCRIPTOR *)fnSetUSBInterfaceState(USB_INTERFACE_ALTERNATE, (unsigned char)alternative_interface, 0, iChannel); // get alternative interface
                         if (interface_descriptor == 0) {
                             return STALL_ENDPOINT;                       // stall if interface is not valid
                         }
@@ -1426,7 +1580,7 @@ extern int fnUSB_handle_frame(unsigned char ucType, unsigned char *ptrData, int 
                     break;
 
                 case USB_REQUEST_GET_STATUS:                             // 0x00 - get status of interface
-                    if (ucActiveConfiguration == 0) {                    // only allowed when configured
+                    if (ucActiveConfiguration[iChannel] == 0) {          // only allowed when configured
                         return STALL_ENDPOINT;
                     }
                     CLEAR_SETUP(ptrUSB_HW);                              // {4}
@@ -1434,7 +1588,7 @@ extern int fnUSB_handle_frame(unsigned char ucType, unsigned char *ptrData, int 
                     break;
 
                 default:
-                    if (usb_endpoint_control->usb_callback == 0) {
+                    if (usb_endpoint_control[iChannel]->usb_callback == 0) {
                         return STALL_ENDPOINT;                           // stall on any unknown requests if no applicatin support
                     }
             #if defined USB_FIFO                                         // {1}
@@ -1443,36 +1597,36 @@ extern int fnUSB_handle_frame(unsigned char ucType, unsigned char *ptrData, int 
                     *ptrData++ = ucRequest;
             #endif
                     CLEAR_SETUP(ptrUSB_HW);                              // {2}
-                    return (usb_endpoint_control->usb_callback((ptrData - 2), ptrUSB_HW->usLength, SETUP_DATA_RECEPTION)); // allow the USB application to handle any non-standard (or non-supported) requests
+                    return (usb_endpoint_control[iChannel]->usb_callback((ptrData - 2), ptrUSB_HW->usLength, SETUP_DATA_RECEPTION, iChannel)); // allow the USB application to handle any non-standard (or non-supported) requests
                 }
                 break;
 
             case REQUEST_ENDPOINT_STANDARD:                              // 0x02
                 ucRequest = GET_USB_DATA();                              // {1}
                 switch (ucRequest) {                                     // bRequest
-                case USB_REQUEST_CLEAR_FEATURE:                          // {13}                    
+                case USB_REQUEST_CLEAR_FEATURE:                          // {13}
                 case USB_REQUEST_GET_STATUS:                             // 0x00 - get status of endpoint
                     {
-                        USB_ENDPOINT *tx_queue = usb_endpoint_control;
+                        USB_ENDPOINT *tx_queue = usb_endpoint_control[iChannel];
                         unsigned short usEndpoint;
                         fnExtract(ptrData, (INDEX_INDEX), &usEndpoint);  // extract the endpoint from the request details
-                        if ((ucActiveConfiguration == 0) && (usEndpoint != 0)) { // only endpoint 0 allowed when not configured
+                        if ((ucActiveConfiguration[iChannel] == 0) && (usEndpoint != 0)) { // only endpoint 0 allowed when not configured
                             return STALL_ENDPOINT;
                         }
                         tx_queue += (usEndpoint & 0x1f);                 // {13}
                         CLEAR_SETUP(ptrUSB_HW);                          // {4}
                         if (ucRequest == USB_REQUEST_CLEAR_FEATURE) {    // {13}
-                            if (tx_queue->ucState & USB_ENDPOINT_STALLED) {
+                            if ((tx_queue->ucState & USB_ENDPOINT_STALLED) != 0) {
                                 tx_queue->ucState &= ~USB_ENDPOINT_STALLED;
-                                if ((usb_endpoint_control->usb_callback) != 0) {
+                                if ((usb_endpoint_control[iChannel]->usb_callback) != 0) {
                                     unsigned char ucEndpoint = (unsigned char)usEndpoint;
                                     fnUnhaltEndpoint(ucEndpoint);        // clear the stall state in the hardware
-                                    return (usb_endpoint_control->usb_callback(&ucEndpoint, 0, ENDPOINT_CLEARED)); // inform that the endpoint has been freed
+                                    return (usb_endpoint_control[iChannel]->usb_callback(&ucEndpoint, 0, ENDPOINT_CLEARED, iChannel)); // inform that the endpoint has been freed
                                 }                                
                             }
                             break;
                         }
-                        if (tx_queue->ucState & USB_ENDPOINT_STALLED) {
+                        if ((tx_queue->ucState & USB_ENDPOINT_STALLED) != 0) {
                             fnPrepareOutData(DEVICE_DATA  (unsigned char *)&usEndpointStalled, sizeof(usEndpointStalled), sizeof(usEndpointStalled), 0, ptrUSB_HW);
                         }
                         else {
@@ -1481,7 +1635,7 @@ extern int fnUSB_handle_frame(unsigned char ucType, unsigned char *ptrData, int 
                     }
                     break;              
                 default:
-                    if (usb_endpoint_control->usb_callback == 0) {
+                    if (usb_endpoint_control[iChannel]->usb_callback == 0) {
                         return STALL_ENDPOINT;                           // stall on any unknown requests if no application support
                     }
             #if defined USB_FIFO                                         // {1}
@@ -1490,7 +1644,7 @@ extern int fnUSB_handle_frame(unsigned char ucType, unsigned char *ptrData, int 
                     *ptrData++ = ucRequest;
             #endif
                     CLEAR_SETUP(ptrUSB_HW);                              // {2}
-                    return (usb_endpoint_control->usb_callback((ptrData - 2), 8, ENDPOINT_REQUEST_TYPE)); // allow the USB application to handle any non-standard (or non-supported) requests
+                    return (usb_endpoint_control[iChannel]->usb_callback((ptrData - 2), 8, ENDPOINT_REQUEST_TYPE, iChannel)); // allow the USB application to handle any non-standard (or non-supported) requests
                 }
                 break;
             #if defined MICROSOFT_OS_STRING_DESCRIPTOR
@@ -1520,7 +1674,7 @@ extern int fnUSB_handle_frame(unsigned char ucType, unsigned char *ptrData, int 
                 }
             #endif
             default:                                                     // let the application call back handle any class specific requests
-                if (usb_endpoint_control->usb_callback == 0) {
+                if (usb_endpoint_control[iChannel]->usb_callback == 0) {
                     return STALL_ENDPOINT;                               // stall on any unknown requests if no application support
                 }
             #if defined USB_FIFO && !defined MICROSOFT_OS_STRING_DESCRIPTOR // {1}
@@ -1529,76 +1683,84 @@ extern int fnUSB_handle_frame(unsigned char ucType, unsigned char *ptrData, int 
             #endif
                 CLEAR_SETUP(ptrUSB_HW);                                  // {2}
                 if (DIRECTION_IN()) {                                    // {30} if we are handling a class IN request
-                    prtUSBcontrolSetup = (USB_SETUP_HEADER *)(ptrData - 1); // set a pointer to the setup packet that will be valid during the application's handling
+                    prtUSBcontrolSetup[iChannel] = (USB_SETUP_HEADER *)(ptrData - 1); // set a pointer to the setup packet that will be valid during the application's handling
                 }
-                iReturn = usb_endpoint_control->usb_callback((ptrData - 1), ptrUSB_HW->usLength, SETUP_DATA_RECEPTION); // allow the USB application to handle any non-standard (or non-supported) requests
-                prtUSBcontrolSetup = 0;                                  // {30} invalidate the setup pointer after application handling has completed
+                iReturn = usb_endpoint_control[iChannel]->usb_callback((ptrData - 1), ptrUSB_HW->usLength, SETUP_DATA_RECEPTION, iChannel); // allow the USB application to handle any non-standard (or non-supported) requests
+                prtUSBcontrolSetup[iChannel] = 0;                        // {30} invalidate the setup pointer after application handling has completed
                 return iReturn;
             }
         }
         break;
 #endif
     case USB_CONTROL_OUT_FRAME:
+      //fnDebugMsg("O");
         if (ptrUSB_HW->usLength == 0) {                                  // a zero data packet status
+          //fnDebugMsg("0");
 #if defined USB_HOST_SUPPORT                                             // {29}
-            if ((iEndpoint == 0) && (ucRequestType != HOST_ENUMERATION_IDLE)) {
-                return fnHostEmumeration(iEndpoint, ZERO_DATA_TERMINATOR, ptrUSB_HW); // handle the enumeration process
+            if ((iEndpoint == 0) && (ucRequestType[iChannel] != HOST_ENUMERATION_IDLE) && (ucRequestType[iChannel] < HOST_ENUMERATION_CONFIGURED)) {
+              //fnDebugMsg("?");
+                return fnHostEnumeration(iEndpoint, ZERO_DATA_TERMINATOR, ptrUSB_HW); // handle the enumeration process
             }
 #endif
-            return (fnEndpointData(iEndpoint, ptrData, 0, STATUS_STAGE_RECEPTION, 0));
+          //fnDebugMsg("*");
+            return (fnEndpointData(iEndpoint, ptrData, 0, STATUS_STAGE_RECEPTION, ptrUSB_HW));
         }
+      //fnDebugMsg("1");
         // Fall through intentionally
         //
     case USB_OUT_FRAME:
-        return (fnEndpointData(iEndpoint, ptrData, ptrUSB_HW->usLength, OUT_DATA_RECEPTION, ptrUSB_HW->ptrRxDatBuffer));
+        return (fnEndpointData(iEndpoint, ptrData, ptrUSB_HW->usLength, OUT_DATA_RECEPTION, ptrUSB_HW));
 
     case USB_RESET_DETECTED:                                             // USB bus reset detected
         if (ptrUSB_HW->ucUSBAddress != 0) {                              // if we are past the address definition phase
-            fnInterruptMessage(usb_endpoint_control->event_task, EVENT_USB_RESET); // inform of the occurrence
+            fnInterruptMessage(usb_endpoint_control[iChannel]->event_task, (EVENT_USB_RESET + iChannel)); // inform of the occurrence
         }
-        fnSetUSBConfigState(USB_CONFIG_ACTIVATE, 0);                     // set zero configuration to deactivate all endpoint control structures
-        _SIM_USB(USB_SIM_RESET, 0, 0);                                   // simulate reset
+        fnSetUSBConfigState(USB_CONFIG_ACTIVATE, 0, iChannel);           // set zero configuration to deactivate all endpoint control structures
+        _SIM_USB(iChannel, USB_SIM_RESET, 0, 0);                         // simulate reset
         break;
 
     case USB_SUSPEND_DETECTED:
-        fnInterruptMessage(usb_endpoint_control->event_task, EVENT_USB_SUSPEND); // inform of the occurrence - it is up to the application to reduce power to conform to the specification if required
-        _SIM_USB(USB_SIM_SUSPEND, 0, 0);                                 // simulate reset
+        fnInterruptMessage(usb_endpoint_control[iChannel]->event_task, (EVENT_USB_SUSPEND + iChannel)); // inform of the occurrence - it is up to the application to reduce power to conform to the specification if required
+        _SIM_USB(iChannel, USB_SIM_SUSPEND, 0, 0);                       // simulate reset
         break;
     case USB_RESUME_DETECTED:
-        fnInterruptMessage(usb_endpoint_control->event_task, EVENT_USB_RESUME); // inform of the occurrence - the application can adjust power consumption accordingly
+        fnInterruptMessage(usb_endpoint_control[iChannel]->event_task, (EVENT_USB_RESUME + iChannel)); // inform of the occurrence - the application can adjust power consumption accordingly
         break;
     case USB_DATA_REPEAT:                                                // a repeated data reception occurs only when our ACK has been lost. This should be extremely rare.
         break;                                                           // we do nothing, except free the buffer - it could be counted if required
 #if defined USB_HOST_SUPPORT                                             // {29}
     case USB_DEVICE_DETECTED:                                            // device has been connected to the USB bus, reset has been completed and SOFs are being sent
-        ucRequestType = HOST_ENUMERATION_IDLE;                           // initialise host state on detection of device (bus reset has been executed)
+        ucRequestType[iChannel] = HOST_ENUMERATION_IDLE;                 // initialise host state on detection of device (bus reset has been executed)
+        // Fall through intentionally
+        //
     case USB_HOST_SOF:                                                   // start of frame event
-        return (fnHostEmumeration(iEndpoint, DEVICE_DETECTED, ptrUSB_HW)); // initiate host state-event-machine
+        return (fnHostEnumeration(iEndpoint, DEVICE_DETECTED, ptrUSB_HW)); // initiate host state-event-machine
     case USB_DEVICE_REMOVED:                                             // device has been removed from the bus
         {
-            USB_ENDPOINT *tx_queue = usb_endpoint_control;
+            USB_ENDPOINT *tx_queue = usb_endpoint_control[iChannel];
             tx_queue->usCompleteMessage = 0;                             // ensure that the transmitter queue is free
             tx_queue->ucFIFO_depth = 0;
-            fnInterruptMessage(usb_endpoint_control->event_task, EVENT_USB_REMOVAL);
-            ucRequestType = HOST_ENUMERATION_IDLE;
+            fnInterruptMessage(usb_endpoint_control[iChannel]->event_task, (EVENT_USB_REMOVAL + iChannel));
+            ucRequestType[iChannel] = HOST_ENUMERATION_IDLE;
+            _SIM_USB(iChannel, USB_SIM_RESET, 0, 0);
         }
         break;
     case USB_HOST_STALL_DETECTED:                                        // the host has detected a stall, which means that intervention is required to clear the stalled endpoint
         {
             unsigned char ucEndpoint = (unsigned char)iEndpoint;
-            fnUSB_message(E_USB_DEVICE_STALLED, &ucEndpoint, 1, usb_endpoint_control->event_task); // inform the owner task so that it can decide what to do
+            fnUSB_message((E_USB_DEVICE_STALLED + iChannel), &ucEndpoint, 1, usb_endpoint_control[iChannel]->event_task); // inform the owner task so that it can decide what to do
         }
         break;
     case USB_DEVICE_TIMEOUT:                                             // {35}
-        ucRequestType--;                                                 // set previous state
-        return (fnHostEmumeration(iEndpoint, 0, ptrUSB_HW));             // repeat previous setup request since there was no answer
+        ucRequestType[iChannel]--;                                       // set previous state
+        return (fnHostEnumeration(iEndpoint, 0, ptrUSB_HW));             // repeat previous setup request since there was no answer
     case USB_HOST_ACK_PID_DETECTED:                                      // error code 0
     case USB_HOST_NACK_PID_DETECTED:                                     // error code 1
     case USB_HOST_BUS_TIMEOUT_DETECTED:                                  // error code 2
     case USB_HOST_DATA_ERROR_DETECTED:                                   // error code 3
         {
             unsigned char ucErrorNumber = (unsigned char)((ucType - USB_HOST_ACK_PID_DETECTED) | (iEndpoint << 4));
-            fnUSB_message(E_USB_HOST_ERROR_REPORT, &ucErrorNumber, 1, usb_endpoint_control->event_task); // inform the owner task so that it can decide what to do
+            fnUSB_message(E_USB_HOST_ERROR_REPORT, &ucErrorNumber, 1, usb_endpoint_control[iChannel]->event_task); // inform the owner task so that it can decide what to do
         }
         break;
 #endif
@@ -1606,51 +1768,66 @@ extern int fnUSB_handle_frame(unsigned char ucType, unsigned char *ptrData, int 
     return BUFFER_CONSUMED;
 }
 
+
 // This is the generic OUT data handler
 //
-extern int fnEndpointData(int iEndpoint, unsigned char *ptrData, unsigned short usLength, int iControl, unsigned char **ptrNextBuffer)
+extern int fnEndpointData(int iEndpoint, unsigned char *ptrData, unsigned short usLength, int iControl, USB_HW *ptrUSB_HW)
 {
-    USB_ENDPOINT *usb_endpoint_queue = usb_endpoint_control;
+#if (defined USB_HS_INTERFACE && defined USB_FS_INTERFACE) || (defined _iMX && (HSUSB_CONTROLLERS > 1))
+    register int iChannel = ptrUSB_HW->ucController;
+#else
+    register int iChannel = 0;
+#endif
+    USB_ENDPOINT *usb_endpoint_queue = usb_endpoint_control[iChannel];
     USBQUE *ptrQueue;
     #if defined USB_HOST_SUPPORT                                         // {29}
     int iHostUserData = 0;
-    if ((iEndpoint == 0) && (ucRequestType != HOST_ENUMERATION_IDLE)) {  // data on control endpoint 0 and the generic USB host is expecting a response
+    if ((iEndpoint == 0) && (ucRequestType[iChannel] != HOST_ENUMERATION_IDLE)) { // data on control endpoint 0 and the generic USB host is expecting a response
         unsigned char *ptrResponseDestination;
-        switch (ucRequestType) {
+        switch (ucRequestType[iChannel]) {
         case HOST_ENUMERATION_STANDARD_DEVICE_DESCRIPTOR:                // receiving data for standard device descriptor
-            ptrResponseDestination = (unsigned char *)&device_descriptor;// the storage location for this descriptor
+            ptrResponseDestination = (unsigned char *)&device_descriptor[iChannel];// the storage location for this descriptor
             break;
         case HOST_ENUMERATION_CONFIGURATION_DESCRIPTOR:                  // receiving data for configuration descriptor
-            ptrResponseDestination = (unsigned char *)&config_descriptor;// the storage location for this descriptor
+            ptrResponseDestination = (unsigned char *)&config_descriptor[iChannel]; // the storage location for this descriptor
             break;
+        #if defined USB_HOST_HUB
+        case HOST_ENUMERATION_SET_CONFIGURATION:                         // control endpoint data can be received in this state when enumerating a hub
+        #endif
         case HOST_ENUMERATION_CONFIGURED:                                // user requested data being received
+            if ((usLength == 0) && (fnUnstallAck(ptrUSB_HW) != 0)) {
+                return BUFFER_CONSUMED;                                  // zero data terminator for an unstall endpoint setup received
+            }
             iHostUserData = 1;
             goto _user_data_reception;                                   // the data is for the user
         #if defined USB_STRING_OPTION
         case HOST_ENUMERATION_REQUEST_STRING:                            // receiving strings
-            ptrResponseDestination = (unsigned char *)&ucStringList[iStringReference]; // the storage location for this string data
+            ptrResponseDestination = (unsigned char *)&ucStringList[iStringReference[iChannel]]; // the storage location for this string data
             break;
         #endif
+        case HOST_ENUMERATION_CONFIGURED_IDLE:
+            fnUnstallAck(ptrUSB_HW);                                     // only a confirmation of an uninstalled endpoint is expected in this state
+            return BUFFER_CONSUMED;
         default:
         #if defined _WINDOWS        	
             _EXCEPTION("Unexpected data reception on endpoint 0!!");
         #endif            
             return BUFFER_CONSUMED;                                      // this will not happen normally
         }
-        if (usLength > ucRequestLengthRemaining) {                       // cut down over-sized responses
-            usLength = ucRequestLengthRemaining;
+        if (usLength > usRequestLengthRemaining[iChannel]) {             // cut down over-sized responses
+            usLength = usRequestLengthRemaining[iChannel];
         }
-        uMemcpy((ptrResponseDestination + ucRequestingReceived), ptrData, usLength); // copy received device descriptor content
-        ucRequestLengthRemaining -= usLength;
-        if ((ucRequestLengthRemaining == 0) || (usLength != device_descriptor.bMaxPacketSize0)) { // if information is complete
+        uMemcpy((ptrResponseDestination + usRequestingReceived[iChannel]), ptrData, usLength); // copy received device descriptor content
+        usRequestLengthRemaining[iChannel] -= usLength;
+        if ((usRequestLengthRemaining[iChannel] == 0) || (usLength != device_descriptor[iChannel].bMaxPacketSize0)) { // if information is complete
             int iReturn;
-            ucRequestingReceived += usLength;
-            iReturn = fnHostEmumeration(iEndpoint, DATA_RECEPTION_COMPLETE, 0); // handle the enumeration process
-            ucRequestingReceived = 0;
+            usRequestingReceived[iChannel] += usLength;
+            iReturn = fnHostEnumeration(iEndpoint, DATA_RECEPTION_COMPLETE, ptrUSB_HW); // handle the enumeration process
+            usRequestingReceived[iChannel] = 0;
             return iReturn;
         }
         else {
-            ucRequestingReceived += usLength;
+            usRequestingReceived[iChannel] += usLength;
         }
         return INITIATE_IN_TOKEN;                                        // reception buffer has been consumed but we expect more
     }
@@ -1669,13 +1846,13 @@ _user_data_reception:
         else {
             ptrQueue->new_chars++;
         }
-        if (ptrNextBuffer != 0) {
+        if (ptrUSB_HW->ptrRxDatBuffer != 0) {
             ptrNextPut = ptrQueue->put;
             ptrNextPut += usb_endpoint_queue->usMax_frame_length;
             if (ptrNextPut >= ptrQueue->buffer_end) {
                 ptrNextPut = ptrQueue->QUEbuffer;
             }
-            *ptrNextBuffer = ptrNextPut;                                 // alter the driver's next buffer pointer
+            *ptrUSB_HW->ptrRxDatBuffer = ptrNextPut;                     // alter the driver's next buffer pointer
         }
     }
     if (usb_endpoint_queue->usb_callback != 0) {                         // if there is a callback defined to handle this endpoint
@@ -1683,15 +1860,12 @@ _user_data_reception:
     #if defined USB_FIFO                                                 // {1}
         ptrData = fnReadUSB_FIFO(ptrData, usLength, 0);                  // extract data from FIFO input to an intermediate working buffer
     #endif       
-        iReturn = usb_endpoint_queue->usb_callback(ptrData, usLength, iControl); // call the callback
+        iReturn = usb_endpoint_queue->usb_callback(ptrData, usLength, iControl, iChannel); // call the callback
         if (iReturn != TRANSPARENT_CALLBACK) {                           // {12} allow use of buffered info if the callback doesn't want to handle the processing
     #if defined USB_HOST_SUPPORT                                         // {29}
             if (iHostUserData != 0) {                                    // host user data has been received
                 if (TERMINATE_ZERO_DATA == iReturn) {                    // all data has been received
-                    return fnHostEmumeration(iEndpoint, ZERO_DATA_TERMINATOR, 0); // handle the host state-event-machine
-                }
-                else {
-                    return INITIATE_IN_TOKEN;                            // more data is required
+                    return fnHostEnumeration(iEndpoint, ZERO_DATA_TERMINATOR, ptrUSB_HW); // handle the host state-event-machine
                 }
             }
     #endif
@@ -1751,6 +1925,11 @@ _user_data_reception:
     }
     if ((ptrQueue->USB_queue.buf_length - ptrQueue->USB_queue.chars) >= usLength) { // is there enough space to put this data packet in to the input buffer?
         fnFillBuf(&ptrQueue->USB_queue, ptrData, (QUEUE_TRANSFER)usLength); // copy to input buffer
+        #if defined USB_HOST_SUPPORT
+        if ((usb_endpoint_queue->usParameters & USB_ENDPOINT_AUTO_IN) != 0) { // {40} if the IN polling should be restarted automatically
+            return INITIATE_IN_TOKEN;
+        }
+        #endif
     }
     else {
         usb_endpoint_queue->ucState |= USB_ENDPOINT_BLOCKED;             // mark that this endpoint is presently blocked
@@ -1762,30 +1941,31 @@ _user_data_reception:
 
 // Called to activated an endpoint, calling the hardware activation after setting endpoint variables
 //
-static void fnActivateEndpoint(const USB_ENDPOINT_DESCRIPTOR *ptrEndpointDesc, unsigned short usMaxLength)
+static void fnActivateEndpoint(const USB_ENDPOINT_DESCRIPTOR *ptrEndpointDesc, unsigned short usMaxLength, int iChannel)
 {
     unsigned short usEndpointLength = ptrEndpointDesc->wMaxPacketSize[0];
     unsigned char ucEndpointRef = (ptrEndpointDesc->bEndpointAddress & 0x7f);
     unsigned char ucEndpointType = (ptrEndpointDesc->bmAttributes | (ptrEndpointDesc->bEndpointAddress & IN_ENDPOINT));
-    USB_ENDPOINT *usb_endpoint_queue = (usb_endpoint_control + ucEndpointRef);
+    USB_ENDPOINT *usb_endpoint_queue = (usb_endpoint_control[iChannel] + ucEndpointRef);
+
     usEndpointLength |= (ptrEndpointDesc->wMaxPacketSize[1] << 8);
-    fnActivateHWEndpoint(ucEndpointType, ucEndpointRef, usEndpointLength, usMaxLength, usb_endpoint_queue); // activate the hardware based on the details
+    fnActivateHWEndpoint(ucEndpointType, USB_CONTROLLER_ENDPOINT(ucEndpointRef, iChannel), usEndpointLength, usMaxLength, usb_endpoint_queue); // activate the hardware based on the details
     if (ptrEndpointDesc->bmAttributes == ENDPOINT_CONTROL) {
         usb_endpoint_queue->ucState = (USB_ENDPOINT_ACTIVE | USB_CONTROL_ENDPOINT);
     }
     else {
-        usb_endpoint_queue->ucState = (USB_ENDPOINT_ACTIVE | usb_endpoint_queue->usParameters); // {11} set active state plus any extra parameters
+        usb_endpoint_queue->ucState = (unsigned char)(USB_ENDPOINT_ACTIVE | usb_endpoint_queue->usParameters); // {11} set active state plus any extra parameters
     }
 }
 
 // Called to deactivate an endpoint, calling hardware deactivation as well as resetting variables and flushing queues
 //
-static void fnDeactivateEndpoint(const USB_ENDPOINT_DESCRIPTOR *ptrEndpointDesc)
+static void fnDeactivateEndpoint(const USB_ENDPOINT_DESCRIPTOR *ptrEndpointDesc, int iChannel)
 {
     unsigned char ucEndpointRef = (ptrEndpointDesc->bEndpointAddress & 0x7f);
-    USB_ENDPOINT *usb_endpoint_queue = (usb_endpoint_control + ucEndpointRef);
+    USB_ENDPOINT *usb_endpoint_queue = (usb_endpoint_control[iChannel] + ucEndpointRef);
     USBQUE *ptrUsbQueue = (USBQUE *)(usb_endpoint_queue->ptrEndpointInCtr);
-    fnActivateHWEndpoint(ENDPOINT_DISABLE, ucEndpointRef, 0, 0, 0);      // deactivate the hardware
+    fnActivateHWEndpoint(ENDPOINT_DISABLE, USB_CONTROLLER_ENDPOINT(ucEndpointRef, iChannel), 0, 0, 0); // deactivate the hardware
     usb_endpoint_queue->ucState = 0;                                     // return to addressed state
     usb_endpoint_queue->usCompleteMessage = 0;                           // stop any transmission
     usb_endpoint_queue->ucFIFO_depth = 0;                                // {7}
@@ -1802,7 +1982,7 @@ static void fnDeactivateEndpoint(const USB_ENDPOINT_DESCRIPTOR *ptrEndpointDesc)
 
 // Routine for building a temporary queue of endpoints and their required buffer characteristics
 //
-static void fnAdd_to_EndpointList(USB_ENDPOINT_DESCRIPTOR_ENTRIES *ptrEndpoints, const USB_ENDPOINT_DESCRIPTOR *ptrEndpointdesc, int iAdd)
+static int fnAdd_to_EndpointList(USB_ENDPOINT_DESCRIPTOR_ENTRIES *ptrEndpoints, const USB_ENDPOINT_DESCRIPTOR *ptrEndpointdesc, int iAdd)
 {
     while (ptrEndpoints->ptrActiveEndpoint != 0) {                       // search through present list
     #if defined USB_SIMPLEX_ENDPOINTS || defined SUPPORT_USB_SIMPLEX_HOST_ENDPOINTS
@@ -1813,7 +1993,7 @@ static void fnAdd_to_EndpointList(USB_ENDPOINT_DESCRIPTOR_ENTRIES *ptrEndpoints,
                 if (usMaxLength > ptrEndpoints->usMaxEndpointLength) {
                      ptrEndpoints->usMaxEndpointLength = usMaxLength;    // enter maximum length on this endpoint
                 }
-                return;
+                return 0;
             }
         }
     #else
@@ -1825,30 +2005,38 @@ static void fnAdd_to_EndpointList(USB_ENDPOINT_DESCRIPTOR_ENTRIES *ptrEndpoints,
                      ptrEndpoints->usMaxEndpointLength = usMaxLength;    // enter maximum length on this endpoint
                 }
             }
-            return;                                                      // entry already exists so complete
+            return 0;                                                    // entry already exists so complete
         }
     #endif
         ptrEndpoints++;
     }
     if (iAdd != 0) {                                                     // new entry to be added
         ptrEndpoints->ptrActiveEndpoint = ptrEndpointdesc;
+        return 1;
     }
+    return 0;
 }
 
 // Collect endpoint information based on the configuration descriptor, configuration, interface and alternative interface
 //
-static void *fnConfigInformation(unsigned char ucConfig, unsigned char ucInterface, unsigned char ucAlternativeInterface, USB_ENDPOINT_DESCRIPTOR_ENTRIES *ptrEndpoints)
+static void *fnConfigInformation(unsigned char ucConfig, unsigned char ucInterface, unsigned char ucAlternativeInterface, USB_ENDPOINT_DESCRIPTOR_ENTRIES *ptrEndpoints, int iChannel)
 {
     int iConfigNotFound = 1;
     int iConfigValid = 0;
+    int iSummedEndpoints = 0;
     unsigned short usLength;
-    unsigned char *ptrDesc = (unsigned char *)fnGetUSB_config_descriptor(&usLength); // request the configuration descriptor and activate all endpoints belonging to the configuration
+    unsigned char *ptrDesc = (unsigned char *)fnGetUSB_config_descriptor(&usLength, iChannel); // request the configuration descriptor and activate all endpoints belonging to the configuration
     unsigned char ucThisLength;                                          // the individual descriptor length
-
+    unsigned long ulIgnoreInterfaces = 0;                                // accept all interfaces by default
+    unsigned char ucPresentInterface = 0;
 #if defined USB_HOST_SUPPORT                                             // {29}
-    if (ptrDesc == 0) {
-        ptrDesc = config_descriptor;
-        usLength = ucConfigDescriptorLength;
+    int iHost = 0;
+    if (ptrDesc == 0) {                                                  // if there is no config descriptor we are operating as a host
+        ptrDesc = config_descriptor[iChannel];                           // set the pointer to the config descriptor that has been received from the device
+        usLength = usConfigDescriptorLength[iChannel];
+    #if defined USB_HOST_INTERFACE_FILTER                                // {38}
+        ulIgnoreInterfaces = fnGetUSB_InterfaceFilter(iChannel);
+    #endif
     }
 #endif
 
@@ -1859,7 +2047,7 @@ static void *fnConfigInformation(unsigned char ucConfig, unsigned char ucInterfa
         case DESCRIPTOR_TYPE_CONFIGURATION:
             {
                 USB_CONFIGURATION_DESCRIPTOR *config_desc = (USB_CONFIGURATION_DESCRIPTOR *)ptrDesc;
-                if ((ucConfig == 0) | (config_desc->bConfigurationValue == ucConfig)) { // is this the configuration to be activated?
+                if ((ucConfig == 0) || (config_desc->bConfigurationValue == ucConfig)) { // is this the configuration to be activated?
                     iConfigValid = 1;                                    // this configuration should be counted
                     iConfigNotFound = 0;                                 // the searched configuration has been found
                 }
@@ -1873,6 +2061,7 @@ static void *fnConfigInformation(unsigned char ucConfig, unsigned char ucInterfa
                 if (iConfigValid != 0) {
                     USB_INTERFACE_DESCRIPTOR *interface_descriptor = (USB_INTERFACE_DESCRIPTOR *)ptrDesc;
                     if ((ucInterface == 0xff) || (interface_descriptor->bInterfaceNumber == ucInterface)) { // interface match
+                        ucPresentInterface = interface_descriptor->bInterfaceNumber;
                         if ((ucAlternativeInterface == 0xff) || (interface_descriptor->bAlternateSetting == ucAlternativeInterface)) {
                             iConfigValid = 2;                            // endpoints belonging to this interface should be counted
                             if (ptrEndpoints == 0) {                     // request for alternative interface
@@ -1888,7 +2077,18 @@ static void *fnConfigInformation(unsigned char ucConfig, unsigned char ucInterfa
             break;
         case DESCRIPTOR_TYPE_ENDPOINT:                                   // endpoint type
             if ((iConfigValid != 0) && (ptrEndpoints != 0)) {            // add endpoint
-                fnAdd_to_EndpointList(ptrEndpoints, (USB_ENDPOINT_DESCRIPTOR *)ptrDesc, (iConfigValid == 2));
+                if (((1 << ucPresentInterface) & ulIgnoreInterfaces) != 0) { // check interface filter
+                    break;                                               // ignore endpoints belonging to this interface
+                }
+#if defined USB_HOST_SUPPORT
+                if (iHost != 0) {
+                    if (iSummedEndpoints >= (NUMBER_OF_USB_ENDPOINTS - 1)) { // if our USB controller can't handle the number of enpoints we stop and make this visible so that endpoint filtering can be enabled
+                        fnDebugMsg("Physical endpoint count reached!\r\n");
+                        return (void *)ptrEndpoints;                         // maximum possible endpoints belonging to this configuration have been collected
+                    }
+                }
+#endif
+                iSummedEndpoints += fnAdd_to_EndpointList(ptrEndpoints, (USB_ENDPOINT_DESCRIPTOR *)ptrDesc, (iConfigValid == 2));
             }
             break;
         default:                                                         // ignore the content of other types
@@ -1905,62 +2105,67 @@ static void *fnConfigInformation(unsigned char ucConfig, unsigned char ucInterfa
 
 // Change state of a specified configuration
 //
-extern int fnSetUSBConfigState(int iCommand, unsigned char ucConfig)
+extern int fnSetUSBConfigState(int iCommand, unsigned char ucConfig, int iChannel)
 {
     int iEndpoints = 0;
+    unsigned char ucAlternativeInterface = 0;
     #if defined USB_SIMPLEX_ENDPOINTS || defined SUPPORT_USB_SIMPLEX_HOST_ENDPOINTS
     USB_ENDPOINT_DESCRIPTOR_ENTRIES EndpointList[NUMBER_OF_USB_ENDPOINTS * 2]; // temporary list of endpoints belonging to this particular configuration
     #else
     USB_ENDPOINT_DESCRIPTOR_ENTRIES EndpointList[NUMBER_OF_USB_ENDPOINTS]; // temporary list of endpoints belonging to this particular configuration
     #endif
-    uMemset(EndpointList, 0x00, sizeof(EndpointList));
 
-#if defined USE_USB_AUDIO && defined USE_USB_CDC // test (count all endpoints - also when they don't match the interface
-    if (fnConfigInformation(ucConfig, 0xff, 0xff, EndpointList) == 0) {  // collect a list of endpoints belonging to all default interfaces of this configuration
-        return 1;                                                        // not a valid configuration
-    }
-#else
-    if (fnConfigInformation(ucConfig, 0xff, 0, EndpointList) == 0) {     // collect a list of endpoints belonging to all default interfaces of this configuration
-        return 1;                                                        // not a valid configuration
-    }
-#endif
-#if defined USE_USB_AUDIO && !defined USE_USB_CDC
-// Test
-//
-if (EndpointList[iEndpoints].ptrActiveEndpoint == 0) { // no endpoints found to try alternative interface
-    if (fnConfigInformation(ucConfig, 0xff, 1, EndpointList) == 0) {     // collect a list of endpoints belonging to all default interfaces of this configuration
-        return 1;                                                        // not a valid configuration
-    }
-}
-#endif
+    while (ucAlternativeInterface < 2) {
+        uMemset(EndpointList, 0x00, sizeof(EndpointList));
+        iEndpoints = 0;
 
-    while (EndpointList[iEndpoints].ptrActiveEndpoint != 0) {            // for each endpoint to be activated
-        switch (iCommand) {
-        case USB_CONFIG_ACTIVATE:
-            if (ucConfig == 0) {
-                fnDeactivateEndpoint(EndpointList[iEndpoints].ptrActiveEndpoint); // deactivate the endpoint
-            }
-            else {
-                fnActivateEndpoint(EndpointList[iEndpoints].ptrActiveEndpoint, EndpointList[iEndpoints].usMaxEndpointLength); // configure and activate the endpoint for operation
-            }
-            break;
-
-        default:                                                         // USB_DEVICE_SUSPEND / USB_DEVICE_RESUME
-            {
-                USB_ENDPOINT *usb_endpoint_queue = usb_endpoint_control;
-                usb_endpoint_queue += (EndpointList[iEndpoints].ptrActiveEndpoint->bEndpointAddress & 0x7f);
-                if (USB_DEVICE_SUSPEND == iCommand) {
-                    usb_endpoint_queue->ucState |= USB_ENDPOINT_SUSPENDED;
-                    usb_endpoint_queue->ucState &= ~USB_ENDPOINT_ACTIVE;
-                }
-                else {                                               // USB_DEVICE_RESUME
-                    usb_endpoint_queue->ucState &= ~USB_ENDPOINT_SUSPENDED;
-                    usb_endpoint_queue->ucState |= USB_ENDPOINT_ACTIVE;
-                }
-            }
-            break;
+#if defined USE_USB_AUDIO_ && defined USE_USB_CDC                        // test (count all endpoints - also when they don't match the interface)
+        if (fnConfigInformation(ucConfig, 0xff, 0xff, EndpointList, iChannel) == 0) { // collect a list of endpoints belonging to all default interfaces of this configuration
+            return 1;                                                    // not a valid configuration
         }
-        iEndpoints++;
+#else
+        if (fnConfigInformation(ucConfig, 0xff, ucAlternativeInterface, EndpointList, iChannel) == 0) { // collect a list of endpoints belonging to all default interfaces of this configuration
+            return 1;                                                    // not a valid configuration
+        }
+#endif
+#if defined USE_USB_AUDIO_ && !defined USE_USB_CDC
+        // Test
+        //
+        if (EndpointList[iEndpoints].ptrActiveEndpoint == 0) {           // no endpoints found so try alternative interface
+            if (fnConfigInformation(ucConfig, 0xff, 1, EndpointList, iChannel) == 0) { // collect a list of endpoints belonging to all default interfaces of this configuration
+                return 1;                                                // not a valid configuration
+            }
+        }
+#endif
+        while (EndpointList[iEndpoints].ptrActiveEndpoint != 0) {        // for each endpoint to be activated
+            switch (iCommand) {
+            case USB_CONFIG_ACTIVATE:
+                if (ucConfig == 0) {
+                    fnDeactivateEndpoint(EndpointList[iEndpoints].ptrActiveEndpoint, iChannel); // deactivate the endpoint
+                }
+                else {
+                    fnActivateEndpoint(EndpointList[iEndpoints].ptrActiveEndpoint, EndpointList[iEndpoints].usMaxEndpointLength, iChannel); // configure and activate the endpoint for operation
+                }
+                break;
+
+            default:                                                     // USB_DEVICE_SUSPEND / USB_DEVICE_RESUME
+                {
+                    USB_ENDPOINT *usb_endpoint_queue = usb_endpoint_control[iChannel];
+                    usb_endpoint_queue += (EndpointList[iEndpoints].ptrActiveEndpoint->bEndpointAddress & 0x7f);
+                    if (USB_DEVICE_SUSPEND == iCommand) {
+                        usb_endpoint_queue->ucState |= USB_ENDPOINT_SUSPENDED;
+                        usb_endpoint_queue->ucState &= ~USB_ENDPOINT_ACTIVE;
+                    }
+                    else {                                               // USB_DEVICE_RESUME
+                        usb_endpoint_queue->ucState &= ~USB_ENDPOINT_SUSPENDED;
+                        usb_endpoint_queue->ucState |= USB_ENDPOINT_ACTIVE;
+                    }
+                }
+                break;
+            }
+            iEndpoints++;
+        }
+        ucAlternativeInterface++;
     }
     return 0;
 }
@@ -1968,10 +2173,10 @@ if (EndpointList[iEndpoints].ptrActiveEndpoint == 0) { // no endpoints found to 
 #if defined USB_DEVICE_SUPPORT
 // Change state of specified interface
 //
-static void *fnSetUSBInterfaceState(int iCommand, unsigned char ucInterface, unsigned char ucAlternativeInterface)
+static void *fnSetUSBInterfaceState(int iCommand, unsigned char ucInterface, unsigned char ucAlternativeInterface, int iChannel)
 {
     if (USB_INTERFACE_ALTERNATE == iCommand) {
-        return (fnConfigInformation(ucActiveConfiguration, ucInterface, 1, 0));
+        return (fnConfigInformation(ucActiveConfiguration[iChannel], ucInterface, 1, 0, iChannel));
     }
     else {
         int iEndpoint = 0;
@@ -1984,19 +2189,19 @@ static void *fnSetUSBInterfaceState(int iCommand, unsigned char ucInterface, uns
 
         switch (iCommand) {
         case USB_INTERFACE_DEACTIVATE:                                   // deactivate the specified interface
-            fnConfigInformation(ucActiveConfiguration, ucInterface, 0xff, EndpointList); // get a list of endpoints belonging to this main interface and deactivate them all
+            fnConfigInformation(ucActiveConfiguration[iChannel], ucInterface, 0xff, EndpointList, iChannel); // get a list of endpoints belonging to this main interface and deactivate them all
             while (EndpointList[iEndpoint].ptrActiveEndpoint != 0) {
-                fnDeactivateEndpoint(EndpointList[iEndpoint].ptrActiveEndpoint); // deactivate the endpoint
+                fnDeactivateEndpoint(EndpointList[iEndpoint].ptrActiveEndpoint, iChannel); // deactivate the endpoint
                 iEndpoint++;
             }
             break;
 
         case USB_INTERFACE_ACTIVATE:                                     // activate the alternative interface
-            if (fnConfigInformation(ucActiveConfiguration, ucInterface, ucAlternativeInterface, EndpointList) == 0) { // get a list of endpoints belonging to this alternative interface and activate them all
+            if (fnConfigInformation(ucActiveConfiguration[iChannel], ucInterface, ucAlternativeInterface, EndpointList, iChannel) == 0) { // get a list of endpoints belonging to this alternative interface and activate them all
                 return (void *)1;                                        // the alternative interface does not exist
             }
             while (EndpointList[iEndpoint].ptrActiveEndpoint != 0) {
-                fnActivateEndpoint(EndpointList[iEndpoint].ptrActiveEndpoint, 0); // activate the endpoint
+                fnActivateEndpoint(EndpointList[iEndpoint].ptrActiveEndpoint, 0, iChannel); // activate the endpoint
                 iEndpoint++;
             }
             break;
@@ -2008,19 +2213,133 @@ static void *fnSetUSBInterfaceState(int iCommand, unsigned char ucInterface, uns
 
 // Called to set a new endpoint state (for example when the hardware driver needs to flag stalled state)
 //
-extern void fnSetUSBEndpointState(int iEndpoint, unsigned char ucStateSet)
+extern void fnSetUSBEndpointState(int iEndpoint, unsigned char ucStateSet, int iChannel)
 {
-    USB_ENDPOINT *usb_endpoint_queue = (usb_endpoint_control + iEndpoint);
+    USB_ENDPOINT *usb_endpoint_queue = (usb_endpoint_control[iChannel] + iEndpoint);
     usb_endpoint_queue->ucState |= ucStateSet;                           // {14}
 }
 
 // Called to get the reference to the IN endpoint belonging to an IN/OUT pair
 //
-extern int fnGetPairedIN(int iEndpoint_OUT)                              // {16}
+extern int fnGetPairedIN(int iEndpoint_OUT, int iChannel)                // {16}
 {
-    USB_ENDPOINT *usb_endpoint_queue = usb_endpoint_control;
+    USB_ENDPOINT *usb_endpoint_queue = usb_endpoint_control[iChannel];
     usb_endpoint_queue += iEndpoint_OUT;
     return usb_endpoint_queue->ucPaired_IN;
 }
 
+#if defined USB_HOST_SUPPORT
+extern void fnShowEndpoint(unsigned char ucEndpointReference)
+{
+    if ((ucEndpointReference & IN_ENDPOINT) != 0) {
+        fnDebugMsg("IN");
+    }
+    else {
+        fnDebugMsg("OUT");
+    }
+    fnDebugMsg(" EP-");
+    fnDebugDec((ucEndpointReference & ~(IN_ENDPOINT)), WITH_CR_LF);      // display the endpoint number
+}
+
+// Extract and optionally display endpint details
+//
+extern void fnDisplayEndpoint(USB_ENDPOINT_DESCRIPTOR *ptr_endpoint_desc, USB_ENDPOINT_INFO *ptrEndpointInfo, unsigned char ucHostSpeed, int iDebugOut)
+{
+    CHAR cEP_details[64];
+    CHAR *ptrBuf = cEP_details;
+    unsigned short usEndpointLength = (ptr_endpoint_desc->wMaxPacketSize[0] | (ptr_endpoint_desc->wMaxPacketSize[1] << 8));
+    unsigned char ucEndpointNumber = (ptr_endpoint_desc->bEndpointAddress & ~(IN_ENDPOINT));
+    ptrEndpointInfo->ucEndpointNumber = ucEndpointNumber;
+    ptrEndpointInfo->usEndpointSize = (usEndpointLength & 0x07ff);
+    ptrEndpointInfo->ucEndpointType = ptr_endpoint_desc->bmAttributes;
+    ptrBuf = fnBufferDec(ucEndpointNumber, 0, ptrBuf);
+    ptrBuf = uStrcpy(ptrBuf, " = ");
+    switch (ptr_endpoint_desc->bmAttributes) {
+    case ENDPOINT_BULK:
+        ptrBuf = uStrcpy(ptrBuf, "BULK");
+        if ((ptr_endpoint_desc->bEndpointAddress & IN_ENDPOINT) != 0) {
+            ptrBuf = uStrcpy(ptrBuf, " IN");
+            ptrEndpointInfo->ucEndpointType = ENDPOINT_BULK_IN;
+        }
+        else {
+            ptrBuf = uStrcpy(ptrBuf, " OUT");
+            ptrEndpointInfo->ucEndpointType = ENDPOINT_BULK_OUT;
+        }
+        break;
+    case ENDPOINT_INTERRUPT:
+        ptrBuf = uStrcpy(ptrBuf, "INTERRUPT");
+        break;
+    case ENDPOINT_ISOCHRONOUS:
+        ptrBuf = uStrcpy(ptrBuf, "ISOCHRONOUS");
+        break;
+    case ENDPOINT_CONTROL:
+        ptrBuf = uStrcpy(ptrBuf, "CONTROL");
+        break;
+    default:
+        *ptrBuf = '?';
+        break;
+    }
+    if (*ptrBuf != '?') {                                                // if a valid endpoint type
+        ptrBuf = uStrcpy(ptrBuf, " with size");
+        ptrBuf = fnBufferDec(ptrEndpointInfo->usEndpointSize, WITH_SPACE, ptrBuf);
+        if ((ENDPOINT_INTERRUPT == ptr_endpoint_desc->bmAttributes) || (ENDPOINT_ISOCHRONOUS == ptr_endpoint_desc->bmAttributes)) {
+    #if defined USB_HS_INTERFACE
+            switch (usEndpointLength & 0x1800) {
+            case 0x0800:                                                 // two transactions per microframe
+                ptrBuf = uStrcpy(ptrBuf, " [2 transactions]");
+                ptrEndpointInfo->ucTransactions = 2;
+                break;
+            case 0x1000:                                                 // three transactions per microframe
+                ptrBuf = uStrcpy(ptrBuf, " [3 transactions]");
+                ptrEndpointInfo->ucTransactions = 3;
+                break;
+            default:
+                ptrEndpointInfo->ucTransactions = 1;
+                break;
+            }
+    #endif
+            ptrBuf = uStrcpy(ptrBuf, " (interval =");
+    #if defined USB_HS_INTERFACE
+            if ((ucHostSpeed & USB_EVENT_INTERFACE_MASK) == EVENT_USB_DETECT_HS) {
+                unsigned long ulRate = 125;                              // fastest polling rate (unit 125us)
+                unsigned char ucValue = ptr_endpoint_desc->bInterval;
+                if (ucValue > 16) {
+                    ucValue = 16;
+                }
+                while (ucValue-- > 1) {
+                    ulRate *= 2;
+                }
+                ptrEndpointInfo->pollingRate_us = ulRate;
+                ptrEndpointInfo->pollingRate = (DELAY_LIMIT)((ulRate * SEC) / 8000000);
+                if (ulRate >= 1000) {                                    // if not less that ms
+                    ulRate /= 1000;                                      // convert from us to ms
+                    ptrBuf = fnBufferDec(ulRate, WITH_SPACE, ptrBuf);
+                    ptrBuf = uStrcpy(ptrBuf, "ms)");
+                }
+                else {
+                    ptrBuf = fnBufferDec(ulRate, WITH_SPACE, ptrBuf);
+                    ptrBuf = uStrcpy(ptrBuf, "us)");
+                }
+            }
+            else {
+    #endif
+                ptrBuf = fnBufferDec(ptr_endpoint_desc->bInterval, WITH_SPACE, ptrBuf);
+                ptrBuf = uStrcpy(ptrBuf, "ms)");
+                ptrEndpointInfo->pollingRate = (DELAY_LIMIT)((ptr_endpoint_desc->bInterval * SEC) / 1000);
+                ptrEndpointInfo->pollingRate_us = (ptr_endpoint_desc->bInterval * 1000);
+    #if defined USB_HS_INTERFACE
+            }
+    #endif
+        }
+    }
+    else {
+        ptrEndpointInfo->ucEndpointType = ENDPOINT_INVALID;
+        ++ptrBuf;
+    }
+    ptrBuf = uStrcpy(ptrBuf, "\r\n");
+    if (iDebugOut != 0) {
+        fnDebugMsg(cEP_details);
+    }
+}
+#endif
 #endif

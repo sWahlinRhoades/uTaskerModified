@@ -11,7 +11,7 @@
     File:      ip_utils.c
     Project:   Single Chip Embedded Internet
     ---------------------------------------------------------------------
-    Copyright (C) M.J.Butcher Consulting 2004..2016
+    Copyright (C) M.J.Butcher Consulting 2004..2020
     *********************************************************************
     01.03.2007 Add file name termination when ? found. This is useful when sending files in html text where this identifies the end of a name.
     26.05.2007 Improve MIME type search                                  {2}
@@ -21,8 +21,9 @@
     05.02.2011 Allow uStrEquiv() to be used with project define STR_EQUIV_ON {6}
     02.04.2012 Modify return pointer from fnStrIPV6() for compatibility with fnStrIP() {7}
     14.06.2012 Add IPV6_STRING_ROUTINES option                           {8}
-    18.07.2014 Modify fnStrIP() to allow any demimite dto terminate IP address fields {9}
+    18.07.2014 Modify fnStrIP() to allow any delimiter to terminate IP address fields {9}
     20.11.2014 Add trailing zero to IPv6 addresses ending with multiple zeroes {10}
+    10.08.2018 Move uStrEquiv() to Driver.c
 
 */
 
@@ -36,7 +37,7 @@
     #define _fnBufferDec(x, y, z) fnDebugDec(x, y, z)                    // original decimal string routine
 #endif
 
-#if defined ETH_INTERFACE || defined USB_CDC_RNDIS
+#if defined ETH_INTERFACE || defined USB_CDC_RNDIS || defined USE_PPP
 // Convert an input string to a MAC address
 //
 extern CHAR *fnSetMAC(CHAR *ptr_input, unsigned char *ptrMac)
@@ -49,8 +50,8 @@ extern CHAR *fnSetMAC(CHAR *ptr_input, unsigned char *ptrMac)
     for (i = 0; i < MAC_LENGTH; i++) {
         iLoop = 0;
         while ((*ptr_input >= '0') 
-    #if MAC_DELIMITER >= '0'
-            && !(*ptr_input == MAC_DELIMITER)
+    #if defined MAC_DELIMITER && MAC_DELIMITER >= '0'
+            && ((*ptr_input == MAC_DELIMITER) == 0)
     #endif
             ) {
             ptr_input++;
@@ -116,39 +117,11 @@ extern CHAR *fnIPStr(unsigned char *ptrIP, CHAR *cStr)
 {
     int i = IPV4_LENGTH;
 
-    while (--i) {
+    while (--i != 0) {
         cStr = _fnBufferDec(*ptrIP++, NO_TERMINATOR, cStr);
         *cStr++ = '.';
     }
     return (_fnBufferDec(*ptrIP, WITH_TERMINATOR, cStr));
-}
-#endif
-
-#if defined USE_IP || defined INTERNAL_USER_FILES || defined STR_EQUIV_ON// {3}{6}
-// Tries to match a string, where lower and upper case are treated as equal
-//
-extern unsigned short uStrEquiv(const CHAR *cInput, const CHAR *cMatch)
-{
-    unsigned short usMatch = 0;
-    CHAR cReference;
-
-    while ((cReference = *cMatch) != 0) {
-        if (*cInput != cReference) {
-            if (cReference >= 'a') {                                     // verify that it is not the case which doesn't match
-                cReference -= ('a' - 'A');                               // try capital match
-            }
-            else if (cReference >= 'A') {
-                cReference += ('a' - 'A');                               // try small match
-            }
-            if (*cInput != cReference) {                                 // last chance
-                return 0;
-            }
-        }
-        cMatch++;
-        cInput++;
-        usMatch++;
-    }
-    return usMatch;                                                      // return the length of match
 }
 #endif
 
@@ -170,13 +143,13 @@ extern unsigned char fnGetMimeType(CHAR *ptrFileName)
         ptrFileName++;
     }                                                                    // search to the end of the file name
 
-    if (iExtensionFound) {
+    if (iExtensionFound != 0) {
         while (*ptrFileName != '.') {
             ptrFileName--;
         }
 
         while (ucMimeType < UNKNOWN_MIME) {
-            if (uStrEquiv((ptrFileName+1), cMimeTable[ucMimeType])) {
+            if (uStrEquiv((ptrFileName + 1), cMimeTable[ucMimeType])) {
                 return ucMimeType;
             }
             ucMimeType++;

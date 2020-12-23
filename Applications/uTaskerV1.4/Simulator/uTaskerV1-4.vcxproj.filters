@@ -5,10 +5,6 @@
       <UniqueIdentifier>{60118a63-8179-4bb1-a7a2-22808811feb1}</UniqueIdentifier>
       <Extensions>cpp;c;cxx;rc;def;r;odl;idl;hpj;bat</Extensions>
     </Filter>
-    <Filter Include="Header Files">
-      <UniqueIdentifier>{865310c7-9fb4-4963-99a9-edfe2256535b}</UniqueIdentifier>
-      <Extensions>h;hpp;hxx;hm;inl</Extensions>
-    </Filter>
     <Filter Include="uTasker">
       <UniqueIdentifier>{e8a54d7b-111a-443f-8153-1bd3c3c4ab14}</UniqueIdentifier>
     </Filter>
@@ -21,42 +17,120 @@
     <Filter Include="uTasker\utFAT">
       <UniqueIdentifier>{94222f42-f598-4ea2-ae83-848e469de872}</UniqueIdentifier>
     </Filter>
-    <Filter Include="TCP/IP">
-      <UniqueIdentifier>{ab5acb6e-4bb5-4b4c-ac5d-49a33cf47c84}</UniqueIdentifier>
-    </Filter>
     <Filter Include="Hardware">
       <UniqueIdentifier>{f06902ea-ba4b-4953-8595-1597b66e0da9}</UniqueIdentifier>
     </Filter>
     <Filter Include="WinSim">
       <UniqueIdentifier>{c7e80ac7-2792-4dcb-b005-d5320437cf8c}</UniqueIdentifier>
     </Filter>
-    <Filter Include="WinSim\SIMKinetis">
-      <UniqueIdentifier>{b656e3d0-d378-472e-9a0f-b11a778266a4}</UniqueIdentifier>
-    </Filter>
     <Filter Include="Hardware\Kinetis">
       <UniqueIdentifier>{d14f3859-65c4-43f3-945f-ee1de218884a}</UniqueIdentifier>
     </Filter>
-    <Filter Include="TCP/IP\OpensSSL">
-      <UniqueIdentifier>{30adbaed-b00a-4034-9282-bd2a67e74a8f}</UniqueIdentifier>
-      <ParseFiles>true</ParseFiles>
+    <Filter Include="TCP/IP">
+      <UniqueIdentifier>{ab5acb6e-4bb5-4b4c-ac5d-49a33cf47c84}</UniqueIdentifier>
     </Filter>
-    <Filter Include="Source Files\Resource Files">
+    <Filter Include="Hardware\Kinetis\Crypto">
+      <UniqueIdentifier>{6a282eab-ef7a-4345-a6bd-d07924c86da0}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="TCP/IP\mbedtls">
+      <UniqueIdentifier>{5e2e57d6-05ad-417c-9710-0b90c686fba0}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="WinSim\Resource Files">
       <UniqueIdentifier>{0e548044-0a8b-43a6-8623-c4a89e23df2a}</UniqueIdentifier>
     </Filter>
-    <Filter Include="Hardware\STM32">
-      <UniqueIdentifier>{8fe930ee-97bc-4e87-a85c-55d1eb59c661}</UniqueIdentifier>
+    <Filter Include="TCP/IP\wolfSSL">
+      <UniqueIdentifier>{c29fc182-06e4-4eee-be7d-bd464953f3b1}</UniqueIdentifier>
     </Filter>
-    <Filter Include="WinSim\SIMstm32">
-      <UniqueIdentifier>{e91847d0-8a16-4eb0-b4c7-9b7d42554f41}</UniqueIdentifier>
+    <Filter Include="TCP/IP\OpenSSL">
+      <UniqueIdentifier>{2e7c4f70-af0c-4e3d-b1d8-0535fa3674af}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="TCP/IP\PPP">
+      <UniqueIdentifier>{ce5bdfad-5223-4050-b57e-62db7a870bba}</UniqueIdentifier>
     </Filter>
     <Filter Include="FreeRTOS">
-      <UniqueIdentifier>{59b513ad-e0c9-4fd6-a056-f84b90d57682}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="FreeRTOS\include">
-      <UniqueIdentifier>{2c026f73-0f04-475d-bfa4-e15bc0461c37}</UniqueIdentifier>
+      <UniqueIdentifier>{f8c09f92-81a5-4362-bf32-419e0d842a35}</UniqueIdentifier>
     </Filter>
     <Filter Include="FreeRTOS\portable">
-      <UniqueIdentifier>{c9b371ef-4671-4328-82ba-b50865b668a0}</UniqueIdentifier>
+      <UniqueIdentifier>{f9c79aa4-bf51-431e-a092-839e0b5f0663}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="FreeRTOS\include">
+      <UniqueIdentifier>{a094671f-7e9c-4069-80f2-8f4ee4e5f64b}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Header Files">
+      <UniqueIdentifier>{865310c7-9fb4-4963-99a9-edfe2256535b}</UniqueIdentifier>
+      <Extensions>h;hpp;hxx;hm;inl</Extensions>
+    </Filter>
+    <Filter Include="TCP/IP\MQTTS">
+      <UniqueIdentifier>{ced666b3-7ade-4966-ba7d-85be5cab6d29}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="TCP/IP\MQTTS\include">
+      <UniqueIdentifier>{f56219c5-9ce2-42a3-aafe-788082b65b34}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Hardware\STM32">
+      <UniqueIdentifier>{cdb282b0-0b68-42f8-8612-a9d7cc0b91bb}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="WinSim\SIMstm32">
+      <UniqueIdentifier>{c60e26b6-9db7-4261-8ace-e2f2597c0ac0}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Hardware\Luminary">
+      <UniqueIdentifier>{33218b4d-59e2-4c35-a926-00dc284040ff}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Hardware\LPC2XXX">
+      <UniqueIdentifier>{2a92aab8-6cba-4768-9af2-b19e2b3bea26}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Hardware\LPC17XX">
+      <UniqueIdentifier>{e2693bb2-e87d-471c-b37d-0e12b9ec0753}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Hardware\AVR32">
+      <UniqueIdentifier>{e21507c9-c60c-4da3-8df7-0a724dcfdb2e}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Hardware\SAM7">
+      <UniqueIdentifier>{cb0b4524-0ec6-4e28-b480-97c8219fbba4}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="WinSim\SIMluminary">
+      <UniqueIdentifier>{93c2770d-0c7f-4f4e-bff7-d2993e9e70fe}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Hardware\NE64">
+      <UniqueIdentifier>{9c9b7be1-f6c6-49e0-a876-5c6e3de4d262}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="WinSim\SIMcoldfire">
+      <UniqueIdentifier>{6cd5e5a3-42c8-4dff-8b20-04f6a6d158d0}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="WinSim\SIMAVR32">
+      <UniqueIdentifier>{89c5d190-ed51-4ecf-86a9-d99b5782da2b}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="uTasker\uCANopen">
+      <UniqueIdentifier>{555c5ba6-cb34-40fb-8532-fdc0da65992d}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Hardware\SPI_Memory">
+      <UniqueIdentifier>{5ca32d1d-912b-4e12-b7f8-71b3812e252e}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="WinSim\SIMKinetis">
+      <UniqueIdentifier>{b656e3d0-d378-472e-9a0f-b11a778266a4}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Hardware\STR91XF">
+      <UniqueIdentifier>{7eab2062-9567-41d7-a978-083fb29d53df}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Hardware\iMX_RT">
+      <UniqueIdentifier>{77f6c67c-bc28-4264-9744-f33e6e90ca52}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="WinSim\SIMiMX_RT">
+      <UniqueIdentifier>{04f5b6f8-e8aa-4f97-86be-87fe03722bdb}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Hardware\Coldfire">
+      <UniqueIdentifier>{9ba0eade-8d4c-4267-8d28-85cfce82aeab}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="WinSim\SIMlpc2xxx">
+      <UniqueIdentifier>{4afd99e9-d248-4578-a16b-8aca7cda879a}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="TCP/IP\WiFi">
+      <UniqueIdentifier>{b2c8f4ee-b285-467c-882e-3e876e7efe47}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="TCP/IP\WiFi\ATWINC15">
+      <UniqueIdentifier>{c7222def-5cb2-4a8e-ace9-5aca130afe38}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Hardware\CMSIS_DSP">
+      <UniqueIdentifier>{71bd96e7-a06a-40a7-a47a-fe3c17ab5252}</UniqueIdentifier>
     </Filter>
   </ItemGroup>
   <ItemGroup>
@@ -88,9 +162,6 @@
       <Filter>uTasker</Filter>
     </ClCompile>
     <ClCompile Include="..\..\..\uTasker\GlobalTimer.c">
-      <Filter>uTasker</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\uTasker\iic_drv.c">
       <Filter>uTasker</Filter>
     </ClCompile>
     <ClCompile Include="..\..\..\uTasker\low_power.c">
@@ -237,1905 +308,6 @@
     <ClCompile Include="..\..\..\stack\igmp.c">
       <Filter>TCP/IP</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\x509\x509_err.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\x509v3\v3err.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\ui\ui_err.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\ts\ts_err.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\stack\stack.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\ssl\ssl_err2.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\ssl\ssl_err.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\rsa\rsa_err.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\rand\rand_err.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\pkcs7\pkcs7err.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\pkcs12\pk12err.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\pem\pem_err.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\o_init.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\ocsp\ocsp_err.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\objects\obj_lib.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\objects\obj_err.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\objects\obj_dat.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\mem_dbg.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\mem_clr.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\mem.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\lhash\lhash.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\ex_data.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\evp\evp_err.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\err\err_all.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\err\err.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\engine\eng_err.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\ec\ec_err.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\ecdsa\ecs_err.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\ecdh\ech_err.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\dso\dso_err.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\dsa\dsa_err.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\dh\dh_err.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\cryptlib.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\cpt_err.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\conf\conf_err.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\comp\comp_err.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\cms\cms_err.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\bio\b_print.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\buffer\buf_str.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\buffer\buf_err.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\bio\bss_file.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\bn\bn_word.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\bn\bn_shift.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\bn\bn_print.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\bn\bn_lib.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\bn\bn_err.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\bn\bn_asm.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\bio\bio_lib.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\bio\bio_err.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\asn1\a_object.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\asn1\asn1_lib.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\asn1\asn1_err.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\ssl\ssl_algs.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\ssl\ssl_ciph.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\evp\m_ecdsa.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\ecdsa\ecs_vrf.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\ssl\ssl_lib.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\ecdsa\ecs_lib.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\ecdsa\ecs_ossl.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\engine\eng_init.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\ec\ec_key.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\engine\tb_ecdsa.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\asn1\a_int.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\ec\ec_lib.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\bn\bn_ctx.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\bn\bn_gcd.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\bn\bn_mul.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\bn\bn_add.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\bn\bn_div.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\bn\bn_mod.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\bn\bn_sqr.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\bn\bn_exp.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\bn\bn_recp.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\bn\bn_mont.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\bn\bn_rand.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\rand\rand_lib.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\ecdsa\ecs_sign.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\ec\ec_curve.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\ec\ec_mult.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\engine\eng_lib.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\engine\tb_asnmth.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\engine\tb_pkmeth.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\engine\eng_list.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\engine\eng_table.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\x509\x509_lu.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\ssl\ssl_cert.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\x509\x509_cmp.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\rsa\rsa_crpt.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\x509\x509_vfy.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\bn\bn_blind.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\evp\c_allc.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\ssl\ssl_sess.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\x509\x509cset.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\evp\p_lib.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\evp\evp_lib.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\comp\comp_lib.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\x509\x509_d2.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\pem\pem_lib.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\x509\x509_txt.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\ssl\t1_lib.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\x509v3\v3_purp.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\evp\e_aes.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\ssl\t1_enc.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\ssl\t1_reneg.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\hmac\hmac.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\ssl\s3_lib.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\modes\gcm128.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\x509\x509_vpm.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\ssl\tls_srp.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\srp\srp_lib.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\x509\x509type.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\ssl\s3_both.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\ssl\d1_srtp.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\ssl\s3_enc.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\evp\evp_enc.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\evp\digest.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\evp\names.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\evp\m_sigver.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\evp\pmeth_gn.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\evp\e_null.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\evp\m_sha1.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\asn1\ameth_lib.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\ssl\s3_pkt.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\ssl\s3_cbc.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\evp\encode.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\evp\m_md5.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\evp\e_xcbc_d.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\evp\pmeth_fn.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\dh\dh_ameth.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\dh\dh_key.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\des\set_key.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\evp\pmeth_lib.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\evp\e_aes_cbc_hmac_sha256.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\engine\eng_pkey.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\ssl\s23_meth.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\ssl\s23_lib.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\rsa\rsa_asn1.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\bio\bss_sock.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\bio\bss_mem.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\ssl\t1_ext.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\bio\bf_buff.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\ssl\s2_meth.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\ssl\s2_pkt.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\ssl\s2_lib.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\ssl\s2_srvr.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\ssl\s23_srvr.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\ssl\s2_clnt.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\ssl\s2_enc.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\ssl\ssl_rsa.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\srp\srp_vfy.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\conf\conf_mod.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\buffer\buffer.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\evp\e_des3.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\ssl\t1_meth.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\ssl\s3_clnt.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\ssl\s3_srvr.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\dh\dh_check.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\x509\x_all.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\evp\m_dss1.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\ssl\d1_both.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\ssl\d1_srvr.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\ecdh\ech_key.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\ssl\s23_clnt.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\ec\ec_oct.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\evp\p_verify.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\evp\p_sign.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\comp\c_zlib.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\ssl\d1_clnt.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\ocsp\ocsp_asn.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\ssl\d1_lib.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\rsa\rsa_ameth.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\dsa\dsa_pmeth.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\ec\ec2_oct.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\conf\conf_lib.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\conf\conf_api.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\dsa\dsa_ameth.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\ec\ec_ameth.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\cmac\cm_ameth.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\hmac\hm_ameth.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\dsa\dsa_asn1.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\cmac\cmac.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\rsa\rsa_lib.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\bn\bn_prime.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\conf\conf_def.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\ecdh\ech_lib.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\objects\obj_xref.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\objects\o_names.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\x509v3\v3_crld.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\dso\dso_lib.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\rsa\rsa_pmeth.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\modes\cbc128.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\ssl\d1_pkt.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\rsa\rsa_pss.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\asn1\a_d2i_fp.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\bn\bn_gf2m.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\rsa\rsa_oaep.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\dh\dh_pmeth.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\asn1\t_pkey.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\asn1\x_pubkey.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\ssl\s23_pkt.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\cmac\cm_pmeth.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\pqueue\pqueue.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\txt_db\txt_db.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\ssl\t1_srvr.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\ssl\s3_meth.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\ssl\t1_clnt.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\x509v3\v3_utl.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\asn1\tasn_dec.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\asn1\i2d_pr.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\asn1\a_digest.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\asn1\d2i_pr.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\asn1\a_verify.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\x509\x509_trs.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\asn1\a_sign.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\asn1\a_i2d_fp.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\asn1\x_algor.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\ocsp\ocsp_ht.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\x509v3\pcy_tree.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\asn1\x_crl.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\x509v3\v3_genn.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\x509\x509_ext.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\x509\x509_v3.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\asn1\a_utctm.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\asn1\a_gentm.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\asn1\a_time.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\x509v3\v3_ncons.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\x509v3\v3_lib.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\x509\by_file.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\asn1\tasn_enc.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\x509\x509_def.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\dsa\dsa_lib.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\asn1\a_strex.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\x509v3\v3_ocsp.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\asn1\x_x509.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\aes\aes_misc.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\asn1\a_type.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\x509v3\v3_pcons.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\x509v3\v3_extku.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\x509v3\v3_int.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\x509v3\v3_enum.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\x509v3\v3_info.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\asn1\t_x509.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\x509v3\v3_alt.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\aes\aes_core.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\x509v3\v3_pmaps.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\x509v3\v3_scts.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\x509v3\v3_pci.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\bio\b_dump.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\x509v3\v3_pku.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\x509v3\v3_sxnet.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\x509v3\v3_akey.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\x509v3\v3_bitst.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\x509v3\v3_cpols.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\x509v3\v3_conf.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\x509v3\v3_bcons.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\x509v3\v3_skey.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\x509v3\v3_ia5.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\x509v3\pcy_data.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\evp\evp_key.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\aes\aes_cbc.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\hmac\hm_pmeth.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\modes\xts128.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\cms\cms_sd.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\dh\dh_lib.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\modes\ctr128.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\ui\ui_lib.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\modes\ccm128.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\evp\e_old.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\evp\e_aes_cbc_hmac_sha1.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\o_time.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\x509\x509name.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\ec\ec_pmeth.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\asn1\p8_pkey.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\asn1\a_enum.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\cms\cms_kari.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\engine\tb_cipher.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\asn1\a_bitstr.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\x509\x509_req.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\x509\x509_att.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\asn1\a_mbstr.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\rsa\rsa_sign.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\cms\cms_lib.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\asn1\a_utf8.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\asn1\asn1_par.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\evp\evp_pkey.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\asn1\tasn_utl.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\asn1\t_x509a.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\x509v3\pcy_cache.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\err\err_prn.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\dsa\dsa_vrf.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\asn1\asn1_gen.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\evp\bio_md.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\asn1\a_dup.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\asn1\a_strnid.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\ec\ec_asn1.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\bio\bss_null.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\asn1\a_bool.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\asn1\a_bytes.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\asn1\a_octet.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\asn1\a_print.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\asn1\a_set.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\asn1\asn_mime.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\asn1\asn_moid.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\asn1\asn_pack.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\asn1\bio_asn1.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\asn1\bio_ndef.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\asn1\d2i_pu.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\asn1\evp_asn1.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\asn1\f_enum.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\asn1\f_int.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\asn1\f_string.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\asn1\i2d_pu.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\asn1\n_pkey.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\asn1\nsseq.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\asn1\p5_pbe.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\asn1\p5_pbev2.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\asn1\t_bitst.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\asn1\t_crl.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\asn1\t_req.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\asn1\t_spki.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\asn1\tasn_fre.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\asn1\tasn_new.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\asn1\tasn_prn.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\asn1\tasn_typ.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\asn1\x_attrib.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\asn1\x_bignum.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\asn1\x_exten.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\asn1\x_info.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\asn1\x_long.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\asn1\x_name.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\asn1\x_nx509.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\asn1\x_pkey.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\asn1\x_req.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\asn1\x_sig.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\asn1\x_spki.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\asn1\x_val.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\asn1\x_x509a.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\evp\bio_b64.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\evp\bio_enc.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\evp\bio_ok.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\evp\c_all.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\evp\c_alld.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\evp\e_bf.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\evp\e_camellia.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\evp\e_cast.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\evp\e_des.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\evp\e_idea.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\evp\e_rc2.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\evp\e_rc4.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\evp\e_rc4_hmac_md5.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\evp\e_rc5.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\evp\e_seed.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\evp\evp_acnf.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\evp\evp_cnf.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\evp\evp_pbe.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\evp\m_dss.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\evp\m_md2.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\evp\m_md4.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\evp\m_mdc2.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\evp\m_null.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\evp\m_ripemd.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\evp\m_sha.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\evp\m_wp.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\evp\openbsd_hw.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\evp\p_dec.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\evp\p_enc.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\evp\p_open.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\evp\p_seal.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\evp\p5_crpt.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\evp\p5_crpt2.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\x509v3\pcy_lib.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\x509v3\pcy_map.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\x509v3\pcy_node.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\x509v3\v3_addr.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\x509v3\v3_akeya.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\x509v3\v3_asid.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\x509v3\v3_pcia.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\x509v3\v3_prn.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\x509\x509_obj.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\des\cbc_cksm.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\des\cbc_enc.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\des\cbc3_enc.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\des\cfb_enc.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\des\cfb64ede.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\des\cfb64enc.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\des\des_old.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\des\des_old2.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\des\ecb_enc.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\des\ecb3_enc.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\des\ede_cbcm_enc.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\des\enc_read.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\des\enc_writ.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\des\fcrypt.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\des\fcrypt_b.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\des\ofb_enc.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\des\ofb64ede.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\des\ofb64enc.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\des\pcbc_enc.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\des\qud_cksm.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\des\rand_key.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\des\read2pwd.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\des\rpc_enc.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\des\str2key.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\des\xcbc_enc.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\bf\bf_cfb64.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\bf\bf_enc.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\bf\bf_ofb64.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\bf\bf_skey.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\des\des_enc.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\md5\md5_dgst.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\md5\md5_one.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\cms\cms_asn1.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\cms\cms_att.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\cms\cms_cd.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\cms\cms_dd.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\cms\cms_enc.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\cms\cms_env.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\cms\cms_ess.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\cms\cms_io.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\cms\cms_pwri.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\cms\cms_smime.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\seed\seed.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\seed\seed_cbc.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\seed\seed_cfb.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\seed\seed_ecb.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\seed\seed_ofb.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\idea\i_cbc.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\idea\i_cfb64.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\idea\i_ecb.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\idea\i_ofb64.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\idea\i_skey.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\dh\dh_asn1.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\dh\dh_depr.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\dh\dh_gen.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\dh\dh_kdf.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\dh\dh_prn.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\dh\dh_rfc5114.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\bf\bf_ecb.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\md4\md4_dgst.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\md4\md4_one.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\sha\sha_dgst.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\sha\sha_one.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\sha\sha1_one.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\sha\sha1dgst.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\sha\sha256.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\sha\sha512.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\engine\eng_all.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\engine\eng_cnf.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\engine\eng_cryptodev.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\engine\eng_ctrl.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\engine\eng_dyn.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\engine\eng_fat.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\engine\eng_openssl.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\engine\eng_rdrand.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\engine\eng_rsax.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\engine\tb_dh.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\engine\tb_digest.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\engine\tb_dsa.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\engine\tb_ecdh.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\engine\tb_rand.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\engine\tb_rsa.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\engine\tb_store.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\engines\ccgost\e_gost_err.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\engines\ccgost\gost_ameth.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\engines\ccgost\gost_asn1.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\engines\ccgost\gost_crypt.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\engines\ccgost\gost_ctl.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\engines\ccgost\gost_eng.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\engines\ccgost\gost_keywrap.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\engines\ccgost\gost_md.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\engines\ccgost\gost_params.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\engines\ccgost\gost_pmeth.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\engines\ccgost\gost_sign.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\engines\ccgost\gost89.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\engines\ccgost\gost94_keyx.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\engines\ccgost\gost2001.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\engines\ccgost\gost2001_keyx.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\engines\ccgost\gosthash.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\engines\e_nuron.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\engines\e_padlock.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\engines\e_4758cca.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\engines\e_4758cca_err.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\engines\e_aep.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\engines\e_aep_err.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\engines\e_atalla.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\engines\e_atalla_err.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\engines\e_capi_err.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\engines\e_chil.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\engines\e_chil_err.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\engines\e_cswift.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\engines\e_cswift_err.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\engines\e_nuron_err.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\engines\e_sureware.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\engines\e_sureware_err.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\engines\e_ubsec.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\engines\e_ubsec_err.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\pem\pem_all.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\pem\pem_info.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\pem\pem_oth.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\pem\pem_pk8.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\pem\pem_pkey.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\pem\pem_sign.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\pem\pem_xaux.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\pem\pvkfmt.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\whrlpool\wp_block.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\whrlpool\wp_dgst.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\x509\by_dir.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\x509\x509_r2x.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\x509\x509_set.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\x509\x509rset.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\x509\x509spki.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\rsa\rsa_chk.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\rsa\rsa_depr.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\rsa\rsa_eay.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\rsa\rsa_gen.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\rsa\rsa_none.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\rsa\rsa_null.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\rsa\rsa_pk1.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\rsa\rsa_prn.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\rsa\rsa_saos.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\rsa\rsa_ssl.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\rsa\rsa_x931.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\ui\ui_compat.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\ui\ui_openssl.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\ui\ui_util.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\pkcs7\bio_pk7.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\pkcs7\pk7_asn1.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\pkcs7\pk7_attr.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\pkcs7\pk7_dgst.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\pkcs7\pk7_doit.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\pkcs7\pk7_enc.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\pkcs7\pk7_lib.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\pkcs7\pk7_mime.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\pkcs7\pk7_smime.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\pkcs12\p12_add.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\pkcs12\p12_asn.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\pkcs12\p12_attr.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\pkcs12\p12_crpt.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\pkcs12\p12_crt.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\pkcs12\p12_decr.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\pkcs12\p12_init.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\pkcs12\p12_key.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\pkcs12\p12_kiss.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\pkcs12\p12_mutl.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\pkcs12\p12_npas.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\pkcs12\p12_p8d.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\pkcs12\p12_p8e.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\pkcs12\p12_utl.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\dsa\dsa_depr.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\dsa\dsa_key.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\dsa\dsa_ossl.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\dsa\dsa_prn.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\dsa\dsa_sign.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\dsa\dsa_gen.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\aes\aes_cfb.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\aes\aes_ctr.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\aes\aes_ecb.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\aes\aes_ige.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\aes\aes_ofb.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\aes\aes_wrap.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\modes\cfb128.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\modes\cts128.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\modes\ofb128.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\modes\wrap128.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\rand\md_rand.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\rand\rand_egd.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\rand\rand_nw.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\rand\rand_os2.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\rand\rand_unix.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\rand\rand_vms.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\rand\rand_win.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\rand\randfile.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\bn\bn_const.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\bn\bn_depr.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\bn\bn_exp2.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\bn\bn_kron.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\bn\bn_mpi.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\bn\bn_nist.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\bn\bn_sqrt.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\bn\bn_x931p.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\bn\vms-helper.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\dso\dso_openssl.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\dso\dso_null.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\ripemd\rmd_dgst.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\ripemd\rmd_one.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\mdc2\mdc2_one.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\mdc2\mdc2dgst.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\ec\ec_check.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\ec\ec_cvt.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\ec\ec_print.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\ec\ec2_mult.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\ec\ec2_smpl.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\ec\eck_prn.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\ec\ecp_mont.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\ec\ecp_nist.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\ec\ecp_nistp224.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\ec\ecp_nistp256.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\ec\ecp_nistp521.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\ec\ecp_nistputil.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\ec\ecp_oct.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\ec\ecp_smpl.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\cast\c_cfb64.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\cast\c_ecb.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\cast\c_enc.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\cast\c_ofb64.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\cast\c_skey.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\ecdh\ech_kdf.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\ecdh\ech_ossl.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\uid.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\conf\conf_mall.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\conf\conf_sap.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\ecdsa\ecs_asn1.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\engines\e_capi.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\ssl\bio_ssl.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\ssl\d1_meth.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\ssl\kssl.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\ssl\ssl_asn1.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\ssl\ssl_conf.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\ssl\ssl_stat.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\ssl\ssl_txt.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\ssl\ssl_utst.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\ssl\t1_trce.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\bio\bss_conn.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\bio\b_sock.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\bio\bf_lbuf.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\bio\bf_nbio.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\bio\bf_null.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\bio\bio_cb.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\bio\bss_acpt.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\bio\bss_bio.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\bio\bss_dgram.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\bio\bss_fd.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\..\stack\openssl\crypto\bio\bss_log.c">
-      <Filter>TCP/IP\OpensSSL</Filter>
-    </ClCompile>
     <ClCompile Include="..\..\..\uTasker\time_keeper.c">
       <Filter>uTasker</Filter>
     </ClCompile>
@@ -2151,14 +323,191 @@
     <ClCompile Include="..\..\..\Hardware\Kinetis\kinetisSim.c">
       <Filter>WinSim\SIMKinetis</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\..\uTasker\i2c_drv.c">
+      <Filter>uTasker</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\uTasker\crypto.c">
+      <Filter>uTasker</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\uTasker\DSP.c">
+      <Filter>uTasker</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\stack\SSL\wolfssl-3.9.6\w_aes.c">
+      <Filter>TCP/IP\wolfSSL</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\stack\SSL\openssl-1.0.2\aes_cbc.c">
+      <Filter>TCP/IP\OpenSSL</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\stack\SSL\openssl-1.0.2\cbc128.c">
+      <Filter>TCP/IP\OpenSSL</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\stack\SSL\openssl-1.0.2\aes_core.c">
+      <Filter>TCP/IP\OpenSSL</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\uTasker\uGLCDLIB\FT_CoPro_Cmds.c">
+      <Filter>uTasker\uGLCDLIB</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\stack\PPP\auth.c">
+      <Filter>TCP/IP\PPP</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\stack\PPP\chap.c">
+      <Filter>TCP/IP\PPP</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\stack\PPP\chpms.c">
+      <Filter>TCP/IP\PPP</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\stack\PPP\fsm.c">
+      <Filter>TCP/IP\PPP</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\stack\PPP\ipcp.c">
+      <Filter>TCP/IP\PPP</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\stack\PPP\lcp.c">
+      <Filter>TCP/IP\PPP</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\stack\PPP\lwppp.c">
+      <Filter>TCP/IP\PPP</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\stack\PPP\magic.c">
+      <Filter>TCP/IP\PPP</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\stack\PPP\md5.c">
+      <Filter>TCP/IP\PPP</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\stack\PPP\pap.c">
+      <Filter>TCP/IP\PPP</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\stack\PPP\ppp_oe.c">
+      <Filter>TCP/IP\PPP</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\stack\PPP\randm.c">
+      <Filter>TCP/IP\PPP</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\stack\PPP\vj.c">
+      <Filter>TCP/IP\PPP</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\FreeRTOS\Source\tasks.c">
+      <Filter>FreeRTOS</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\FreeRTOS\Source\list.c">
+      <Filter>FreeRTOS</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\FreeRTOS\Source\timers.c">
+      <Filter>FreeRTOS</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\FreeRTOS\Source\queue.c">
+      <Filter>FreeRTOS</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\FreeRTOS\Source\event_groups.c">
+      <Filter>FreeRTOS</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\FreeRTOS\Source\croutine.c">
+      <Filter>FreeRTOS</Filter>
+    </ClCompile>
+    <ClCompile Include="..\FreeRTOSapplication.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\FreeRTOS\Source\portable\GCC\ARM_CM4F\port.c">
+      <Filter>FreeRTOS\portable</Filter>
+    </ClCompile>
     <ClCompile Include="..\..\..\stack\mqtt.c">
       <Filter>TCP/IP</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\..\WinSim\serial_dev.c">
-      <Filter>WinSim</Filter>
+    <ClCompile Include="..\..\..\stack\SSL\mbedtls-2.6\ecp.c">
+      <Filter>TCP/IP\MQTTS</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\..\Hardware\STM32\STM32.c">
-      <Filter>Hardware\STM32</Filter>
+    <ClCompile Include="..\..\..\stack\SSL\mbedtls-2.6\bignum.c">
+      <Filter>TCP/IP\MQTTS</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\stack\SSL\mbedtls-2.6\ecp_curves.c">
+      <Filter>TCP/IP\MQTTS</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\stack\SSL\mbedtls-2.6\x509_crt.c">
+      <Filter>TCP/IP\MQTTS</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\stack\SSL\mbedtls-2.6\asn1parse.c">
+      <Filter>TCP/IP\MQTTS</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\stack\SSL\mbedtls-2.6\x509.c">
+      <Filter>TCP/IP\MQTTS</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\stack\SSL\mbedtls-2.6\pem.c">
+      <Filter>TCP/IP\MQTTS</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\stack\SSL\mbedtls-2.6\pk.c">
+      <Filter>TCP/IP\MQTTS</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\stack\SSL\mbedtls-2.6\base64.c">
+      <Filter>TCP/IP\MQTTS</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\stack\SSL\mbedtls-2.6\md.c">
+      <Filter>TCP/IP\MQTTS</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\stack\SSL\mbedtls-2.6\oid.c">
+      <Filter>TCP/IP\MQTTS</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\stack\SSL\mbedtls-2.6\pk_wrap.c">
+      <Filter>TCP/IP\MQTTS</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\stack\SSL\mbedtls-2.6\md_wrap.c">
+      <Filter>TCP/IP\MQTTS</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\stack\SSL\mbedtls-2.6\sha1.c">
+      <Filter>TCP/IP\MQTTS</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\stack\SSL\mbedtls-2.6\sha256.c">
+      <Filter>TCP/IP\MQTTS</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\stack\SSL\mbedtls-2.6\rsa.c">
+      <Filter>TCP/IP\MQTTS</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\stack\SSL\mbedtls-2.6\ecdsa.c">
+      <Filter>TCP/IP\MQTTS</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\stack\SSL\mbedtls-2.6\asn1write.c">
+      <Filter>TCP/IP\MQTTS</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\stack\SSL\mbedtls-2.6\hmac_drbg.c">
+      <Filter>TCP/IP\MQTTS</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\stack\SSL\mbedtls-2.6\pkparse.c">
+      <Filter>TCP/IP\MQTTS</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\stack\SSL\mbedtls-2.6\ecdh.c">
+      <Filter>TCP/IP\MQTTS</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\stack\SSL\mbedtls-2.6\ssl_cli.c">
+      <Filter>TCP/IP\MQTTS</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\stack\SSL\mbedtls-2.6\ssl_ciphersuites.c">
+      <Filter>TCP/IP\MQTTS</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\stack\SSL\mbedtls-2.6\ssl_tls.c">
+      <Filter>TCP/IP\MQTTS</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\stack\SSL\mbedtls-2.6\cipher.c">
+      <Filter>TCP/IP\MQTTS</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\stack\SSL\mbedtls-2.6\cipher_wrap.c">
+      <Filter>TCP/IP\MQTTS</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\stack\SSL\mbedtls-2.6\gcm.c">
+      <Filter>TCP/IP\MQTTS</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\stack\SSL\mbedtls-2.6\dhm.c">
+      <Filter>TCP/IP\MQTTS</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\stack\SSL\mbedtls-2.6\aes.c">
+      <Filter>TCP/IP\MQTTS</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\stack\SSL\mbedtls-1.3.10\aes_mbedTLS.c">
+      <Filter>TCP/IP\mbedtls</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\stack\secure_layer.c">
+      <Filter>TCP/IP</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\stack\SSL\mbedtls-2.6\mbedTLS_Interface.c">
+      <Filter>TCP/IP\MQTTS</Filter>
     </ClCompile>
     <ClCompile Include="..\..\..\Hardware\STM32\STM32Sim.c">
       <Filter>WinSim\SIMstm32</Filter>
@@ -2166,29 +515,173 @@
     <ClCompile Include="..\..\..\Hardware\STM32\STM32_ports.cpp">
       <Filter>WinSim\SIMstm32</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\..\FreeRTOS\Source\croutine.c">
-      <Filter>FreeRTOS</Filter>
+    <ClCompile Include="..\..\..\Hardware\CMSIS_DSP\arm_cfft_f32.c">
+      <Filter>Hardware\CMSIS_DSP</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\..\FreeRTOS\Source\event_groups.c">
-      <Filter>FreeRTOS</Filter>
+    <ClCompile Include="..\..\..\Hardware\CMSIS_DSP\arm_cfft_radix8_f32.c">
+      <Filter>Hardware\CMSIS_DSP</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\..\FreeRTOS\Source\list.c">
-      <Filter>FreeRTOS</Filter>
+    <ClCompile Include="..\..\..\Hardware\CMSIS_DSP\arm_cmplx_mag_f32.c">
+      <Filter>Hardware\CMSIS_DSP</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\..\FreeRTOS\Source\queue.c">
-      <Filter>FreeRTOS</Filter>
+    <ClCompile Include="..\..\..\Hardware\CMSIS_DSP\arm_common_tables.c">
+      <Filter>Hardware\CMSIS_DSP</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\..\FreeRTOS\Source\tasks.c">
-      <Filter>FreeRTOS</Filter>
+    <ClCompile Include="..\..\..\Hardware\CMSIS_DSP\arm_const_structs.c">
+      <Filter>Hardware\CMSIS_DSP</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\..\FreeRTOS\Source\timers.c">
-      <Filter>FreeRTOS</Filter>
+    <ClCompile Include="..\..\..\Hardware\CMSIS_DSP\arm_max_f32.c">
+      <Filter>Hardware\CMSIS_DSP</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\..\FreeRTOS\Source\portable\GCC\ARM_CM4F\port.c">
-      <Filter>FreeRTOS\portable</Filter>
+    <ClCompile Include="..\..\..\Hardware\CMSIS_DSP\arm_sin_cos_f32.c">
+      <Filter>Hardware\CMSIS_DSP</Filter>
     </ClCompile>
-    <ClCompile Include="..\FreeRTOSapplication.c">
+    <ClCompile Include="..\..\..\Hardware\Luminary\LM3SXXXX.c">
+      <Filter>Hardware\Luminary</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Hardware\Luminary\LM3SXXXXSim.c">
+      <Filter>WinSim\SIMluminary</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Hardware\Luminary\LM3SXXXX_ports.cpp">
+      <Filter>WinSim\SIMluminary</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\WinSim\serial_dev.c">
+      <Filter>WinSim</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Hardware\STM32\STM32.c">
+      <Filter>Hardware\STM32</Filter>
+    </ClCompile>
+    <ClCompile Include="..\DMX512.c">
       <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Hardware\Coldfire\M5223X.c">
+      <Filter>Hardware\Coldfire</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Hardware\CMSIS_DSP\arm_abs_f32.c">
+      <Filter>Hardware\CMSIS_DSP</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Hardware\Coldfire\M5223X_ports.cpp">
+      <Filter>WinSim\SIMcoldfire</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Hardware\Coldfire\M5223XSim.c">
+      <Filter>WinSim\SIMcoldfire</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\uTasker\SPI_drv.c">
+      <Filter>uTasker</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Hardware\CMSIS_DSP\arm_cfft_q15.c">
+      <Filter>Hardware\CMSIS_DSP</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Hardware\CMSIS_DSP\arm_cfft_radix4_q15.c">
+      <Filter>Hardware\CMSIS_DSP</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Hardware\CMSIS_DSP\arm_bitreversal.c">
+      <Filter>Hardware\CMSIS_DSP</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Hardware\AVR32\AVR32.c">
+      <Filter>Hardware\AVR32</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Hardware\AVR32\AVR32_ports.cpp">
+      <Filter>WinSim\SIMAVR32</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Hardware\AVR32\AVR32Sim.c">
+      <Filter>WinSim\SIMAVR32</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\stack\SSL\mbedtls-1.3.10\sha256_mbedTLS.c">
+      <Filter>TCP/IP\mbedtls</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Hardware\iMX\iMXSim.c">
+      <Filter>WinSim\SIMiMX_RT</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Hardware\iMX\iMX.c">
+      <Filter>Hardware\iMX_RT</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Hardware\iMX\iMX_ports.cpp">
+      <Filter>WinSim\SIMiMX_RT</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Hardware\LPC17XX\LPC17XX.c">
+      <Filter>Hardware\LPC17XX</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Hardware\SAM7\SAM7X.c">
+      <Filter>Hardware\SAM7</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Hardware\NE64\NE64.c">
+      <Filter>Hardware\NE64</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\uTasker\uCANopen\crc16-ccitt.c">
+      <Filter>uTasker\uCANopen</Filter>
+    </ClCompile>
+    <ClCompile Include="..\uCANopenApp.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\uTasker\uCANopen\CANopen.c">
+      <Filter>uTasker\uCANopen</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\uTasker\uCANopen\CO_driver.c">
+      <Filter>uTasker\uCANopen</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\uTasker\uCANopen\CO_Emergency.c">
+      <Filter>uTasker\uCANopen</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\uTasker\uCANopen\CO_HBconsumer.c">
+      <Filter>uTasker\uCANopen</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\uTasker\uCANopen\CO_NMT_Heartbeat.c">
+      <Filter>uTasker\uCANopen</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\uTasker\uCANopen\CO_PDO.c">
+      <Filter>uTasker\uCANopen</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\uTasker\uCANopen\CO_SDO.c">
+      <Filter>uTasker\uCANopen</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\uTasker\uCANopen\CO_SYNC.c">
+      <Filter>uTasker\uCANopen</Filter>
+    </ClCompile>
+    <ClCompile Include="..\CO_OD.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\uTasker\uCANopen\CO_SDOmaster.c">
+      <Filter>uTasker\uCANopen</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Hardware\STR91XF\STR91XF.c">
+      <Filter>Hardware\STR91XF</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Hardware\LPC2XXX\LPC23XX.c">
+      <Filter>Hardware\LPC2XXX</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Hardware\LPC2XXX\LPC23XX_ports.cpp">
+      <Filter>WinSim\SIMlpc2xxx</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Hardware\LPC2XXX\LPC23XXSim.c">
+      <Filter>WinSim\SIMlpc2xxx</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\stack\WiFi\ATWINC15x0\driver\source\nmdrv.c">
+      <Filter>TCP/IP\WiFi\ATWINC15</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\stack\WiFi\ATWINC15x0\driver\source\m2m_wifi.c">
+      <Filter>TCP/IP\WiFi\ATWINC15</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\stack\WiFi\ATWINC15x0\driver\source\m2m_periph.c">
+      <Filter>TCP/IP\WiFi\ATWINC15</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\stack\WiFi\ATWINC15x0\driver\source\nmasic.c">
+      <Filter>TCP/IP\WiFi\ATWINC15</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\stack\WiFi\ATWINC15x0\driver\source\m2m_hif.c">
+      <Filter>TCP/IP\WiFi\ATWINC15</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\stack\WiFi\ATWINC15x0\common\source\nm_common.c">
+      <Filter>TCP/IP\WiFi\ATWINC15</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\stack\WiFi\ATWINC15x0\driver\source\nmbus.c">
+      <Filter>TCP/IP\WiFi\ATWINC15</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\stack\WiFi\ATWINC15x0\driver\source\nmspi.c">
+      <Filter>TCP/IP\WiFi\ATWINC15</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\stack\WiFi\ATWINC15x0\spi_flash\source\spi_flash.c">
+      <Filter>TCP/IP\WiFi\ATWINC15</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
@@ -2210,25 +703,13 @@
     <ClInclude Include="..\config.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\..\uTasker\driver.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="..\iic_tests.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
     <ClInclude Include="..\Port_Interrupts.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="..\TaskConfig.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\..\Stack\tcpip.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
     <ClInclude Include="..\types.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\..\uTasker\usb.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="..\..\..\uTasker\uTasker.h">
@@ -2272,18 +753,6 @@
     </ClInclude>
     <ClInclude Include="..\..\..\WinSim\WinSim.h">
       <Filter>WinSim</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\..\Hardware\Kinetis\kinetis.h">
-      <Filter>Hardware\Kinetis</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\..\Hardware\Kinetis\spi_flash_kinetis_atmel.h">
-      <Filter>Hardware\Kinetis</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\..\Hardware\Kinetis\spi_flash_kinetis_sst25.h">
-      <Filter>Hardware\Kinetis</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\..\Hardware\Kinetis\spi_flash_kinetis_stmicro.h">
-      <Filter>Hardware\Kinetis</Filter>
     </ClInclude>
     <ClInclude Include="..\..\..\Hardware\Kinetis\kinetis_port.h">
       <Filter>WinSim\SIMKinetis</Filter>
@@ -2417,9 +886,6 @@
     <ClInclude Include="..\..\..\Hardware\Kinetis\kinetis_LLWU.h">
       <Filter>Hardware\Kinetis</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\..\Hardware\Kinetis\spi_flash_w25q.h">
-      <Filter>Hardware\Kinetis</Filter>
-    </ClInclude>
     <ClInclude Include="..\user_glcd_fonts.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -2429,17 +895,8 @@
     <ClInclude Include="..\..\..\Hardware\Kinetis\kinetis_port_k00.h">
       <Filter>WinSim\SIMKinetis</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\..\Hardware\Kinetis\spi_flash_kinetis_s25fl1-k.h">
-      <Filter>Hardware\Kinetis</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\..\Hardware\Kinetis\kinetis_USB_HS_Device.h">
-      <Filter>Hardware\Kinetis</Filter>
-    </ClInclude>
     <ClInclude Include="..\usb_hid_raw_descriptors.h">
       <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\..\Hardware\Kinetis\kinetis_USB_OTG.h">
-      <Filter>Hardware\Kinetis</Filter>
     </ClInclude>
     <ClInclude Include="..\usb_audio_descriptors.h">
       <Filter>Header Files</Filter>
@@ -2459,25 +916,415 @@
     <ClInclude Include="..\..\..\Hardware\Kinetis\kinetis_port_kw.h">
       <Filter>WinSim\SIMKinetis</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\..\Hardware\STM32\spi_flash_STM32_atmel.h">
-      <Filter>Hardware\STM32</Filter>
+    <ClInclude Include="..\i2c_tests.h">
+      <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\..\Hardware\STM32\spi_flash_STM32_MX66L.h">
-      <Filter>Hardware\STM32</Filter>
+    <ClInclude Include="..\..\..\stack\SSL\mbedtls-1.3.10\aes.h">
+      <Filter>TCP/IP\mbedtls</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\..\Hardware\STM32\spi_flash_STM32_sst25.h">
-      <Filter>Hardware\STM32</Filter>
+    <ClInclude Include="..\..\..\stack\SSL\wolfssl-3.9.6\aes.h">
+      <Filter>TCP/IP\wolfSSL</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\..\Hardware\STM32\spi_flash_STM32_stmicro.h">
-      <Filter>Hardware\STM32</Filter>
+    <ClInclude Include="..\..\..\stack\SSL\wolfssl-3.9.6\error-crypt.h">
+      <Filter>TCP/IP\wolfSSL</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\SSL\wolfssl-3.9.6\memory.h">
+      <Filter>TCP/IP\wolfSSL</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\SSL\wolfssl-3.9.6\misc.h">
+      <Filter>TCP/IP\wolfSSL</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\SSL\wolfssl-3.9.6\settings.h">
+      <Filter>TCP/IP\wolfSSL</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\SSL\wolfssl-3.9.6\types.h">
+      <Filter>TCP/IP\wolfSSL</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\SSL\wolfssl-3.9.6\visibility.h">
+      <Filter>TCP/IP\wolfSSL</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\SSL\wolfssl-3.9.6\wc_port.h">
+      <Filter>TCP/IP\wolfSSL</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\SSL\wolfssl-3.9.6\misc_code.h">
+      <Filter>TCP/IP\wolfSSL</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\SSL\openssl-1.0.2\aes.h">
+      <Filter>TCP/IP\OpenSSL</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\SSL\openssl-1.0.2\modes.h">
+      <Filter>TCP/IP\OpenSSL</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\SSL\openssl-1.0.2\aes_locl.h">
+      <Filter>TCP/IP\OpenSSL</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\SSL\openssl-1.0.2\modes_lcl.h">
+      <Filter>TCP/IP\OpenSSL</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\Kinetis\kinetis_KL_CLOCK.h">
+      <Filter>Hardware\Kinetis</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\Kinetis\kinetis_MCG_LITE.h">
+      <Filter>Hardware\Kinetis</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\Kinetis\kinetis_K_CLOCK.h">
+      <Filter>Hardware\Kinetis</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\Kinetis\kinetis_KV_CLOCK.h">
+      <Filter>Hardware\Kinetis</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\Kinetis\kinetis_KE_CLOCK.h">
+      <Filter>Hardware\Kinetis</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\Kinetis\kinetis_KM_CLOCK.h">
+      <Filter>Hardware\Kinetis</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\Kinetis\kinetis_KW_CLOCK.h">
+      <Filter>Hardware\Kinetis</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\Kinetis\kinetis_HIRC.h">
+      <Filter>Hardware\Kinetis</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\uTasker\uGLCDLIB\FT_CoPro_Cmds.h">
+      <Filter>uTasker\uGLCDLIB</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\uTasker\uGLCDLIB\FT_Gpu.h">
+      <Filter>uTasker\uGLCDLIB</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\PPP\auth.h">
+      <Filter>TCP/IP\PPP</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\PPP\chap.h">
+      <Filter>TCP/IP\PPP</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\PPP\chpms.h">
+      <Filter>TCP/IP\PPP</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\PPP\fsm.h">
+      <Filter>TCP/IP\PPP</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\PPP\ipcp.h">
+      <Filter>TCP/IP\PPP</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\PPP\lcp.h">
+      <Filter>TCP/IP\PPP</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\PPP\magic.h">
+      <Filter>TCP/IP\PPP</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\PPP\md5.h">
+      <Filter>TCP/IP\PPP</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\PPP\pap.h">
+      <Filter>TCP/IP\PPP</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\PPP\ppp.h">
+      <Filter>TCP/IP\PPP</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\PPP\ppp_impl.h">
+      <Filter>TCP/IP\PPP</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\PPP\pppdebug.h">
+      <Filter>TCP/IP\PPP</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\PPP\randm.h">
+      <Filter>TCP/IP\PPP</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\PPP\vj.h">
+      <Filter>TCP/IP\PPP</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\PPP\arch\cc.h">
+      <Filter>TCP/IP\PPP</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\PPP\arch\perf.h">
+      <Filter>TCP/IP\PPP</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\PPP\arch\sys_arch.h">
+      <Filter>TCP/IP\PPP</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\PPP\lwip\api.h">
+      <Filter>TCP/IP\PPP</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\PPP\lwip\api_msg.h">
+      <Filter>TCP/IP\PPP</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\PPP\lwip\arch.h">
+      <Filter>TCP/IP\PPP</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\PPP\lwip\debug.h">
+      <Filter>TCP/IP\PPP</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\PPP\lwip\def.h">
+      <Filter>TCP/IP\PPP</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\PPP\lwip\dhcp.h">
+      <Filter>TCP/IP\PPP</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\PPP\lwip\dns.h">
+      <Filter>TCP/IP\PPP</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\PPP\lwip\err.h">
+      <Filter>TCP/IP\PPP</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\PPP\lwip\icmp.h">
+      <Filter>TCP/IP\PPP</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\PPP\lwip\inet.h">
+      <Filter>TCP/IP\PPP</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\PPP\lwip\init.h">
+      <Filter>TCP/IP\PPP</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\PPP\lwip\ip.h">
+      <Filter>TCP/IP\PPP</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\PPP\lwip\ip_addr.h">
+      <Filter>TCP/IP\PPP</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\PPP\lwip\mem.h">
+      <Filter>TCP/IP\PPP</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\PPP\lwip\memp.h">
+      <Filter>TCP/IP\PPP</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\PPP\lwip\memp_std.h">
+      <Filter>TCP/IP\PPP</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\PPP\lwip\netbuf.h">
+      <Filter>TCP/IP\PPP</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\PPP\lwip\netdb.h">
+      <Filter>TCP/IP\PPP</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\PPP\lwip\netif.h">
+      <Filter>TCP/IP\PPP</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\PPP\lwip\netifapi.h">
+      <Filter>TCP/IP\PPP</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\PPP\lwip\opt.h">
+      <Filter>TCP/IP\PPP</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\PPP\lwip\pbuf.h">
+      <Filter>TCP/IP\PPP</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\PPP\lwip\raw.h">
+      <Filter>TCP/IP\PPP</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\PPP\lwip\sio.h">
+      <Filter>TCP/IP\PPP</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\PPP\lwip\snmp.h">
+      <Filter>TCP/IP\PPP</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\PPP\lwip\snmp_asn1.h">
+      <Filter>TCP/IP\PPP</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\PPP\lwip\snmp_msg.h">
+      <Filter>TCP/IP\PPP</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\PPP\lwip\snmp_structs.h">
+      <Filter>TCP/IP\PPP</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\PPP\lwip\sockets.h">
+      <Filter>TCP/IP\PPP</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\PPP\lwip\stats.h">
+      <Filter>TCP/IP\PPP</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\PPP\lwip\sys.h">
+      <Filter>TCP/IP\PPP</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\PPP\lwip\tcp.h">
+      <Filter>TCP/IP\PPP</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\PPP\lwip\tcp_impl.h">
+      <Filter>TCP/IP\PPP</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\PPP\lwip\tcpip.h">
+      <Filter>TCP/IP\PPP</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\PPP\lwip\timers.h">
+      <Filter>TCP/IP\PPP</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\PPP\lwip\udp.h">
+      <Filter>TCP/IP\PPP</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\PPP\fsl_debug_console.h">
+      <Filter>TCP/IP\PPP</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\PPP\fsl_os_abstraction.h">
+      <Filter>TCP/IP\PPP</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\PPP\fsl_os_abstraction_bm.h">
+      <Filter>TCP/IP\PPP</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\PPP\lwipopts.h">
+      <Filter>TCP/IP\PPP</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Stack\tcpip.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\FreeRTOSConfig.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\FreeRTOS\Source\include\FreeRTOS.h">
+      <Filter>FreeRTOS\include</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\FreeRTOS\Source\include\task.h">
+      <Filter>FreeRTOS\include</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\FreeRTOS\Source\include\croutine.h">
+      <Filter>FreeRTOS\include</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\FreeRTOS\Source\include\event_groups.h">
+      <Filter>FreeRTOS\include</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\FreeRTOS\Source\include\list.h">
+      <Filter>FreeRTOS\include</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\FreeRTOS\Source\include\queue.h">
+      <Filter>FreeRTOS\include</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\FreeRTOS\Source\include\timers.h">
+      <Filter>FreeRTOS\include</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\FreeRTOS\Source\portable\GCC\ARM_CM4F\portmacro.h">
+      <Filter>FreeRTOS\portable</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\uTasker\driver.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\Kinetis\kinetis_LPI2C.h">
+      <Filter>Hardware\Kinetis</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\Kinetis\kinetis_timer_pins.h">
+      <Filter>Hardware\Kinetis</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\uTasker\usb.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\SSL\mbedtls-2.6\mbedtls\aes.h">
+      <Filter>TCP/IP\MQTTS\include</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\SSL\mbedtls-2.6\mbedtls\asn1.h">
+      <Filter>TCP/IP\MQTTS\include</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\SSL\mbedtls-2.6\mbedtls\asn1write.h">
+      <Filter>TCP/IP\MQTTS\include</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\SSL\mbedtls-2.6\mbedtls\base64.h">
+      <Filter>TCP/IP\MQTTS\include</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\SSL\mbedtls-2.6\mbedtls\bignum.h">
+      <Filter>TCP/IP\MQTTS\include</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\SSL\mbedtls-2.6\mbedtls\bn_mul.h">
+      <Filter>TCP/IP\MQTTS\include</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\SSL\mbedtls-2.6\mbedtls\certs.h">
+      <Filter>TCP/IP\MQTTS\include</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\SSL\mbedtls-2.6\mbedtls\check_config.h">
+      <Filter>TCP/IP\MQTTS\include</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\SSL\mbedtls-2.6\mbedtls\cipher.h">
+      <Filter>TCP/IP\MQTTS\include</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\SSL\mbedtls-2.6\mbedtls\cipher_internal.h">
+      <Filter>TCP/IP\MQTTS\include</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\SSL\mbedtls-2.6\mbedtls\config.h">
+      <Filter>TCP/IP\MQTTS\include</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\SSL\mbedtls-2.6\mbedtls\debug.h">
+      <Filter>TCP/IP\MQTTS\include</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\SSL\mbedtls-2.6\mbedtls\des.h">
+      <Filter>TCP/IP\MQTTS\include</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\SSL\mbedtls-2.6\mbedtls\dhm.h">
+      <Filter>TCP/IP\MQTTS\include</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\SSL\mbedtls-2.6\mbedtls\ecdh.h">
+      <Filter>TCP/IP\MQTTS\include</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\SSL\mbedtls-2.6\mbedtls\ecdsa.h">
+      <Filter>TCP/IP\MQTTS\include</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\SSL\mbedtls-2.6\mbedtls\ecp.h">
+      <Filter>TCP/IP\MQTTS\include</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\SSL\mbedtls-2.6\mbedtls\ecp_internal.h">
+      <Filter>TCP/IP\MQTTS\include</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\SSL\mbedtls-2.6\mbedtls\gcm.h">
+      <Filter>TCP/IP\MQTTS\include</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\SSL\mbedtls-2.6\mbedtls\hmac_drbg.h">
+      <Filter>TCP/IP\MQTTS\include</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\SSL\mbedtls-2.6\mbedtls\md.h">
+      <Filter>TCP/IP\MQTTS\include</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\SSL\mbedtls-2.6\mbedtls\md_internal.h">
+      <Filter>TCP/IP\MQTTS\include</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\SSL\mbedtls-2.6\mbedtls\md5.h">
+      <Filter>TCP/IP\MQTTS\include</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\SSL\mbedtls-2.6\mbedtls\oid.h">
+      <Filter>TCP/IP\MQTTS\include</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\SSL\mbedtls-2.6\mbedtls\pem.h">
+      <Filter>TCP/IP\MQTTS\include</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\SSL\mbedtls-2.6\mbedtls\pk.h">
+      <Filter>TCP/IP\MQTTS\include</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\SSL\mbedtls-2.6\mbedtls\pk_internal.h">
+      <Filter>TCP/IP\MQTTS\include</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\SSL\mbedtls-2.6\mbedtls\platform.h">
+      <Filter>TCP/IP\MQTTS\include</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\SSL\mbedtls-2.6\mbedtls\rsa.h">
+      <Filter>TCP/IP\MQTTS\include</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\SSL\mbedtls-2.6\mbedtls\sha1.h">
+      <Filter>TCP/IP\MQTTS\include</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\SSL\mbedtls-2.6\mbedtls\sha256.h">
+      <Filter>TCP/IP\MQTTS\include</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\SSL\mbedtls-2.6\mbedtls\ssl.h">
+      <Filter>TCP/IP\MQTTS\include</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\SSL\mbedtls-2.6\mbedtls\ssl_ciphersuites.h">
+      <Filter>TCP/IP\MQTTS\include</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\SSL\mbedtls-2.6\mbedtls\ssl_internal.h">
+      <Filter>TCP/IP\MQTTS\include</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\SSL\mbedtls-2.6\mbedtls\threading.h">
+      <Filter>TCP/IP\MQTTS\include</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\SSL\mbedtls-2.6\mbedtls\x509.h">
+      <Filter>TCP/IP\MQTTS\include</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\SSL\mbedtls-2.6\mbedtls\x509_crl.h">
+      <Filter>TCP/IP\MQTTS\include</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\SSL\mbedtls-2.6\mbedtls\x509_crt.h">
+      <Filter>TCP/IP\MQTTS\include</Filter>
+    </ClInclude>
+    <ClInclude Include="..\app_hw_stm32.h">
+      <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="..\..\..\Hardware\STM32\STM32.h">
       <Filter>Hardware\STM32</Filter>
     </ClInclude>
     <ClInclude Include="..\..\..\Hardware\STM32\stm32_ADC.h">
-      <Filter>Hardware\STM32</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\..\Hardware\STM32\stm32_CLOCK.h">
       <Filter>Hardware\STM32</Filter>
     </ClInclude>
     <ClInclude Include="..\..\..\Hardware\STM32\stm32_ENET.h">
@@ -2498,22 +1345,40 @@
     <ClInclude Include="..\..\..\Hardware\STM32\stm32_UART.h">
       <Filter>Hardware\STM32</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\..\Hardware\STM32\stm32_USB_device.h">
-      <Filter>Hardware\STM32</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\..\Hardware\STM32\stm32_USB_OTG.h">
-      <Filter>Hardware\STM32</Filter>
-    </ClInclude>
-    <ClInclude Include="..\app_hw_stm32.h">
+    <ClInclude Include="..\debug_hal_kinetis.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="..\debug_hal_stm32.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\..\Hardware\STM32\STM32F7XX_port.h">
+    <ClInclude Include="..\..\..\Hardware\STM32\simSTM32.h">
       <Filter>WinSim\SIMstm32</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\..\Hardware\STM32\STM32F031_port.h">
+    <ClInclude Include="..\..\..\Hardware\CMSIS_DSP\arm_common_tables.h">
+      <Filter>Hardware\CMSIS_DSP</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\CMSIS_DSP\arm_const_structs.h">
+      <Filter>Hardware\CMSIS_DSP</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\CMSIS_DSP\arm_math.h">
+      <Filter>Hardware\CMSIS_DSP</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\CMSIS_DSP\cmsis_compiler.h">
+      <Filter>Hardware\CMSIS_DSP</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\CMSIS_DSP\cmsis_gcc.h">
+      <Filter>Hardware\CMSIS_DSP</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\CMSIS_DSP\core_cm0plus.h">
+      <Filter>Hardware\CMSIS_DSP</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\CMSIS_DSP\core_cm4.h">
+      <Filter>Hardware\CMSIS_DSP</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\CMSIS_DSP\core_cm7.h">
+      <Filter>Hardware\CMSIS_DSP</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\STM32\STM32F7XX_port.h">
       <Filter>WinSim\SIMstm32</Filter>
     </ClInclude>
     <ClInclude Include="..\..\..\Hardware\STM32\STM32F41X_port.h">
@@ -2522,13 +1387,7 @@
     <ClInclude Include="..\..\..\Hardware\STM32\STM32F100X_port.h">
       <Filter>WinSim\SIMstm32</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\..\Hardware\STM32\STM32F103X_port.h">
-      <Filter>WinSim\SIMstm32</Filter>
-    </ClInclude>
     <ClInclude Include="..\..\..\Hardware\STM32\STM32F105X_107X_port.h">
-      <Filter>WinSim\SIMstm32</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\..\Hardware\STM32\STM32F427_429_port.h">
       <Filter>WinSim\SIMstm32</Filter>
     </ClInclude>
     <ClInclude Include="..\..\..\Hardware\STM32\STM32L4XX_port.h">
@@ -2537,64 +1396,590 @@
     <ClInclude Include="..\..\..\Hardware\STM32\STM32L031_port.h">
       <Filter>WinSim\SIMstm32</Filter>
     </ClInclude>
-    <ClInclude Include="..\debug_hal_kinetis.h">
+    <ClInclude Include="..\..\..\Hardware\Luminary\LM3SXXXX.h">
+      <Filter>Hardware\Luminary</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\Luminary\spi_flash_lm3s_atmel.h">
+      <Filter>Hardware\Luminary</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\Luminary\spi_flash_lm3s_sst25.h">
+      <Filter>Hardware\Luminary</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\Luminary\spi_flash_lm3s_stmicro.h">
+      <Filter>Hardware\Luminary</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\Luminary\spi_sc16IS7xx.h">
+      <Filter>Hardware\Luminary</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\Luminary\LM3S9B95_port.h">
+      <Filter>WinSim\SIMluminary</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\Luminary\LM3S10X_port.h">
+      <Filter>WinSim\SIMluminary</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\Luminary\LM3S1968_port.h">
+      <Filter>WinSim\SIMluminary</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\Luminary\LM3S2110_port.h">
+      <Filter>WinSim\SIMluminary</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\Luminary\LM3S2139_port.h">
+      <Filter>WinSim\SIMluminary</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\Luminary\LM3S3748_port.h">
+      <Filter>WinSim\SIMluminary</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\Luminary\LM3S3768_port.h">
+      <Filter>WinSim\SIMluminary</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\Luminary\LM3S5732_port.h">
+      <Filter>WinSim\SIMluminary</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\Luminary\LM3S6965_port.h">
+      <Filter>WinSim\SIMluminary</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\Luminary\LM3S8962_port.h">
+      <Filter>WinSim\SIMluminary</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\Luminary\SimLM3SXXXX.h">
+      <Filter>WinSim\SIMluminary</Filter>
+    </ClInclude>
+    <ClInclude Include="..\app_hw_lm3sxxxx.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\..\FreeRTOS\Source\portable\GCC\ARM_CM4F\portmacro.h">
-      <Filter>FreeRTOS\portable</Filter>
+    <ClInclude Include="..\..\..\Hardware\CMSIS_DSP\core_cm3.h">
+      <Filter>Hardware\CMSIS_DSP</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\..\FreeRTOS\Source\include\croutine.h">
-      <Filter>FreeRTOS\include</Filter>
+    <ClInclude Include="..\..\..\Hardware\Kinetis\kinetis.h">
+      <Filter>Hardware\Kinetis</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\..\FreeRTOS\Source\include\event_groups.h">
-      <Filter>FreeRTOS\include</Filter>
+    <ClInclude Include="..\..\..\Hardware\CMSIS_DSP\core_cm0.h">
+      <Filter>Hardware\CMSIS_DSP</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\..\FreeRTOS\Source\include\FreeRTOS.h">
-      <Filter>FreeRTOS\include</Filter>
+    <ClInclude Include="..\..\..\Hardware\STM32\STM32F031_port.h">
+      <Filter>WinSim\SIMstm32</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\..\FreeRTOS\Source\include\list.h">
-      <Filter>FreeRTOS\include</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\..\FreeRTOS\Source\include\queue.h">
-      <Filter>FreeRTOS\include</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\..\FreeRTOS\Source\include\task.h">
-      <Filter>FreeRTOS\include</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\..\FreeRTOS\Source\include\timers.h">
-      <Filter>FreeRTOS\include</Filter>
-    </ClInclude>
-    <ClInclude Include="..\FreeRTOSConfig.h">
+    <ClInclude Include="..\debug_hal_luminary.h">
       <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\Coldfire\M5223X.h">
+      <Filter>Hardware\Coldfire</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\Coldfire\spi_flash_m5223x_atmel.h">
+      <Filter>Hardware\Coldfire</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\Coldfire\spi_flash_m5223x_sst25.h">
+      <Filter>Hardware\Coldfire</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\Coldfire\spi_flash_m5223x_stmicro.h">
+      <Filter>Hardware\Coldfire</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\Kinetis\kinetis_port_km.h">
+      <Filter>WinSim\SIMKinetis</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\Coldfire\SimM5223X.h">
+      <Filter>WinSim\SIMcoldfire</Filter>
+    </ClInclude>
+    <ClInclude Include="..\app_hw_m5223x.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\debug_hal_m522xx.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\packages.h">
+      <Filter>Hardware</Filter>
+    </ClInclude>
+    <ClInclude Include="..\spi_tests.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\Kinetis\kinetis_SPI.h">
+      <Filter>Hardware\Kinetis</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\STM32\STM32F427_429_port.h">
+      <Filter>WinSim\SIMstm32</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\AVR32\AVR32.h">
+      <Filter>Hardware\AVR32</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\AVR32\spi_flash_avr32_atmel.h">
+      <Filter>Hardware\AVR32</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\AVR32\spi_flash_avr32_sst25.h">
+      <Filter>Hardware\AVR32</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\AVR32\spi_flash_avr32_stmicro.h">
+      <Filter>Hardware\AVR32</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\AVR32\SimAVR32.h">
+      <Filter>WinSim\SIMAVR32</Filter>
+    </ClInclude>
+    <ClInclude Include="..\app_hw_AVR32.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\debug_hal_avr32.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\SSL\mbedtls-1.3.10\sha256.h">
+      <Filter>TCP/IP\mbedtls</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\Kinetis\kinetis_CMP.h">
+      <Filter>Hardware\Kinetis</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\STM32\stm32_CLOCK.h">
+      <Filter>Hardware\STM32</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\Kinetis\kinetis_uart_pins.h">
+      <Filter>Hardware\Kinetis</Filter>
+    </ClInclude>
+    <ClInclude Include="..\app_hw_iMX.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\debug_hal_iMX.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\iMX\iMX.h">
+      <Filter>Hardware\iMX_RT</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\iMX\iMX_ADC.h">
+      <Filter>Hardware\iMX_RT</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\iMX\iMX_CMP.h">
+      <Filter>Hardware\iMX_RT</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\iMX\iMX_DAC.h">
+      <Filter>Hardware\iMX_RT</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\iMX\iMX_errata.h">
+      <Filter>Hardware\iMX_RT</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\iMX\iMX_FLASH.h">
+      <Filter>Hardware\iMX_RT</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\iMX\iMX_HIRC.h">
+      <Filter>Hardware\iMX_RT</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\iMX\iMX_I2S.h">
+      <Filter>Hardware\iMX_RT</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\iMX\iMX_KBI.h">
+      <Filter>Hardware\iMX_RT</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\iMX\iMX_low_power.h">
+      <Filter>Hardware\iMX_RT</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\iMX\iMX_PWM.h">
+      <Filter>Hardware\iMX_RT</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\iMX\iMX_RTC.h">
+      <Filter>Hardware\iMX_RT</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\iMX\iMX_SPI.h">
+      <Filter>Hardware\iMX_RT</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\iMX\iMX_timer_pins.h">
+      <Filter>Hardware\iMX_RT</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\iMX\iMX_pinout.h">
+      <Filter>WinSim\SIMiMX_RT</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\iMX\sim_iMX.h">
+      <Filter>WinSim\SIMiMX_RT</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\STM32\stm32_USB_device.h">
+      <Filter>Hardware\STM32</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\STM32\stm32_USB_OTG.h">
+      <Filter>Hardware\STM32</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\LPC17XX\LPC17XX.h">
+      <Filter>Hardware\LPC17XX</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\LPC17XX\spi_flash_lpc_atmel.h">
+      <Filter>Hardware\LPC17XX</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\LPC17XX\spi_flash_lpc_sst25.h">
+      <Filter>Hardware\LPC17XX</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\LPC17XX\spi_flash_lpc_stmicro.h">
+      <Filter>Hardware\LPC17XX</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\SAM7\AT91SAM7S32_inc.h">
+      <Filter>Hardware\SAM7</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\SAM7\sam7x.h">
+      <Filter>Hardware\SAM7</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\SAM7\spi_flash_sam7x_atmel.h">
+      <Filter>Hardware\SAM7</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\SAM7\spi_flash_sam7x_sst25.h">
+      <Filter>Hardware\SAM7</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\SAM7\spi_flash_sam7x_stmicro.h">
+      <Filter>Hardware\SAM7</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\SAM7\spi_sc16IS7xx.h">
+      <Filter>Hardware\SAM7</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\NE64\ne64.h">
+      <Filter>Hardware\NE64</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\STM32\STM32F103X_port.h">
+      <Filter>WinSim\SIMstm32</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\iMX\iMX_PORTS.h">
+      <Filter>Hardware\iMX_RT</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\Coldfire\M52XX_SDRAM.h">
+      <Filter>WinSim\SIMcoldfire</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\Coldfire\M520X.h">
+      <Filter>WinSim\SIMcoldfire</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\Coldfire\M521X_port.h">
+      <Filter>WinSim\SIMcoldfire</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\Coldfire\M523X_port.h">
+      <Filter>WinSim\SIMcoldfire</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\Coldfire\M5222X_M5221X_port.h">
+      <Filter>WinSim\SIMcoldfire</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\Coldfire\M5223X_port.h">
+      <Filter>WinSim\SIMcoldfire</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\Coldfire\M5225X_port.h">
+      <Filter>WinSim\SIMcoldfire</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\Kinetis\kinetis_port_K27_K28.h">
+      <Filter>WinSim\SIMKinetis</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\uTasker\uCANopen\CANopen.h">
+      <Filter>uTasker\uCANopen</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\uTasker\uCANopen\CO_driver.h">
+      <Filter>uTasker\uCANopen</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\uTasker\uCANopen\CO_Emergency.h">
+      <Filter>uTasker\uCANopen</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\uTasker\uCANopen\CO_HBconsumer.h">
+      <Filter>uTasker\uCANopen</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\uTasker\uCANopen\CO_NMT_Heartbeat.h">
+      <Filter>uTasker\uCANopen</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\uTasker\uCANopen\CO_PDO.h">
+      <Filter>uTasker\uCANopen</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\uTasker\uCANopen\CO_SDO.h">
+      <Filter>uTasker\uCANopen</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\uTasker\uCANopen\CO_SDOmaster.h">
+      <Filter>uTasker\uCANopen</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\uTasker\uCANopen\CO_SYNC.h">
+      <Filter>uTasker\uCANopen</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\uTasker\uCANopen\CO_trace.h">
+      <Filter>uTasker\uCANopen</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\uTasker\uCANopen\crc16-ccitt.h">
+      <Filter>uTasker\uCANopen</Filter>
+    </ClInclude>
+    <ClInclude Include="..\CO_OD.h">
+      <Filter>Source Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\SPI_Memory\spi_eeprom_kinetis_25AA160.h">
+      <Filter>Hardware\SPI_Memory</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\SPI_Memory\spi_flash_kinetis_atmel.h">
+      <Filter>Hardware\SPI_Memory</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\SPI_Memory\spi_flash_kinetis_sst25.h">
+      <Filter>Hardware\SPI_Memory</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\SPI_Memory\spi_flash_kinetis_stmicro.h">
+      <Filter>Hardware\SPI_Memory</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\SPI_Memory\spi_flash_w25q.h">
+      <Filter>Hardware\SPI_Memory</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\SPI_Memory\spi_flash_STM32_atmel.h">
+      <Filter>Hardware\SPI_Memory</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\SPI_Memory\spi_flash_STM32_MX66L.h">
+      <Filter>Hardware\SPI_Memory</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\SPI_Memory\spi_flash_STM32_sst25.h">
+      <Filter>Hardware\SPI_Memory</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\SPI_Memory\spi_flash_STM32_stmicro.h">
+      <Filter>Hardware\SPI_Memory</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\SPI_Memory\spi_flash_s25fl1-k.h">
+      <Filter>Hardware\SPI_Memory</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\SPI_Memory\spi_flash_interface.h">
+      <Filter>Hardware\SPI_Memory</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\SPI_Memory\spi_flash_MX25L.h">
+      <Filter>Hardware\SPI_Memory</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\STM32\stm32_DMA.h">
+      <Filter>Hardware\STM32</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\SPI_Memory\spi_flash_IS25LP.h">
+      <Filter>Hardware\SPI_Memory</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\STR91XF\STR91XF.h">
+      <Filter>Hardware\STR91XF</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\SPI_Memory\spi_flash_ATXP.h">
+      <Filter>Hardware\SPI_Memory</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\SPI_Memory\spi_flash_S26KL.h">
+      <Filter>Hardware\SPI_Memory</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\SPI_Memory\spi_flash_AT25SF.h">
+      <Filter>Hardware\SPI_Memory</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\iMX\iMX_Clock.h">
+      <Filter>Hardware\iMX_RT</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\iMX\iMX_Caches_MPU.h">
+      <Filter>Hardware\iMX_RT</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\Kinetis\kinetis_USB_HS_OTG.h">
+      <Filter>Hardware\Kinetis</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\Kinetis\kinetis_USB_FS_OTG.h">
+      <Filter>Hardware\Kinetis</Filter>
+    </ClInclude>
+    <ClInclude Include="resource.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\usb_RNDIS.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\usb_MSD.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\usb_CDC.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\usb_HUB.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\usb_Keyboard.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\usb_Mouse.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\usb_RAW.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\usb_Audio.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\LPC2XXX\LPC23XX.h">
+      <Filter>Hardware\LPC2XXX</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\LPC2XXX\LPC21XX_port.h">
+      <Filter>WinSim\SIMlpc2xxx</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\LPC2XXX\LPC23XX_port.h">
+      <Filter>WinSim\SIMlpc2xxx</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\LPC2XXX\LPC24XX_port.h">
+      <Filter>WinSim\SIMlpc2xxx</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\LPC2XXX\LPC214X_port.h">
+      <Filter>WinSim\SIMlpc2xxx</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\LPC2XXX\simLPC23XX.h">
+      <Filter>WinSim\SIMlpc2xxx</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\iMX\iMX_GPT.h">
+      <Filter>Hardware\iMX_RT</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\EthernetController\ENC424J600.h">
+      <Filter>Hardware</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\WiFi\ATWINC15x0\driver\include\m2m_wifi.h">
+      <Filter>TCP/IP\WiFi\ATWINC15</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\WiFi\ATWINC15x0\common\include\nm_common.h">
+      <Filter>TCP/IP\WiFi\ATWINC15</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\WiFi\ATWINC15x0\bsp\include\nm_bsp.h">
+      <Filter>TCP/IP\WiFi\ATWINC15</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\WiFi\ATWINC15x0\common\include\nm_debug.h">
+      <Filter>TCP/IP\WiFi\ATWINC15</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\WiFi\ATWINC15x0\driver\include\m2m_types.h">
+      <Filter>TCP/IP\WiFi\ATWINC15</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\WiFi\ATWINC15x0\driver\source\nmdrv.h">
+      <Filter>TCP/IP\WiFi\ATWINC15</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\WiFi\ATWINC15x0\driver\source\m2m_hif.h">
+      <Filter>TCP/IP\WiFi\ATWINC15</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\WiFi\ATWINC15x0\driver\source\nmasic.h">
+      <Filter>TCP/IP\WiFi\ATWINC15</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\WiFi\ATWINC15x0\driver\include\m2m_periph.h">
+      <Filter>TCP/IP\WiFi\ATWINC15</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\WiFi\ATWINC15x0\bus_wrapper\include\nm_bus_wrapper.h">
+      <Filter>TCP/IP\WiFi\ATWINC15</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\WiFi\ATWINC15x0\driver\source\nmbus.h">
+      <Filter>TCP/IP\WiFi\ATWINC15</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\WiFi\ATWINC15x0\driver\source\nmspi.h">
+      <Filter>TCP/IP\WiFi\ATWINC15</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\stack\WiFi\ATWINC15x0\ATWINC15.h">
+      <Filter>TCP/IP\WiFi\ATWINC15</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\uTasker\uGLCDLIB\touch.h">
+      <Filter>uTasker\uGLCDLIB</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <None Include="cursor1.cur">
-      <Filter>Source Files\Resource Files</Filter>
+      <Filter>WinSim\Resource Files</Filter>
     </None>
     <None Include="small.ico">
-      <Filter>Source Files\Resource Files</Filter>
+      <Filter>WinSim\Resource Files</Filter>
     </None>
     <None Include="uTasker.ico">
-      <Filter>Source Files\Resource Files</Filter>
+      <Filter>WinSim\Resource Files</Filter>
     </None>
     <None Include="..\GNU_Kinetis\make_uTaskerV1.4_GNU_Kinetis" />
     <None Include="..\..\..\Hardware\Kinetis\kinetis_asm.s">
       <Filter>Hardware\Kinetis</Filter>
     </None>
     <None Include="cursor7.cur">
-      <Filter>Source Files\Resource Files</Filter>
+      <Filter>WinSim\Resource Files</Filter>
+    </None>
+    <None Include="..\GNU_Kinetis\Build_Kinetis.bat" />
+    <None Include="..\..\..\Hardware\Kinetis\Crypto\mmcau_aes_functions.S">
+      <Filter>Hardware\Kinetis\Crypto</Filter>
+    </None>
+    <None Include="..\GNU_Kinetis\Build_Kinetis_SSL.bat" />
+    <None Include="..\GNU_Kinetis\make_uTaskerV1.4_SSL_GNU_Kinetis" />
+    <None Include="..\..\..\Hardware\Kinetis\Crypto\mmcau_sha256_functions.S">
+      <Filter>Hardware\Kinetis\Crypto</Filter>
     </None>
     <None Include="..\..\..\Hardware\STM32\STM32_keil_asm.s">
       <Filter>Hardware\STM32</Filter>
     </None>
+    <None Include="..\..\..\Hardware\CMSIS_DSP\arm_bitreversal2.S">
+      <Filter>Hardware\CMSIS_DSP</Filter>
+    </None>
+    <None Include="..\..\..\Hardware\Luminary\LM3SXXXX_asm.s">
+      <Filter>Hardware\Luminary</Filter>
+    </None>
+    <None Include="..\..\..\Hardware\Luminary\LM3SXXXX_startup_keil.s">
+      <Filter>Hardware\Luminary</Filter>
+    </None>
+    <None Include="..\..\..\Hardware\Coldfire\cstart_iar.s68">
+      <Filter>Hardware\Coldfire</Filter>
+    </None>
+    <None Include="..\..\..\Hardware\Coldfire\flash_config.s">
+      <Filter>Hardware\Coldfire</Filter>
+    </None>
+    <None Include="..\..\..\Hardware\Coldfire\flash_config_sec.s">
+      <Filter>Hardware\Coldfire</Filter>
+    </None>
+    <None Include="..\..\..\Hardware\Coldfire\Startup.s">
+      <Filter>Hardware\Coldfire</Filter>
+    </None>
+    <None Include="..\..\..\Hardware\Coldfire\Startup_gnu.s">
+      <Filter>Hardware\Coldfire</Filter>
+    </None>
     <None Include="..\GNU_STM32\make_uTaskerV1.4_GNU_STM32" />
     <None Include="..\GNU_STM32\Build_STM32.bat" />
-    <None Include="..\GNU_Kinetis\Build_Kinetis.bat" />
+    <None Include="..\GNU_ColdFire\make_uTaskerV1.4_GNU_M5223X" />
+    <None Include="..\GNU_ColdFire\Build_M5223X.bat" />
+    <None Include="..\GNU_Luminary\make_uTaskerV1.4_GNU_Luminary" />
+    <None Include="..\GNU_Luminary\Build_Luminary.bat" />
+    <None Include="..\..\..\Hardware\AVR32\avr32_assembler.s82">
+      <Filter>Hardware\AVR32</Filter>
+    </None>
+    <None Include="..\..\..\Hardware\AVR32\avr32_startup_gcc.x">
+      <Filter>Hardware\AVR32</Filter>
+    </None>
+    <None Include="..\..\..\Hardware\iMX\iMX_asm.s">
+      <Filter>Hardware\iMX_RT</Filter>
+    </None>
+    <None Include="..\..\..\Hardware\LPC17XX\LPC17XX_asm.s">
+      <Filter>Hardware\LPC17XX</Filter>
+    </None>
+    <None Include="..\..\..\Hardware\LPC17XX\LPC17XX_startup_keil.s">
+      <Filter>Hardware\LPC17XX</Filter>
+    </None>
+    <None Include="..\..\..\Hardware\SAM7\cstartup_iar5.s">
+      <Filter>Hardware\SAM7</Filter>
+    </None>
+    <None Include="..\..\..\Hardware\SAM7\startup_gnu.s">
+      <Filter>Hardware\SAM7</Filter>
+    </None>
+    <None Include="..\..\..\Hardware\SAM7\startup_keil.s">
+      <Filter>Hardware\SAM7</Filter>
+    </None>
+    <None Include="..\..\..\Hardware\NE64\crt0.s">
+      <Filter>Hardware\NE64</Filter>
+    </None>
+    <None Include="..\GNU_iMX\make_uTaskerV1.4_GNU_iMX" />
+    <None Include="..\GNU_iMX\Build_iMX_RT.bat" />
+    <None Include="..\..\..\Hardware\STR91XF\91x_init.s">
+      <Filter>Hardware\STR91XF</Filter>
+    </None>
+    <None Include="..\..\..\Hardware\STR91XF\91x_vect.s">
+      <Filter>Hardware\STR91XF</Filter>
+    </None>
+    <None Include="..\..\..\Hardware\STR91XF\crt0_str91x.s">
+      <Filter>Hardware\STR91XF</Filter>
+    </None>
+    <None Include="..\..\..\Hardware\STR91XF\crt0_STR91XF_Keil.s">
+      <Filter>Hardware\STR91XF</Filter>
+    </None>
+    <None Include="cursor8.cur" />
+    <None Include="cursor9.cur" />
+    <None Include="cursor10.cur" />
+    <None Include="..\GNU_iMX\Build_iMX_RT_SSL.bat" />
+    <None Include="..\GNU_iMX\make_uTaskerV1.4_SSL_GNU_iMX" />
+    <None Include="..\..\..\Hardware\LPC2XXX\Cstartup.s">
+      <Filter>Hardware\LPC2XXX</Filter>
+    </None>
+    <None Include="..\..\..\Hardware\LPC2XXX\Cstartup_LPC21XX.s">
+      <Filter>Hardware\LPC2XXX</Filter>
+    </None>
+    <None Include="..\..\..\Hardware\LPC2XXX\CstartupIAR5.s">
+      <Filter>Hardware\LPC2XXX</Filter>
+    </None>
+    <None Include="..\..\..\Hardware\LPC2XXX\CstartupIAR5_LPC21XX.s">
+      <Filter>Hardware\LPC2XXX</Filter>
+    </None>
+    <None Include="..\..\..\Hardware\LPC2XXX\Lpc23xx_keil.s">
+      <Filter>Hardware\LPC2XXX</Filter>
+    </None>
+    <None Include="..\..\..\Hardware\LPC2XXX\startup_gnu.s">
+      <Filter>Hardware\LPC2XXX</Filter>
+    </None>
+    <None Include="..\..\..\Hardware\LPC2XXX\startup_LPC21XX_gnu.s">
+      <Filter>Hardware\LPC2XXX</Filter>
+    </None>
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="uTasker.rc">
-      <Filter>Source Files\Resource Files</Filter>
+      <Filter>WinSim\Resource Files</Filter>
     </ResourceCompile>
   </ItemGroup>
 </Project>

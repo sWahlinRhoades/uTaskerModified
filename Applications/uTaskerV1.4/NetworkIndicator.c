@@ -11,7 +11,7 @@
     File:      NetworkIndicator.c
     Project:   Single Chip Embedded Internet
     ---------------------------------------------------------------------
-    Copyright (C) M.J.Butcher Consulting 2004..2016
+    Copyright (C) M.J.Butcher Consulting 2004..2020
     *********************************************************************
     20.01.2009 Add debug message for link up/down                        {1}
     16.12.2012 Add PHY_POLL_LINK support (this version doesn't operate together with LAN_REPORT_ACTIVITY) {2}
@@ -64,9 +64,11 @@ extern void fnNetworkIndicator(TTASKTABLE *ptrTaskTable)                 // task
 {
     QUEUE_HANDLE PortIDInternal = ptrTaskTable->TaskID;                  // queue ID for task input
     unsigned char ucInputMessage[HEADER_LENGTH];                         // reserve space for receiving messages
+    #if defined LAN_REPORT_ACTIVITY || defined INTERRUPT_TASK_PHY
     static unsigned char ucState = 0;                                    // state of the Ethernet connection leds
+    #endif
 
-    while (fnRead(PortIDInternal, ucInputMessage, HEADER_LENGTH) != 0) { // check input queue
+    while (fnRead(PortIDInternal, ucInputMessage, HEADER_LENGTH) != 0) { // check task input queue
         switch (ucInputMessage[MSG_SOURCE_TASK]) {
         case TIMER_EVENT:
             if (E_TIMEOUT == ucInputMessage[MSG_TIMER_EVENT]) {          // LED blink period expired
@@ -117,6 +119,9 @@ extern void fnNetworkIndicator(TTASKTABLE *ptrTaskTable)                 // task
                 if ((ucState & LINK_LED_ON) == 0) {                      // if the previous state was link down
                     ucState = LINK_LED_ON;                               // new state is link up
                     fnEthernetStateChange(DEFAULT_IP_INTERFACE, ucInputMessage[MSG_INTERRUPT_EVENT]); // {6}
+        #if defined SET_ETH_SYMBOL
+                    SET_ETH_SYMBOL();
+        #endif
         #if defined LAN_REPORT_ACTIVITY
                     TURN_LINK_LED_ON();
         #endif
@@ -135,6 +140,9 @@ extern void fnNetworkIndicator(TTASKTABLE *ptrTaskTable)                 // task
                 if ((ucState & LINK_LED_ON) != 0) {                      // if the previous state was link up
                     ucState &= ~LINK_LED_ON;                             // new state is link down
                     fnEthernetStateChange(DEFAULT_IP_INTERFACE, ucInputMessage[MSG_INTERRUPT_EVENT]); // {6}
+        #if defined DEL_ETH_SYMBOL
+                    DEL_ETH_SYMBOL();
+        #endif
         #if defined USB_CDC_RNDIS
                     fnInterruptMessage(TASK_USB, LAN_LINK_DOWN);         // {7}
         #endif
@@ -151,7 +159,7 @@ extern void fnNetworkIndicator(TTASKTABLE *ptrTaskTable)                 // task
             break;
 
         default:
-    #ifdef SUPPORT_FLUSH
+    #if defined SUPPORT_FLUSH
             fnFlush(PortIDInternal, FLUSH_RX);                           // flush unexpected messages
     #endif
             break;
@@ -230,11 +238,11 @@ static int fnParseSettings(unsigned char *ucSettings)
 
     #if !defined BOOTLOADER && defined USE_MAINTENANCE
         if (settings.dhcp != 0) {
-            temp_pars->temp_parameters.usServers |= ACTIVE_DHCP;         // enable DHCP
-            fnStartDHCP((UTASK_TASK)(FORCE_INIT | TASK_APPLICATION), 0);
+            temp_pars->temp_parameters.usServers[DEFAULT_NETWORK] |= ACTIVE_DHCP; // enable DHCP
+            fnStartDHCP((UTASK_TASK)(FORCE_INIT | TASK_APPLICATION), DHCP_CLIENT_OPERATION); // start DHCP client
         }
         else {
-            temp_pars->temp_parameters.usServers &= ~ACTIVE_DHCP;        // disable DHCP
+            temp_pars->temp_parameters.usServers[DEFAULT_NETWORK] &= ~ACTIVE_DHCP; // disable DHCP
             fnDeleteArp();                                               // ensure our ARP table is empty
             fnGetIP_ARP(network[DEFAULT_NETWORK].ucOurIP, TASK_APPLICATION, -1); // cause a ping of our own address and wait for the result
         }
@@ -265,7 +273,7 @@ static int fnSendInfo(void)
     #if defined BOOTLOADER 
     tUDP_Message.tUDP_Data.dhcp = 1;                                     // boot loader always uses DHCP
     #else		
-    if (temp_pars->temp_parameters.usServers & ACTIVE_DHCP) {
+    if ((temp_pars->temp_parameters.usServers[DEFAULT_NETWORK] & ACTIVE_DHCP) != 0) {
         tUDP_Message.tUDP_Data.dhcp = 1;                                 // DHCP is in use
     }
     else {

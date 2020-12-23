@@ -11,7 +11,7 @@
     File:      driver.h
     Project:   Single Chip Embedded Internet
     ---------------------------------------------------------------------
-    Copyright (C) M.J.Butcher Consulting 2004..2018
+    Copyright (C) M.J.Butcher Consulting 2004..2020
     *********************************************************************
     01.03.2007 Added uCompareFile()
     19.05.2007 Add FLASH protection functions fnProtectFile(), fnUnprotectFile()
@@ -99,6 +99,18 @@
     17.12.2017 Change uMemset() to match memset() parameters             {80}
     13.03.2018 Add UART_IDLE_LINE_INTERRUPT                              {81}
     16.03.2018 Add CONTROL_QUESTION_MARK                                 {82}
+    05.05.2018 Add UART_HW_TRIGGERED_TX_MODE                             {83}
+    01.06.2018 Add optional interrupt callbacks receptionHandler(), receiveBreakHandler() and frameCompleteHandler() {84}
+    10.08.2018 Add uStrstr() and uStrstrCaseInsensitive()                {85}
+    26.11.2018 Change uTaskerGlobalStopTimer() return parameter          {86}
+    12.12.2018 Add return value to uTaskerGlobalMonoTimer()              {87}
+    24.12.2018 Add uStrlenSafe()                                         {88}
+    21.02.2020 Add uOpenFileIntegrityCheck()                             {89}
+    28.02.2020 Add UART_INVERT_RX                                        {90}
+    17.08.2020 Add SUPPORT_QUEUE_DEALLOCATION and SUPPORT_CALLOC_ALIGN option support
+    21.08.2020 Add TERMINATE_ZERO_DATA_NON_E and STATUS_STAGE_RECEPTION_ENUM {91}
+    07.09.2020 Add fnDebugStyle()                                        {92}
+    30.10.2020 Add UART_TX_RX_LOOP and UART_SINGLE_WIRE_MODE             {93}
 
 */
 
@@ -125,6 +137,7 @@
 #define TYPE_I2C          (unsigned char)8
 #define TYPE_SSC          (unsigned char)9                               // {22}
 #define TYPE_FIFO         (unsigned char)10                              // {61}
+#define TYPE_PRN          (unsigned char)11
 
 
 
@@ -151,6 +164,7 @@
 #define FOR_WRITE         (unsigned char)0x02
 #define FOR_I_O           (unsigned char)(FOR_READ | FOR_WRITE)
 #define MODIFY_CONFIG     (unsigned char)0x04
+#define ADD_CONFIG       (unsigned char)0x08
 
 
 // Driver commands - on a bit basis
@@ -204,13 +218,14 @@
 #define ASCII_ACK                    0x06
 #define ASCII_BEL                    0x07
 #define DELETE_KEY                   0x08                                // back space (control-H)
-#define ASCII_HT                     0x09
+#define ASCII_HT                     0x09                                // horizontal TAB
 #define LINE_FEED                    0x0a
-#define ASCII_VT                     0x0b
+#define ASCII_VT                     0x0b                                // vertical TAB
 #define ASCII_FF                     0x0c
 #define CARRIAGE_RETURN              0x0d
-#define ASCII_SO                     0x0e
-#define TAB_KEY                      0x0f                                // SI
+#define ASCII_SO                     0x0e                                // shift out
+#define ASCII_SI                     0x0f                                // shift in
+#define TAB_KEY                      (ASCII_SI)                          // shift in
 #define ASCII_DLE                    0x10
 #define XON_CODE                     0x11                                // DC1
 #define ASCII_DC2                    0x12
@@ -236,6 +251,28 @@
 #define BACK_SLASH                   0x5c                                // {26}
 #define CONTROL_QUESTION_MARK        0x7f                                // {82} control-? (this is used by putty as back space if not set to control-H)
 
+// Terminal output color control
+//
+#define OUTPUT_STYLE_COLOR_MASK      0x0000001f                          // {92}
+#define OUTPUT_STYLE_OFF             0x0000000f                          // disable style
+#define OUTPUT_STYLE_SECOND_SET_MASK 0x00000010
+#define OUTPUT_COLOR_BLACK           0x00000000
+#define OUTPUT_COLOR_RED             0x00000001
+#define OUTPUT_COLOR_GREEN           0x00000002
+#define OUTPUT_COLOR_ORANGE          0x00000003
+#define OUTPUT_COLOR_BLUE            0x00000004
+#define OUTPUT_COLOR_PURPLE          0x00000005
+#define OUTPUT_COLOR_CYAN            0x00000006
+#define OUTPUT_COLOR_LIGHT_GRAY      0x00000007
+#define OUTPUT_COLOR_DARK_GRAY       0x00000010
+#define OUTPUT_COLOR_LIGHT_RED       0x00000011
+#define OUTPUT_COLOR_LIGHT_GREEN     0x00000012
+#define OUTPUT_COLOR_YELLOW          0x00000013
+#define OUTPUT_COLOR_LIGHT_BLUE      0x00000014
+#define OUTPUT_COLOR_LIGHT_PURPLE    0x00000015
+#define OUTPUT_COLOR_LIGHT_CYAN      0x00000016
+#define OUTPUT_COLOR_WHITE           0x00000017
+#define OUTPUT_COLOR_DEFAULT         0x0000000e                          // ignore style and continue using present setting
 
 // Serial configuration
 //
@@ -273,6 +310,11 @@
     #define UART_TIMED_TRANSMISSION_MODE 0x00040000                      // {72}
     #define UART_INVERT_TX               0x00080000                      // {78}
     #define UART_IDLE_LINE_INTERRUPT     0x00100000                      // {81}
+    #define UART_HW_TRIGGERED_TX_MODE    0x00200000                      // {83}
+    #define UART_OPEN_DRAIN_OUTPUT       0x00400000
+    #define UART_INVERT_RX               0x00800000                      // {90}
+    #define UART_TX_RX_LOOP              0x01000000                      // {93}
+    #define UART_SINGLE_WIRE_MODE        0x02000000                      // {93}
 #endif
 
 #define UART_TX_DMA                  0x01                                // UART uses DMA for transmission
@@ -281,7 +323,7 @@
 #define UART_RX_DMA_HALF_BUFFER      0x08                                // DMA complete when rx buffer half full
 #define UART_RX_DMA_BREAK            0x10                                // DMA complete when break detected
 #define UART_RX_MODULO               0x20                                // {75} reception memory must be moduo aligned
-#define UART_TX_MODULO               0x40                                // {75} transmission memory must be moduo aligned
+#define UART_TX_MODULO               0x40                                // {75} transmission memory must be modulo aligned
 
 #define FLUSH_RX          0
 #define FLUSH_TX          1
@@ -323,23 +365,30 @@
 #define TX_ACTIVE         0x40
 #define RX_ACTIVE         0x80
 
+// TTY task messages
+//
+#define TTY_BREAK_FRAME_RECEPTION     1
+
 // USB shared states
 //
-#define USB_ENDPOINT_ACTIVE          0x0001
-#define USB_ENDPOINT_SUSPENDED       0x0002
-#define USB_ENDPOINT_BLOCKED         0x0004
-#define USB_ENDPOINT_STALLED         0x0008
-#define USB_CONTROL_ENDPOINT         0x0010
-#define USB_ENDPOINT_TERMINATES      0x0020                              // {30}
-#define USB_ENDPOINT_ZERO_COPY_IN    0x0040                              // {67}
-#define USB_ENDPOINT_ZERO_COPY_OUT   0x0080                              // {67}
-#define USB_ENDPOINT_IN_MESSAGE_MODE 0x0100
+#define USB_ENDPOINT_ACTIVE           0x0001
+#define USB_ENDPOINT_SUSPENDED        0x0002
+#define USB_ENDPOINT_BLOCKED          0x0004
+#define USB_ENDPOINT_STALLED          0x0008
+#define USB_CONTROL_ENDPOINT          0x0010
+#define USB_ENDPOINT_TERMINATES       0x0020                              // {30}
+#define USB_ENDPOINT_ZERO_COPY_IN     0x0100                              // {67}
+#define USB_ENDPOINT_ZERO_COPY_OUT    0x0200                              // {67}
+#define USB_ENDPOINT_ZERO_COPY_ISO_IN 0x0400
+#define USB_ENDPOINT_IN_MESSAGE_MODE  0x0800
+#define USB_ENDPOINT_AUTO_IN          0x1000
 
 // I2C shared states
 //
-#define RX_ACTIVE_FIRST_READ        SEND_XON
-#define I2C_SLAVE_TX_BUFFER_MODE    SEND_XOFF
-#define I2C_SLAVE_RX_MESSAGE_MODE   SEND_XOFF                            // {65}
+#define RX_ACTIVE_FIRST_READ         SEND_XON
+#define I2C_SLAVE_TX_BUFFER_MODE     SEND_XOFF
+#define I2C_SLAVE_RX_MESSAGE_MODE    SEND_XOFF                           // {65}
+#define WAIT_FINAL_BYTE_TRANSMISSION  ESCAPE_SEQUENCE
 
 // I2C speeds
 //
@@ -353,9 +402,11 @@
 
 // SPI interface defines
 //
-#define SPI_SLAVE         0x00
-#define SPI_MASTER        0x80
-#define SPI_TRANSPARENT   0x33
+#define SPI_TX_MESSAGE_MODE 0x01
+#define SPI_TX_MULTI_MODE   0x02
+#define SPI_PHASE           0x04
+#define SPI_POL             0x08
+#define SPI_LSB             0x10
 
 // SPI speed defines
 //
@@ -404,6 +455,7 @@
 #define CAN_TX_ACK_ON     0x10                                           // ack when tx successful
 #define GET_CAN_TX_REMOTE_ERROR 0x08
 #define FREE_CAN_RX_REMOTE 0x04
+#define FLUSH_CAN_TX_BLOCKED 0x02
 #define CAN_TX_MSG_MASK   0xf0
 
 
@@ -455,9 +507,9 @@
 
 // Macro to define little-endian values - little endian use is specified by USB and SD-cards
 //
-#define LITTLE_SHORT_WORD_BYTES(x)   (unsigned char)(x), (unsigned char)(x >> 8)
-#define LITTLE_SHORT_24BIT_BYTES(x)  (unsigned char)(x), (unsigned char)(x >> 8), (unsigned char)(x >> 16) // {28}
-#define LITTLE_LONG_WORD_BYTES(x)    (unsigned char)(x), (unsigned char)(x >> 8), (unsigned char)(x >> 16), (unsigned char)(x >> 24)
+#define LITTLE_SHORT_WORD_BYTES(x)   (unsigned char)(x), (unsigned char)((x) >> 8)
+#define LITTLE_SHORT_24BIT_BYTES(x)  (unsigned char)(x), (unsigned char)((x) >> 8), (unsigned char)((x) >> 16) // {28}
+#define LITTLE_LONG_WORD_BYTES(x)    (unsigned char)(x), (unsigned char)((x) >> 8), (unsigned char)((x) >> 16), (unsigned char)((x) >> 24)
 
 #if defined _LITTLE_ENDIAN || defined _WINDOWS
     #define LITTLE_SHORT_WORD(x)     (unsigned short)(x)
@@ -469,15 +521,15 @@
 
 // Macro to define big-endian values - big endian use is specified by Ethernet
 //
-#define BIG_SHORT_WORD_BYTES(x)      (unsigned char)(x >> 8), (unsigned char)(x)
-#define BIG_LONG_WORD_BYTES(x)       (unsigned char)(x >> 24), (unsigned char)(x >> 16), (unsigned char)(x >> 8), (unsigned char)(x)
+#define BIG_SHORT_WORD_BYTES(x)      (unsigned char)((unsigned short)(x) >> 8), (unsigned char)((unsigned short)(x))
+#define BIG_LONG_WORD_BYTES(x)       (unsigned char)(((unsigned long)(x) >> 24)), (unsigned char)(((unsigned long)(x) >> 16)), (unsigned char)(((unsigned long)(x) >> 8)), (unsigned char)(((unsigned long)(x)))
 
 #if defined _LITTLE_ENDIAN || defined _WINDOWS
-    #define BIG_SHORT_WORD(x)     (unsigned short)((x << 8) | (x >> 8))
-    #define BIG_LONG_WORD(x)      (unsigned long)((x << 24) | ((x >> 8) & 0x0000ff00) | ((x << 8) & 0x00ff0000) | (x >> 24)) // {55}
+    #define BIG_SHORT_WORD(x)        (unsigned short)((x << 8) | (x >> 8))
+    #define BIG_LONG_WORD(x)         (unsigned long)((x << 24) | ((x >> 8) & 0x0000ff00) | ((x << 8) & 0x00ff0000) | (x >> 24)) // {55}
 #else
-    #define BIG_SHORT_WORD(x)     (unsigned short)(x)
-    #define BIG_LONG_WORD(x)      (unsigned long)(x)
+    #define BIG_SHORT_WORD(x)        (unsigned short)(x)
+    #define BIG_LONG_WORD(x)         (unsigned long)(x)
 #endif
 
 
@@ -491,6 +543,9 @@ typedef struct stQueueDimensions
 {
     QUEUE_TRANSFER RxQueueSize;                                          // the size of the RX queue we desire
     QUEUE_TRANSFER TxQueueSize;                                          // the size of the TX queue we desire
+    #if defined SUPPORT_QUEUE_DEALLOCATION
+    unsigned char  ucHeapType;
+    #endif
 }   QUEUE_DIMENSIONS;
 
 // TTY table structure used to configure an SCI (serial) interface
@@ -519,6 +574,15 @@ typedef struct stTTYtable {
     #if defined SUPPORT_FLOW_HIGH_LOW
     unsigned char  ucFlowHighWater;                                      // % of buffer full to stall flow
     unsigned char  ucFlowLowWater;                                       // % of buffer full to restart flow
+    #endif
+    #if defined USER_DEFINED_UART_RX_HANDLER                             // {84}
+    int (*receptionHandler)(unsigned char, QUEUE_LIMIT);
+    #endif
+    #if defined USER_DEFINED_UART_RX_BREAK_DETECTION
+    int (*receiveBreakHandler)(QUEUE_LIMIT);
+    #endif
+    #if defined USER_DEFINED_UART_TX_FRAME_COMPLETE
+    void (*txFrameCompleteHandler)(QUEUE_LIMIT);
     #endif
 } TTYTABLE;
 
@@ -557,7 +621,7 @@ typedef struct stSSCtable {
 // USB table structure used to configure a USB interface
 //
 typedef struct stUSBtable {                                              // {1}
-    int (*usb_callback)(unsigned char *ptrData, unsigned short length, int iSetup); // optional call back
+    int (*usb_callback)(unsigned char *ptrData, unsigned short length, int iSetup, int iChannel); // optional call back
 #if defined IN_COMPLETE_CALLBACK                                         // {63}
     void (*INcallback)(unsigned char ucEndpoint);                        // optional call back on IN completion
 #endif
@@ -571,6 +635,9 @@ typedef struct stUSBtable {                                              // {1}
     QUEUE_HANDLE   Paired_RxEndpoint;                                    // optional paired endpoint receive channel (zero when not used)
 #if defined USE_USB_OTG_CHARGE_PUMP
     QUEUE_HANDLE   OTG_I2C_Channel;                                      // I2C interface to use to activate OTG charge pump
+#endif
+#if (defined USB_HS_INTERFACE && defined USB_FS_INTERFACE) || (defined _iMX && (HSUSB_CONTROLLERS > 1))
+    unsigned char  ucUSB_controller;                                     // USB controller used
 #endif
     unsigned char  ucClockSource;
     unsigned char  ucEndPoints;                                          // number of endpoints required
@@ -592,7 +659,9 @@ typedef struct stUSBtable {                                              // {1}
 #define USB_ALT_PORT_MAPPING     0x0020                                  // {33}
 #define USB_OUT_ZERO_COPY        0x0040                                  // {67}
 #define USB_IN_ZERO_COPY         0x0080                                  // {67}
-#define USB_IN_MESSAGE_MODE      0x0100
+#define USB_IN_ZERO_COPY_ISO     0x0100
+#define USB_IN_MESSAGE_MODE      0x0200
+#define USB_IN_AUTO_POLL         0x0400
 #define USB_IN_FIFO_MASK         0xf000
 #define USB_IN_FIFO_SHIFT        12
 
@@ -603,15 +672,23 @@ typedef struct stI2CTABLE {
     QUEUE_DIMENSIONS Rx_tx_sizes;                                        // the desired rx and tx queue sizes
     UTASK_TASK     Task_to_wake;                                         // default task to wake when receive message available
     QUEUE_HANDLE   Channel;                                              // physical channel number 1,2,3...
+#if defined I2C_DMA_SUPPORT
+    unsigned char ucDMAConfig;                                           // DMA operation configuration
+#endif
 #if defined I2C_SLAVE_MODE                                               // {65}
     unsigned char  ucSlaveAddress;                                       // address to be used by slave
     int (*fnI2C_SlaveCallback)(int iChannel, unsigned char *ptrDataByte, int iType); // optional callback to prepare a byte to transmit
 #endif
 } I2CTABLE;
 
+#define I2C_TX_DMA                    0x01
+#define I2C_RX_DMA                    0x02
+
 #define I2C_SLAVE_BUFFER              0                                  // the next byte is to be taken from the I2C output buffer
 #define I2C_SLAVE_TX_PREPARED         1                                  // the next byte has been prepared by the application callback
 #define I2C_SLAVE_RX_CONSUMED         2                                  // the byte has been consumed by the application callback
+#define I2C_SLAVE_ADDRESS_REFUSED     3                                  // the address has been refused by the application callback and a NACK should be returned to the master
+#define I2C_SLAVE_RX_REFUSED          4                                  // the byte has been refused by the application callback and a NACK should be returned to the master
 
 #define I2C_SLAVE_ADDRESSED_FOR_READ  0                                  // the slave has just been address for a read transaction (slave is to return data)
 #define I2C_SLAVE_ADDRESSED_FOR_WRITE 1                                  // the slave has just been address for a write transaction (slave is to receive data)
@@ -627,18 +704,20 @@ typedef struct stSPITABLE {
     QUEUE_DIMENSIONS Rx_tx_sizes;                                        // the desired rx and tx queue sizes
     UTASK_TASK     Task_to_wake;                                         // default task to wake when receive message available
     QUEUE_HANDLE   Channel;                                              // physical channel number 1,2,3...
-    unsigned char  ucMode;                                               // mode details
+    unsigned char  Config;                                               // mode details
+    unsigned char  ucWordWidth;
+    unsigned char  ucChipSelect;
 } SPITABLE;
 
 
 #if !defined ETHERNET_INTERFACES
     #define ETHERNET_INTERFACES   1
-#endif 
+#endif
 
 // Ethernet table structure used to configure an Ethernet interface
 //
 typedef struct stETHtable {
-#if !defined ETHERNET_AVAILABLE || defined NO_INTERNAL_ETHERNET || (ETHERNET_INTERFACES > 1) || (defined USB_CDC_RNDIS && defined USB_TO_TCP_IP) || defined USE_PPP
+#if !defined ETHERNET_AVAILABLE || defined WIFI_INTERFACE || defined NO_INTERNAL_ETHERNET || (ETHERNET_INTERFACES > 1) || ((defined USB_CDC_RNDIS || defined USB_RNDIS_HOST) && defined USB_TO_TCP_IP) || defined USE_PPP
     void *ptrEthernetFunctions;                                          // function table used when there is an external controller available
 #endif
     QUEUE_HANDLE   Channel;                                              // channel number 0, 1, ...
@@ -703,7 +782,17 @@ typedef struct stI2CQue
 {
     QUEQUE         I2C_queue;
     QUEUE_TRANSFER msgs;
-    volatile unsigned char  ucPresentLen;
+#if defined I2C_2_BYTE_LENGTH
+    volatile unsigned short usPresentLen;                                // 0..64k
+    #if defined I2C_DMA_SUPPORT
+    unsigned short dma_length;
+    #endif
+#else
+    volatile unsigned char  ucPresentLen;                                // 0..255
+    #if defined I2C_DMA_SUPPORT
+    unsigned char dma_length;
+    #endif
+#endif
     unsigned char  ucState;
     UTASK_TASK     wake_task;
 } I2CQue;
@@ -726,7 +815,7 @@ typedef struct stTTYQue
     #endif
     QUEQUE         tty_queue;                                            // the standard queue belonging to the TTY
     QUEUE_TRANSFER msgs;                                                 // the number of reception messages waiting in the input queue
-    #if (defined (SUPPORT_MSG_CNT) && defined (SUPPORT_MSG_MODE)) || defined SERIAL_SUPPORT_DMA // {35}
+    #if (defined SUPPORT_MSG_MODE && defined SUPPORT_MSG_CNT) || defined SERIAL_SUPPORT_DMA || defined UART_BREAK_SUPPORT // {35}
     QUEUE_TRANSFER msgchars;                                             // the number of characters in the present reception message
     #endif
     #if defined SUPPORT_FLOW_HIGH_LOW
@@ -752,6 +841,29 @@ typedef struct stTTYQue
         #endif
     #endif
 } TTYQUE;
+
+
+#if !defined SPI_CHIP_SELECTS
+    #define SPI_CHIP_SELECTS     1
+#endif
+// SPI queue
+//
+typedef struct stSPIQue
+{
+    QUEQUE         spi_queue;                                            // the standard queue belonging to the SPI
+    QUEUE_TRANSFER msgLength;                                            // present transmission message length
+    QUEUE_TRANSFER msgchars;                                             // the number of characters in the present reception message
+    QUEUE_TRANSFER msgs;                                                 // the number of reception messages waiting in the input queue
+    UART_MODE_CONFIG opn_mode;                                           // operating mode details of the SPI
+    unsigned char  ucState;
+    unsigned char  ucChipSelect;                                         // chip select used for present transmission
+    UTASK_TASK     wake_task;                                            // the task to be woken on character or message reception (depending on mode)
+    unsigned char  uBusWidth[SPI_CHIP_SELECTS];
+    #if defined SPI_SUPPORT_DMA
+    unsigned char  ucDMA_mode;                                           // DMA operating mode details of the SPI
+    QUEUE_TRANSFER lastDMA_block_length;                                 // the last DMA transmission block length
+    #endif
+} SPIQUE;
 
 
 // Synchronous Serial Controller interface queue                         // {22}
@@ -795,7 +907,7 @@ typedef struct stUSB_MESSAGE_QUEUE
 
 typedef struct stUSB_ENDPOINT                                            // each end point uses a management queue of this type
 {
-    int          (*usb_callback)(unsigned char *, unsigned short, int);
+    int          (*usb_callback)(unsigned char *, unsigned short, int, int);
     #if defined IN_COMPLETE_CALLBACK                                     // {63}
     void         (*fnINcomplete)(unsigned char);                         // optional callbck on successful IN buffer completion (useful for interrupt endpoints to prepare next data)
     #endif
@@ -816,6 +928,9 @@ typedef struct stUSB_ENDPOINT                                            // each
     #if defined USB_SIMPLEX_ENDPOINTS || defined SUPPORT_USB_SIMPLEX_HOST_ENDPOINTS
     UTASK_TASK     event_task_in;
     #endif
+    #if defined CUSTOM_USB_TX_FREE
+    unsigned char  ucCustomTxFree_event;
+    #endif
     unsigned char  ucEndpointNumber;
     unsigned char  ucState;
     unsigned char  ucPaired_IN;
@@ -829,15 +944,16 @@ typedef struct stUSBQUE
 } USBQUE;
 #endif
 
+
 // This structure is a basic driver entity specifying which driver call is used to process this interface and
 // the control structures for receiving and transmitting data.
 //
 typedef struct stIDinfo
 {
-#if (!defined ETH_INTERFACE && (ETHERNET_INTERFACES == 1)) || !defined ETHERNET_AVAILABLE || defined NO_INTERNAL_ETHERNET || (ETHERNET_INTERFACES > 1) || defined USB_CDC_RNDIS || defined USE_PPP
+#if (!defined ETH_INTERFACE && (ETHERNET_INTERFACES == 1)) || !defined ETHERNET_AVAILABLE || defined NO_INTERNAL_ETHERNET || (ETHERNET_INTERFACES > 1) || defined USB_CDC_RNDIS || defined USB_RNDIS_HOST || defined USE_PPP
     void *ptrDriverFunctions;                                            // list of functions that are used to handle certain driver types
 #endif
-    QUEUE_TRANSFER (*CallAddress)(QUEUE_HANDLE, unsigned char *, QUEUE_TRANSFER, unsigned char, QUEUE_HANDLE); // address of driver for all interraction
+    QUEUE_TRANSFER (*CallAddress)(QUEUE_HANDLE, unsigned char *, QUEUE_TRANSFER, unsigned char, QUEUE_HANDLE); // address of driver for all interaction
     QUEQUE *input_buffer_control;                                        // pointer to the input queue control block
     QUEQUE *output_buffer_control;                                       // pointer to the output queue control block
     QUEUE_HANDLE qHandle;                                                // the allocated channel number - can be a hardware interface or a task identifier 1, 2, 3 etc.
@@ -858,6 +974,7 @@ extern QUEUE_HANDLE Ethernet_handle[ETHERNET_INTERFACES];                // Ethe
 /*                 global function prototype declarations              */
 /* =================================================================== */
 
+extern QUEUE_TRANSFER fnDebugStyle(unsigned long ulStyle);               // {92}
 extern QUEUE_TRANSFER fnDebugMsg (CHAR *ucToSend);                       // send string to debug interface
 extern unsigned long  fnHexStrHex(CHAR *ucNewAdd);                       // converts an ASCII hex byte sequence to its hex value (can be up to a 32 bit value in length)
 extern unsigned long  fnDecStrHex(CHAR *ucNewAdd);                       // converts an ASCII decimal input to its binary hex value
@@ -895,50 +1012,54 @@ extern QUEUE_HANDLE   fnOpenCAN(CANTABLE *pars, unsigned char driver_mode);
 #if defined USB_INTERFACE
     extern QUEUE_HANDLE   fnOpenUSB(USBTABLE *pars, unsigned char driver_mode); // {1}
     extern int fnUSB_handle_frame(unsigned char ucType, unsigned char *ptrData, int iEndpoint, USB_HW *ptrUSB_HW);
-      #define USB_SETUP_FRAME             0
-      #define USB_OUT_FRAME               1
-      #define USB_CONTROL_OUT_FRAME       2
-      #define USB_TX_ACKED                3
-      #define USB_RESET_DETECTED          4
-      #define USB_SUSPEND_DETECTED        5
-      #define USB_RESUME_DETECTED         6
-      #define USB_DATA_REPEAT             7
-      #define USB_DEVICE_DETECTED         8                              // {8}
-      #define USB_DEVICE_REMOVED          9
-      #define USB_HOST_SOF                10
-      #define USB_HOST_STALL_DETECTED     11
-      #define USB_DEVICE_TIMEOUT          12                             // possibly temporary error/debug codes from here
-      #define USB_HOST_ACK_PID_DETECTED   13
-      #define USB_HOST_NACK_PID_DETECTED  14
-      #define USB_HOST_BUS_TIMEOUT_DETECTED 15
-      #define USB_HOST_DATA_ERROR_DETECTED 16
+      #define USB_NO_FRAME                0
+      #define USB_CONTROL_OUT_FRAME       1
+      #define USB_SETUP_FRAME             2
+      #define USB_OUT_FRAME               3
+      #define USB_TX_ACKED                4
+      #define USB_RESET_DETECTED          5
+      #define USB_SUSPEND_DETECTED        6
+      #define USB_RESUME_DETECTED         7
+      #define USB_DATA_REPEAT             8
+      #define USB_DEVICE_DETECTED         9                              // {8}
+      #define USB_DEVICE_REMOVED          10
+      #define USB_HOST_SOF                11
+      #define USB_HOST_STALL_DETECTED     12
+      #define USB_DEVICE_TIMEOUT          13                             // possibly temporary error/debug codes from here
+      #define USB_HOST_ACK_PID_DETECTED   14
+      #define USB_HOST_NACK_PID_DETECTED  15
+      #define USB_HOST_BUS_TIMEOUT_DETECTED 16
+      #define USB_HOST_DATA_ERROR_DETECTED 17
 
       #define USB_HOST_ERROR             -1
       #define BUFFER_CONSUMED             0
       #define MAINTAIN_OWNERSHIP          1                              // return values
       #define ACTIVATE_ENDPOINT           2
-      #define TERMINATE_ZERO_DATA         3
-      #define STALL_ENDPOINT              4
-      #define SEND_SETUP                  5                              // {8}
-      #define BUFFER_CONSUMED_EXPECT_MORE 6                              // {12}
-      #define TRANSPARENT_CALLBACK        7                              // {30}
-      #define CRITICAL_OUT                8                              // {34}
-      #define INITIATE_IN_TOKEN           9                              // {56}
+      #define TERMINATE_ZERO_DATA_NON_E   3                              // {91}
+      #define TERMINATE_ZERO_DATA         4
+      #define STALL_ENDPOINT              5
+      #define SEND_SETUP                  6                              // {8}
+      #define BUFFER_CONSUMED_EXPECT_MORE 7                              // {12}
+      #define TRANSPARENT_CALLBACK        8                              // {30}
+      #define CRITICAL_OUT                9                              // {34}
+      #define INITIATE_IN_TOKEN           10                             // {56}
 
-    extern int fnEndpointData(int iEndpoint, unsigned char *ptrData, unsigned short usLength, int iControl, unsigned char **ptrNextBuffer);
+    extern int fnEndpointData(int iEndpoint, unsigned char *ptrData, unsigned short usLength, int iControl, USB_HW *ptrUSB_HW /*unsigned char **ptrNextBuffer*/);
       #define SETUP_DATA_RECEPTION        0
       #define OUT_DATA_RECEPTION          1
       #define STATUS_STAGE_RECEPTION      2
-      #define ENDPOINT_REQUEST_TYPE       3
-      #define ENDPOINT_CLEARED            4                              // {30}
-    extern int fnSetUSBConfigState(int iCommand, unsigned char ucConfig);
+      #define STATUS_STAGE_RECEPTION_ENUM 3                              // {91}
+      #define ENDPOINT_REQUEST_TYPE       4
+      #define ENDPOINT_CLEARED            5                              // {30}
+      #define HOST_SETUP_ACKED            6
+    extern int fnSetUSBConfigState(int iCommand, unsigned char ucConfig, int iChannel);
       #define USB_CONFIG_ACTIVATE         0
       #define USB_DEVICE_SUSPEND          1
       #define USB_DEVICE_RESUME           2
 
     extern USB_ENDPOINT_DESCRIPTOR *fnGetUSBEndpoint(unsigned char ucConfig, unsigned char *ptrDesc, unsigned short *usLength, unsigned short *usMaxLength); // {8}
-    extern void fnSetUSBEndpointState(int iEndpoint, unsigned char ucStateSet);
-    extern int  fnGetPairedIN(int iEndpoint_OUT);                        // {32}
+    extern void fnSetUSBEndpointState(int iEndpoint, unsigned char ucStateSet, int iChannel);
+    extern int  fnGetPairedIN(int iEndpoint_OUT, int iChannel);          // {32}
     extern QUEUE_TRANSFER entry_usb(QUEUE_HANDLE channel, unsigned char *ptBuffer, QUEUE_TRANSFER Counter, unsigned char ucCallType, QUEUE_HANDLE DriverID);
     extern QUEUE_TRANSFER fnStartUSB_send(QUEUE_HANDLE channel, USBQUE *ptrUsbQueue, QUEUE_TRANSFER txLength);
 #endif
@@ -947,6 +1068,9 @@ extern QUEUE_HANDLE   fnOpenSPI(SPITABLE *pars, unsigned char driver_mode);
 extern QUEUE_HANDLE   fnOpenI2C(I2CTABLE *pars);
 extern QUEUE_HANDLE   fnOpenSSC(SSCTABLE *pars, unsigned char driver_mode); // {22}
 extern QUEUE_HANDLE   fnOpen(unsigned char type_of_driver, unsigned char driver_mode, void *pars);
+#if defined SUPPORT_QUEUE_DEALLOCATION
+    extern int fnClose(QUEUE_HANDLE *ptrHandle);
+#endif
 extern QUEUE_TRANSFER fnDriver(QUEUE_HANDLE driver_id, unsigned short state , unsigned short rx_or_tx);
 extern QUEUE_TRANSFER fnRead(QUEUE_HANDLE driver_id, unsigned char *input_buffer, QUEUE_TRANSFER nr_of_bytes); // read contents of input queue to a buffer
 extern QUEUE_TRANSFER fnMsgs(QUEUE_HANDLE driver_id);
@@ -1001,6 +1125,11 @@ extern void *uMallocAlign(MAX_MALLOC __size, unsigned short ucAlign);    // {2}
 #if defined SUPPORT_UCALLOC                                              // {79}
     extern void uCFree(void *ptr);
     extern void *uCalloc(size_t n, size_t size);
+    extern void *_uCalloc(MAX_MALLOC size);
+    extern void fn_uCallocReport(void);
+    #if defined SUPPORT_CALLOC_ALIGN
+    extern void *uCallocAlign(MAX_MALLOC __size, unsigned short usAlign);
+    #endif
 #endif
 
 
@@ -1009,7 +1138,7 @@ extern void *uMallocAlign(MAX_MALLOC __size, unsigned short ucAlign);    // {2}
     extern int (*uMemcmp)(const void *ptrTo, const void *ptrFrom, size_t Size);
     extern int (*uStrcmp)(const CHAR *ptrTo, const CHAR *ptrFrom);
     extern CHAR *(*uStrcpy)(CHAR *ptrTo, const CHAR *ptrFrom);
-    extern int (*uStrlen)(const CHAR *ptrStr);
+    extern size_t (*uStrlen)(const CHAR *ptrStr);
     #if defined DMA_MEMCPY_SET && !defined DEVICE_WITHOUT_DMA
         extern void *uMemcpy(void *ptrTo, const void *ptrFrom, size_t Size);
         extern void *uMemset(void *ptrTo, int iValue, size_t Size);      // {80} use int as second parameter to match memset()
@@ -1023,18 +1152,23 @@ extern void *uMallocAlign(MAX_MALLOC __size, unsigned short ucAlign);    // {2}
     extern void *uMemset(void *ptrTo, int iValue, size_t Size);          // {80} use int as second parameter to match memset()
     extern int   uStrcmp(const CHAR *ptrTo, const CHAR *ptrFrom);
     extern CHAR *uStrcpy(CHAR *ptrTo, const CHAR *ptrFrom);
-    extern int   uStrlen(const CHAR *ptrStr);
+    extern size_t uStrlen(const CHAR *ptrStr);
 #endif
+extern size_t uStrlenSafe(const CHAR *ptrStr, size_t MaxStrLength); // {88}
 
 extern void uMemset_long(unsigned long *ptrTo, unsigned long ulValue, size_t Size); // {19}
 extern void uMemcpy_long(unsigned long *ptrTo, const unsigned long *ptrFrom, size_t Size); // {19}
-extern void *uReverseMemcpy(void *ptrTo, const void *ptrFrom, size_t Size); // {54}
+#if defined UREVERSEMEMCPY
+    extern void *uReverseMemcpy(void *ptrTo, const void *ptrFrom, size_t Size); // {54}
+#endif
 
 extern unsigned short uStrEquiv(const CHAR *ptrTo, const CHAR *ptrFrom);
+extern CHAR *uStrstr(const CHAR *ptrStringToScan, const CHAR *ptrStringToMatch); // {85}
+extern CHAR *uStrstrCaseInsensitive(const CHAR *ptrStringToScan, const CHAR *ptrStringToMatch); // 85}
 
-
-extern void uTaskerGlobalMonoTimer(UTASK_TASK OwnerTask, DELAY_LIMIT delay, unsigned char time_out_event);
-extern void uTaskerGlobalStopTimer(UTASK_TASK OwnerTask, unsigned char time_out_event);
+extern int uTaskerGlobalMonoTimer(UTASK_TASK OwnerTask, DELAY_LIMIT delay, unsigned char time_out_event); // {87}
+    #define GLOBAL_TIMER_NOT_STARTED    (-1)
+extern DELAY_LIMIT uTaskerGlobalStopTimer(UTASK_TASK OwnerTask, unsigned char time_out_event); // {86}
 #define HARDWARE_TIMER 0x80
 extern void fnSetFuncTask(void (*function)(unsigned char ucEvent));
 
@@ -1073,7 +1207,8 @@ extern MAX_FILE_LENGTH uGetFileData(MEMORY_RANGE_POINTER ptrFile, MAX_FILE_SYSTE
     extern MEMORY_RANGE_POINTER uOpenNextMimeFile(MEMORY_RANGE_POINTER ptrfileLocation, MAX_FILE_LENGTH *FileLength, unsigned char *ucMimeType);
 #endif
 extern MEMORY_RANGE_POINTER uOpenUserFile(CHAR *file_name);              // {37}
-extern int             uCompareFile(MEMORY_RANGE_POINTER ptrFile, unsigned char *ptrData, MAX_FILE_LENGTH DataLength);
+extern int uCompareFile(MEMORY_RANGE_POINTER ptrFile, unsigned char *ptrData, MAX_FILE_LENGTH DataLength);
+extern int uOpenFileIntegrityCheck(void);                                // {89}
 #if defined EXTENDED_UFILESYSTEM                                         // {40}
     extern int         uGetFileName(MEMORY_RANGE_POINTER ptrFile, CHAR *ptrFileName);
     #if defined EXTENSION_FILE_COUNT_VARIABLE
@@ -1111,6 +1246,7 @@ typedef struct stUSER_FILE                                               // {17}
 #define FILE_VISIBLE           0x00
 #define FILE_INVISIBLE         0x01
 #define FILE_ADD_EXT           0x02
+#define FILE_USE_HEADER_LENGTH 0x04                                      // file has a fixed length according to the file entry
 #define FILE_NOT_CODE          0x80                                      // used for simulator compatibility
 
 extern int fnGetUserMimeType(unsigned char *ptrfile, unsigned char *ptrMimeType); // {17}
@@ -1140,6 +1276,7 @@ extern int fnAES_Cipher(int iInstanceCommand, const unsigned char *ptrTextIn, un
 #define AES_ENCRYPT_BAD_LENGTH         -3
 #define AES_ENCRYPT_BAD_ALIGNMENT      -4
 #define AES_INVALID_KEY_LENGTH         -5
+#define AES_INVALID_CIPHER_OPERATION   -6
 
 #define AES_INSTANCE_MASK               0x00ff
 #define AES_COMMAND_AES_ENCRYPT         0x0100
@@ -1148,6 +1285,14 @@ extern int fnAES_Cipher(int iInstanceCommand, const unsigned char *ptrTextIn, un
 #define AES_COMMAND_AES_SET_KEY_DECRYPT 0x0800
 #define AES_COMMAND_AES_RESET_IV        0x1000
 #define AES_COMMAND_AES_PRIME_IV        0x2000
+#define AES_COMMAND_AES_RE_INIT         0x4000
+#define AES_COMMAND_AES_DECRYPT_128     0x8000
+
+extern int fnSHA256(const unsigned char *ptrInput, unsigned char *ptrOutput, unsigned long ulLength, int iMode);
+    #define SHA_START_CALCULATE_TERMINATE      0
+    #define SHA_START_CALCULATE_STAY_OPEN      1
+    #define SHA_CONTINUE_CALCULATING           2
+    #define SHA_CONTINUE_CALCULATING_TERMINATE 3
 
 // DSP                                                                   {74}
 //
@@ -1172,6 +1317,10 @@ extern int fnFFT(void *ptrInputBuffer, void *ptrOutputBuffer, int iInputSamples,
     #define FFT_OUTPUT_FLOATS              0x060
     #define FFT_COMPLEX_RESULT             0x000
     #define FFT_MAGNITUDE_RESULT           0x100
+    #define FFT_CALCULATION_FLOAT          0x000
+    #define FFT_CALCULATION_Q15            0x200
+    #define FFT_CALCULATION_Q31            0x400
+    #define FFT_RAM_COEFFICIENTS           0x800
 #if defined _WINDOWS
 extern void fnInjectSine(int instance, int iType, void *ptrData, unsigned short usLength);
     #define INJECT_SINE_BYTES_UNSIGNED      0
@@ -1236,16 +1385,26 @@ extern void fnInjectSine(int instance, int iType, void *ptrData, unsigned short 
 #define AUTO_PAUSE_RESOLVED         0xce
 #define PAGE_REC                    0xcd
 
-#define EVENT_USB_RESET             0xcc                                 // USB reset when in enumerated state
-#define EVENT_USB_SUSPEND           0xcb                                 // suspend condition detected
-#define EVENT_USB_RESUME            0xca                                 // resume sequence detected
+// Warning that the following order is important and the second USB interface event must be an odd number
+//
+#define EVENT_USB_RESET_1           0xcb                                 // USB reset when in enumerated state - second interface
+#define EVENT_USB_RESET             0xca                                 // USB reset when in enumerated state - first interface
+#define EVENT_USB_SUSPEND_1         0xc9                                 // suspend condition detected - second interface
+#define EVENT_USB_SUSPEND           0xc8                                 // suspend condition detected - first interface
+#define EVENT_USB_RESUME_1          0xc7                                 // resume sequence detected - second interface
+#define EVENT_USB_RESUME            0xc6                                 // resume sequence detected - first interface
+#define EVENT_USB_REMOVAL_1         0xc5                                 // USB device removed - second interface
+#define EVENT_USB_REMOVAL           0xc4                                 // USB device removed - first interface
+#define EVENT_USB_DETECT_HS_1       0xc3                                 // USB device detected (high speed) - second interface
+#define EVENT_USB_DETECT_HS         0xc2                                 // USB device detected (high speed) - first interface
+#define EVENT_USB_DETECT_FS_1       0xc1                                 // USB device detected (full speed) - second interface
+#define EVENT_USB_DETECT_FS         0xc0                                 // USB device detected (full speed) - first interface
+#define EVENT_USB_DETECT_LS_1       0xbf                                 // {57} USB device detected (low speed) - second interface
+#define EVENT_USB_DETECT_LS         0xbe                                 // USB device detected (low speed) - first interface
 
-#define EVENT_USB_DETECT_HS         0xc9                                 // USB device detected (high speed)
-#define EVENT_USB_DETECT_FS         0xc8                                 // USB device detected (full speed)
-#define EVENT_USB_DETECT_LS         0xc7                                 // {57} USB device detected (low speed)
-#define EVENT_USB_REMOVAL           0xc6                                 // USB device removed
+#define USB_EVENT_INTERFACE_MASK    ~(1)
     
-#define UTFAT_OPERATION_COMPLETED   0xbf                                 // {28}
+#define UTFAT_OPERATION_COMPLETED   0xbd                                 // {28}
 
 #define ZERO_CONFIG_SUCCESSFUL      0xba                                 // {39}
 #define ZERO_CONFIG_DEFENDED        0xb9                                 // {39}
@@ -1343,11 +1502,11 @@ extern void fnAdjustLocalTime(unsigned char ucNewTimeZone, int iSNTP_active);
 
 enum twilight
 {
-	UNKNOWN = 0,
-	OFFICIAL,				// official sunrise and sunset
-	CIVIL,					// use civil twilight
-	NAUTICAL,				// use nautical twilight
-	ASTRONOMICAL			// use astronomical twilght
+    UNKNOWN_TWILIGHT = 0,
+    OFFICIAL_TWILIGHT,                                                   // official sunrise and sunset
+    CIVIL_TWILIGHT,                                                      // use civil twilight
+    NAUTICAL_TWILIGHT,                                                   // use nautical twilight
+    ASTRONOMICAL_TWILIGHT			                                     // use astronomical twilght
 };
 /*
 enum _direction

@@ -11,7 +11,7 @@
     File:      kinetis_port_k61.h
     Project:   Single Chip Embedded Internet
     ---------------------------------------------------------------------
-    Copyright (C) M.J.Butcher Consulting 2004..2016
+    Copyright (C) M.J.Butcher Consulting 2004..2018
     *********************************************************************
     11.08.2012 Add dedicated ADC pins                                    {1}
 
@@ -279,7 +279,22 @@ static const char *cPinNumber[PORTS_AVAILABLE + 1][PORT_WIDTH][3] = {
 
 static int ADC_DEDICATED_CHANNEL[PORT_WIDTH] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, ADC_DM1_SINGLE, 0, 0}; // {1}
 static int ADC_DEDICATED_MODULE[PORT_WIDTH] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0};
-static int ADC_MUX_CHANNEL[PORTS_AVAILABLE][PORT_WIDTH] = {0};
+static int ADC_MUX_CHANNEL[PORTS_AVAILABLE][PORT_WIDTH] = {
+    { -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1 }, // port A
+    { -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1 }, // port B
+#if PORTS_AVAILABLE > 2
+    { -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1 }, // port C
+#endif
+#if PORTS_AVAILABLE > 3
+    { -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1 }, // port D
+#endif
+#if PORTS_AVAILABLE > 4
+    { -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1 }, // port E
+#endif
+#if PORTS_AVAILABLE > 5
+    { -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1 }, // port F
+#endif
+};
 
 #if defined DEVICE_144_PIN
 static const char *cPer[PORTS_AVAILABLE][PORT_WIDTH][8] = {              // 144 pin MAPBGA
@@ -321,7 +336,7 @@ static const char *cPer[PORTS_AVAILABLE][PORT_WIDTH][8] = {              // 144 
     {
         // ALT 0           ALT 1    ALT2         ALT 3         ALT 4          ALT 5        ALT 6       ALT 7
         {  "ADC0_SE8/TSI0_CH0","PTB0","I2C0_SCL","FTM1_CH0",   "MII_MDIO",    "-",         "FTM1_QD_PHA", "-"              }, // PORT B
-        {  "ADC0_SE9/TSI0_CH6","PTB1","I2C0_SDA","FTM1_CH1",   "MII_MCD",     "-",         "FTM1_QD_PHB", "-"              },
+        {  "ADC0_SE9/TSI0_CH6","PTB1","I2C0_SDA","FTM1_CH1",   "MII_MDC",     "-",         "FTM1_QD_PHB", "-"              },
         {  "ADC0_SE12/TSI0_CH7","PTB2","I2C0_SCL","UART0_RTS_b","ENET_1588_TMR0","-",      "FTM0_FLT3","-"                 },
         {  "ADC0_SE13/TSI0_CH8","PTB3","I2C0_SDA","UART0_CTS_b/UART0_COL_b","ENET_1588_TMR1","-","FTM0_FLT0","-"           },
         {  "ADC1_SE10",    "PTB4",  "-",         "-",          "ENET_1588_TMR2","-",       "FTM1_FLT0","-"                 },
@@ -534,7 +549,7 @@ static const char *cPer[PORTS_AVAILABLE][PORT_WIDTH][8] = {              // 196 
     {
         // ALT 0           ALT 1    ALT2         ALT 3         ALT 4          ALT 5        ALT 6       ALT 7
         {  "ADC0_SE8/TSI0_CH0","PTB0","I2C0_SCL","FTM1_CH0",   "MII_MDIO",    "-",         "FTM1_QD_PHA", "-"              }, // PORT B
-        {  "ADC0_SE9/TSI0_CH6","PTB1","I2C0_SDA","FTM1_CH1",   "MII_MCD",     "-",         "FTM1_QD_PHB", "-"              },
+        {  "ADC0_SE9/TSI0_CH6","PTB1","I2C0_SDA","FTM1_CH1",   "MII_MDC",     "-",         "FTM1_QD_PHB", "-"              },
         {  "ADC0_SE12/TSI0_CH7","PTB2","I2C0_SCL","UART0_RTS_b","ENET_1588_TMR0","-",      "FTM0_FLT3","-"                 },
         {  "ADC0_SE13/TSI0_CH8","PTB3","I2C0_SDA","UART0_CTS_b/UART0_COL_b","ENET_1588_TMR1","-","FTM0_FLT0","-"           },
         {  "ADC1_SE10",    "PTB4",  "-",         "-",          "ENET_1588_TMR2","-",       "FTM1_FLT0","-"                 },
@@ -747,7 +762,7 @@ static const char *cPer[PORTS_AVAILABLE][PORT_WIDTH][8] = {              // 256 
     {
         // ALT 0           ALT 1    ALT2         ALT 3         ALT 4          ALT 5        ALT 6       ALT 7
         {  "ADC0_SE8/TSI0_CH0","PTB0","I2C0_SCL","FTM1_CH0",   "MII_MDIO",    "-",         "FTM1_QD_PHA", "-"              }, // PORT B
-        {  "ADC0_SE9/TSI0_CH6","PTB1","I2C0_SDA","FTM1_CH1",   "MII_MCD",     "-",         "FTM1_QD_PHB", "-"              },
+        {  "ADC0_SE9/TSI0_CH6","PTB1","I2C0_SDA","FTM1_CH1",   "MII_MDC",     "-",         "FTM1_QD_PHB", "-"              },
         {  "ADC0_SE12/TSI0_CH7","PTB2","I2C0_SCL","UART0_RTS_b","ENET_1588_TMR0","-",      "FTM0_FLT3","-"                 },
         {  "ADC0_SE13/TSI0_CH8","PTB3","I2C0_SDA","UART0_CTS_b/UART0_COL_b","ENET_1588_TMR1","-","FTM0_FLT0","-"           },
         {  "ADC1_SE10",    "PTB4",  "-",         "-",          "ENET_1588_TMR2","-",       "FTM1_FLT0","-"                 },

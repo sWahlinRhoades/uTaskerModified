@@ -11,7 +11,7 @@
     File:      kinetis_port_K26_K65_K66.h
     Project:   Single Chip Embedded Internet
     ---------------------------------------------------------------------
-    Copyright (C) M.J.Butcher Consulting 2004..2017
+    Copyright (C) M.J.Butcher Consulting 2004..2018
     *********************************************************************
 
 */
@@ -200,16 +200,23 @@ static const char *cPinNumber[PORTS_AVAILABLE + 1][PORT_WIDTH][4] = {
         {  "E10",      "E3",      "10",       "F4",   },                 // PE7
         {  "D12",      "E4",      "11",       "F3",   },                 // PE8
         {  "D13",      "F3",      "12",       "F2",   },                 // PE9
-        {  "D10",      "F4",      "13",       "F1",   },                 // PE10
+        {  "F10",      "F4",      "13",       "F1",   },                 // PE10
         {  "E11",      "G4",      "14",       "G4",   },                 // PE11
         {  "E12",      "H4",      "15",       "G3",   },                 // PE12
         {  "-",        "-",       "-",        "-",    },                 // PE13
         {  "-",        "-",       "-",        "-",    },                 // PE14
         {  "-",        "-",       "-",        "-",    },                 // PE15
+#if defined KINETIS_K66
+        {  "-",        "-",       "-",        "-",    },                 // PE16
+        {  "-",        "-",       "-",        "-",    },                 // PE17
+        {  "-",        "-",       "-",        "-",    },                 // PE18
+        {  "-",        "-",       "-",        "-",    },                 // PE19
+#else
         {  "G9",       "H3",      "G9",       "H3",   },                 // PE16
         {  "F11",      "F5",      "F11",      "F5",   },                 // PE17
         {  "G10",      "F6",      "G10",      "F6",   },                 // PE18
         {  "F12",      "F7",      "F12",      "F7",   },                 // PE19
+#endif
         {  "-",        "-",       "-",        "-",    },                 // PE20
         {  "-",        "-",       "-",        "-",    },                 // PE21
         {  "-",        "-",       "-",        "-",    },                 // PE22
@@ -316,7 +323,22 @@ static CHAR *cDedicated[PORT_WIDTH] = {                                  // dedi
 //
 static int ADC_DEDICATED_CHANNEL[PORT_WIDTH] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 static int ADC_DEDICATED_MODULE[PORT_WIDTH]  = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
-static int ADC_MUX_CHANNEL[PORTS_AVAILABLE][PORT_WIDTH] = {0};           // not yet controlled
+static int ADC_MUX_CHANNEL[PORTS_AVAILABLE][PORT_WIDTH] = {
+    { -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1 }, // port A
+    { -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1 }, // port B
+#if PORTS_AVAILABLE > 2
+    { -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1 }, // port C
+#endif
+#if PORTS_AVAILABLE > 3
+    { -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1 }, // port D
+#endif
+#if PORTS_AVAILABLE > 4
+    { -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1 }, // port E
+#endif
+#if PORTS_AVAILABLE > 5
+    { -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1 }, // port F
+#endif
+};
 
 
 static const char *cPer[PORTS_AVAILABLE][PORT_WIDTH][8] = {              // 169 pin WLCSP/MAPBGA / 144 pin LQFP/MAPBGA
@@ -387,7 +409,7 @@ static const char *cPer[PORTS_AVAILABLE][PORT_WIDTH][8] = {              // 169 
         {  "ADC1_SE11",    "PTB5",  "-",         "-",          "-",           "-",       "FTM2_FLT0",  "-"                 },
     #else
         {  "ADC0_SE8/ADC1_SE8/TSI0_CH1","PTB0/LLWU_P5","I2C0_SCL","FTM1_CH0","MII_MDIO","SDRAM_CAS_b","FTM1_QD_PHA/TPM1_CH0", "-" }, // PORT B
-        {  "ADC0_SE9/ADC1_SE9/TSI0_CH6","PTB1","I2C0_SDA","FTM1_CH1","MII_MCD","SDRAM_RAS_b","FTM1_QD_PHB/TPM1_CH1", "-"   },
+        {  "ADC0_SE9/ADC1_SE9/TSI0_CH6","PTB1","I2C0_SDA","FTM1_CH1","MII_MDC","SDRAM_RAS_b","FTM1_QD_PHB/TPM1_CH1", "-"   },
         {  "ADC0_SE12/TSI0_CH7","PTB2","I2C0_SCL","UART0_RTS_b","ENET_1588_TMR0","SDRAM_WE","FTM0_FLT3","-"                },
         {  "ADC0_SE13/TSI0_CH8","PTB3","I2C0_SDA","UART0_CTS_b/UART0_COL_b","ENET_1588_TMR1","SDRAM_CS0_b","FTM0_FLT0","-" },
         {  "ADC1_SE10",    "PTB4",  "-",         "-",          "ENET_1588_TMR2","SDRAM_CS1_b", "FTM1_FLT0","-"             },

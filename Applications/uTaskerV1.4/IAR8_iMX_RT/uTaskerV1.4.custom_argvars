@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<iarUserArgVars>
+    <group name="uTasker" active="true">
+        <variable>
+            <name>TargetBoard</name>
+            <value>MIMXRT1050</value>
+        </variable>
+        <variable>
+            <name>SecretKey</name>
+            <value>"aes256 secret key"</value>
+        </variable>
+        <variable>
+            <name>Vector</name>
+            <value>"initial vector"</value>
+        </variable>
+        <variable>
+            <name>Magic</name>
+            <value>234</value>
+        </variable>
+        <variable>
+            <name>Authentication</name>
+            <value>a748b6531124</value>
+        </variable>
+    </group>
+</iarUserArgVars>

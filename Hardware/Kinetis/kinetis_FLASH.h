@@ -2,7 +2,7 @@
     Mark Butcher    Bsc (Hons) MPhil MIET
 
     M.J.Butcher Consulting
-    Birchstrasse 20f,    CH-5406, Rütihof
+    Birchstrasse 20f,    CH-5406, Rï¿½tihof
     Switzerland
 
     www.uTasker.com    Skype: M_J_Butcher
@@ -11,9 +11,30 @@
     File:      kinetis_FLASH.h
     Project:   Single Chip Embedded Internet
     ---------------------------------------------------------------------
-    Copyright (C) M.J.Butcher Consulting 2004..2016
+    Copyright (C) M.J.Butcher Consulting 2004..2020
     *********************************************************************
-    12.01.2015 Perform write enable for SPI_FLASH_S25FL1_K (for KL/KE driver compatibility) {1}
+    07.04.2012 Adapt Flash interface for FPU devices                     {10}
+    22.07.2012 Add interface for OTP area                                {20}
+    23.01.2013 Correct long word programming when simulating non-FPU devices (simulation error introduced with {10}) {31}
+    21.03.2013 Add PARAMETER_NO_ALIGNMENT option to parameter flash      {35}
+    24.03.2013 Add check of flash write validity when simulating         {36}
+    09.07.2013 Implement fnFlashRoutine() as assemble code to avoid possibility of compilers in-lining it {46}
+    26.09.2013 Correct flash address when simulating internal flash erase together with other memory types {53}
+    28.04.2014 Make some flash drivers conditional on FLASH_ROUTINES so that they can be used without any file system support {79}
+    11.05.2014 Add FlexNVM data flash mode                               {82}
+    07.11.2014 Add section programming where possible (faster programming of larger Flash blocks) {105}
+    12.12.2014 Add power of 2s ATMEL flash support                       {108}
+    29.12.2014 Add KE02 EEPROM support                                   {109}
+    10.03.2015 Correct KE/KEA flash configuration layout                 {122}
+    12.01.2015 Perform write enable for SPI_FLASH_S25FL1_K (for KL/KE driver compatibility) {200}
+    19.08.2017 Correct calculation of start address of preceding multiple memory device {201}
+    13.10.2017 Replace KINETIS_KE dependancy by FLASH_CONTROLLER_FTMRE dependancy
+    07.03.2018 Add 25AA160 SPI EEPROM support                            {202}
+    20.08.2018 Add use of block erase command when possible              {203}
+    09.11.2018 Add option to not disable interrupts when flash operations are performed [when it is know that this will always be in a different plane to the code] {204}
+    09.03.2019 Include generic SPI interface                             {205}
+    23.09.2020 Add device offset option                                  {206}
+    24.11.2020 Add automatic switch from HSRUN to RUN mode option        {207}
 
 */
 
@@ -29,6 +50,9 @@
 #if defined SPI_SW_UPLOAD || defined SPI_FLASH_FAT || (defined SPI_FILE_SYSTEM && defined FLASH_FILE_SYSTEM)
     #define SPI_FLASH_ENABLED 
 #endif
+#if (defined SPI_EEPROM_FILE_SYSTEM && defined FLASH_FILE_SYSTEM)
+    #define SPI_EEPROM_ENABLED 
+#endif
 
 /* =================================================================== */
 /*                             constants                               */
@@ -39,7 +63,7 @@
 /* =================================================================== */
 
 #if (defined FLASH_ROUTINES || defined ACTIVE_FILE_SYSTEM  || defined USE_PARAMETER_BLOCK || defined INTERNAL_USER_FILES) && defined _WINDOWS
-    extern int iFetchingInternalMemory = _ACCESS_NOT_IN_CODE;
+    int iFetchingInternalMemory = _ACCESS_NOT_IN_CODE;
 #endif
 
 
@@ -47,14 +71,20 @@
 #if defined FLASH_ROUTINES || defined FLASH_FILE_SYSTEM || defined USE_PARAMETER_BLOCK || defined SUPPORT_PROGRAM_ONCE
 // This routine runs from SRAM - the reason why the pointer is passed is to avoid the routine taking it from a const value in FLASH, which is then not code location independent
 //
-    #if defined _WINDOWS
-        #if defined USE_SECTION_PROGRAMMING                              // {105}
+    #if defined _WINDOWS || defined NO_INTERRUPT_DISABLE_DURING_FLASH_OPERATIONS // {204}
+        #if defined _WINDOWS && defined USE_SECTION_PROGRAMMING          // {105}
             static unsigned char ucFlexRam[FLEXRAM_SIZE] = {0};
             #undef FLEXRAM_START_ADDRESS
             #define FLEXRAM_START_ADDRESS  ucFlexRam
         #endif
 static void fnFlashRoutine(volatile unsigned char *ptrFTFL_BLOCK)
 {
+#if defined HIGH_SPEED_RUN_MODE_AVAILABLE && defined _WINDOWS
+    if ((SMC_PMCTRL & SMC_PMCTRL_RUNM_HSRUN) == SMC_PMCTRL_RUNM_HSRUN) {
+        _EXCEPTION("Flash writes are not possible in HS RUN mode!!!");
+    }
+#endif
+
     *ptrFTFL_BLOCK = FTFL_STAT_CCIF;                                     // launch the command - this clears the FTFL_STAT_CCIF flag (register is FTFL_FSTAT)
     while ((*ptrFTFL_BLOCK & FTFL_STAT_CCIF) == 0) {}                    // wait for the command to terminate
 }
@@ -70,17 +100,59 @@ static unsigned short fnFlashRoutine[] = {                               // to a
     #endif
 
 
+    #if defined _WINDOWS
+static int fnFlashProtected(unsigned long *ptrWord)
+{
+        #if !defined FLASH_CONTROLLER_FTMRE
+    unsigned long ulProtectionBlock = (1 << (((CAST_POINTER_ARITHMETIC)ptrWord) % (SIZE_OF_FLASH / 32)));
+    if ((FTFL_FPROT3_0 & ulProtectionBlock) == 0) {
+        return 1;                                                        // the area is protected
+    }
+        #endif
+    return 0;                                                            // the area is not protected
+}
+    #endif
+
+    #if defined HIGH_SPEED_RUN_MODE_AVAILABLE && defined USE_HIGH_SPEED_RUN_MODE && defined AUTO_RUN_MODE_ON_FLASH
+static void fnSetHSRUN_mode(int iHSRUN_mode)                             // {207}
+{
+    if (iHSRUN_mode != 0) {                                              // move to HSRUN mode
+        SMC_PMCTRL |= (SMC_PMCTRL_RUNM_HSRUN);                           // set HSRUN mode
+        while (SMC_PMSTAT != SMC_PMSTAT_HSRUN) {                         // ensure that HSRUN mode has been entered before increasing the system frequency
+            #if defined _WINDOWS
+            SMC_PMSTAT = SMC_PMSTAT_HSRUN;
+             #endif
+        }
+        SIM_CLKDIV1 &= ~SIM_CLKDIV1_SYSTEM_2;                            // HSRUN will be at 120MHz (increased from 60MHz)
+    }
+    else {
+        if ((SMC_PMCTRL & SMC_PMCTRL_RUNM_HSRUN) == SMC_PMCTRL_RUNM_HSRUN) { // if operating in HSRUN mode we set RUN mode so that flashing works
+            SIM_CLKDIV1 |= SIM_CLKDIV1_SYSTEM_2;                         // HSRUN will be at 120MHz so reduce to 60MHz
+            SMC_PMCTRL &= ~(SMC_PMCTRL_RUNM_HSRUN);                      // set to run mode
+            while (SMC_PMSTAT != SMC_PMSTAT_RUN) {                       // ensure that RUN mode has been entered before erasing flash
+        #if defined _WINDOWS
+                SMC_PMSTAT = SMC_PMSTAT_RUN;
+        #endif
+            }
+        }
+    }
+}
+    #endif
+
 static int fnFlashNow(unsigned char ucCommand, unsigned long *ptrWord, unsigned long *ptr_ulWord)
 {
+    #if !defined NO_INTERRUPT_DISABLE_DURING_FLASH_OPERATIONS
     static void (*fnRAM_code)(volatile unsigned char *) = 0;
-    #if defined FLEXFLASH_DATA || (defined KINETIS_KE && (defined SIZE_OF_EEPROM && SIZE_OF_EEPROM > 0)) // {82}{109}
+    #endif
+    #if defined FLEXFLASH_DATA || (defined FLASH_CONTROLLER_FTMRE && (defined SIZE_OF_EEPROM && SIZE_OF_EEPROM > 0)) // {82}{109}
     int iNoInterruptDisable = 0;                                         // the default is to protect programming from interrupts
     #endif
+    #if !defined NO_INTERRUPT_DISABLE_DURING_FLASH_OPERATIONS            // {204}
     if (fnRAM_code == 0) {                                               // the first time this is used it will load the program to SRAM
         #define PROG_WORD_SIZE 30                                        // adequate space for the small program
         int i = 0;
         unsigned char *ptrThumb2 = (unsigned char *)fnFlashRoutine;
-        static unsigned short usProgSpace[PROG_WORD_SIZE] = {0};         // make space for the routine on stack (this will have an even boundary)
+        static unsigned short usProgSpace[PROG_WORD_SIZE] = {0};         // make space for the routine in static memory (this will have an even boundary)
 
         ptrThumb2 =  (unsigned char *)(((CAST_POINTER_ARITHMETIC)ptrThumb2) & ~0x1); // thumb 2 address
         while (i < PROG_WORD_SIZE) {                                     // copy program to SRAM
@@ -90,7 +162,8 @@ static int fnFlashNow(unsigned char ucCommand, unsigned long *ptrWord, unsigned 
         ptrThumb2 = (unsigned char *)usProgSpace;
         ptrThumb2++;                                                     // create a thumb 2 call
         fnRAM_code = (void(*)(volatile unsigned char *))(ptrThumb2);
-    #if defined KINETIS_KE                                               // set the flash programming clock to 1MHz once after a reset
+    #endif
+    #if defined FLASH_CONTROLLER_FTMRE                                   // set the flash programming clock to 1MHz once after a reset [most KE and KEA parts]
         #if BUS_CLOCK < 8000000
         _EXCEPTION("Bus clock must be at least 800kHz to program flash!");
         #elif BUS_CLOCK <= 1600000                                       // recommended values depending on bus clock
@@ -145,8 +218,10 @@ static int fnFlashNow(unsigned char ucCommand, unsigned long *ptrWord, unsigned 
         FTMRH_FCLKDIV = 0x18;
         #endif
     #endif
+    #if !defined NO_INTERRUPT_DISABLE_DURING_FLASH_OPERATIONS
     }
-    while ((FTFL_FSTAT & FTFL_STAT_CCIF) == 0) {}                        // wait for previous commands to complete
+    #endif
+    _WAIT_REGISTER_FALSE(FTFL_FSTAT, FTFL_STAT_CCIF);                    // wait for previous commands to complete
 
     #if defined FTFL_STAT_RDCOLERR
     if ((FTFL_FSTAT & (FTFL_STAT_ACCERR | FTFL_STAT_FPVIOL | FTFL_STAT_RDCOLERR)) != 0) { // check for errors in previous command 
@@ -158,11 +233,11 @@ static int fnFlashNow(unsigned char ucCommand, unsigned long *ptrWord, unsigned 
     }
     #endif
 
-    #if defined KINETIS_KE
+    #if defined FLASH_CONTROLLER_FTMRE                                   // most KE and KEA parts
     FTMRH_FCCOBIX = 0;                                                   // reset the command index
-        #if (defined SIZE_OF_EEPROM && SIZE_OF_EEPROM > 0)               // {109}
-    if (ptrWord >= (unsigned long *)(SIZE_OF_FLASH - SIZE_OF_EEPROM)) {  // is the access a write/erase in EEPROM
-        ptrWord += ((KE_EEPROM_START_ADDRESS - (SIZE_OF_FLASH - SIZE_OF_EEPROM))/sizeof(unsigned long)); // convert to EEPROM physical address
+        #if defined KINETIS_KE_EEPROM && (defined SIZE_OF_EEPROM && SIZE_OF_EEPROM > 0) // {109}
+    if (ptrWord >= (unsigned long *)(SIZE_OF_FLASH)) {                   // is the access a write/erase in EEPROM
+        ptrWord += ((KE_EEPROM_START_ADDRESS - (SIZE_OF_FLASH))/sizeof(unsigned long)); // convert to EEPROM physical address
         if (FCMD_ERASE_FLASH_SECTOR == ucCommand) {
             ucCommand = FCMD_ERASE_EEPROM_SECTOR;                        // modify the command to the EEPROM sector erase command
         }
@@ -186,11 +261,14 @@ static int fnFlashNow(unsigned char ucCommand, unsigned long *ptrWord, unsigned 
     #if defined USE_SECTION_PROGRAMMING                                  // {105}
     case FCMD_PROGRAM_SECTOR:
     #endif
-    #if (defined KINETIS_KE && (defined SIZE_OF_EEPROM && SIZE_OF_EEPROM > 0)) // {109}
+    #if (defined FLASH_CONTROLLER_FTMRE && defined KINETIS_KE_EEPROM && (defined SIZE_OF_EEPROM && SIZE_OF_EEPROM > 0)) // {109} (some KE and KEA parts)
     case FCMD_PROGRAM_EEPROM:
     case FCMD_ERASE_EEPROM_SECTOR:
     #endif
-    case FCMD_ERASE_FLASH_SECTOR:
+    #if FLASH_BLOCK_COUNT > 1
+    case FCMD_ERASE_FLASH_BLOCK:                                         // {203} block erase
+    #endif
+    case FCMD_ERASE_FLASH_SECTOR:                                        // sector erase
     case FCMD_PROGRAM:
     #if defined FLEXFLASH_DATA                                           // {82} if working with FlashNMV in data flash mode
         if (ptrWord >= (unsigned long *)(SIZE_OF_FLASH - SIZE_OF_FLEXFLASH)) { // is the access a write/erase in FlexNVM
@@ -202,18 +280,18 @@ static int fnFlashNow(unsigned char ucCommand, unsigned long *ptrWord, unsigned 
     #endif
         FTFL_FCCOB1 = (unsigned char)(((CAST_POINTER_ARITHMETIC)ptrWord) >> 16); // set address in flash
     #if defined FLEXFLASH_DATA                                           // {82} if working with FlashNMV in data flash mode
-        if ((CAST_POINTER_ARITHMETIC)ptrWord & FLEXNVM_START_ADDRESS) {
+        if (((CAST_POINTER_ARITHMETIC)ptrWord & FLEXNVM_START_ADDRESS) != 0) {
             FTFL_FCCOB1 |= 0x80;                                         // set address A23 so that the write/erase is in FlexNVM
             iNoInterruptDisable = 1;                                     // this command may execute without interrupts being disabled
         }
     #endif
-    #if defined KINETIS_KE
+    #if defined FLASH_CONTROLLER_FTMRE
         FTMRH_FCCOBIX = 1;                                               // set the command index
     #endif
         FTFL_FCCOB2 = (unsigned char)(((CAST_POINTER_ARITHMETIC)ptrWord) >> 8);
         FTFL_FCCOB3 = (unsigned char)((CAST_POINTER_ARITHMETIC)ptrWord);
-        if (FCMD_PROGRAM == ucCommand) {                                 // program long-word aligned value
-    #if defined KINETIS_KE
+        if (FCMD_PROGRAM == ucCommand) {                                 // program long-word aligned value (or phrase)
+    #if defined FLASH_CONTROLLER_FTMRE
             FTMRH_FCCOBIX = 2;                                           // set the command index
             FTMRH_FCCOBHI = (unsigned char)(*ptr_ulWord >> 8);
             FTMRH_FCCOBLO = (unsigned char)(*ptr_ulWord);
@@ -224,14 +302,19 @@ static int fnFlashNow(unsigned char ucCommand, unsigned long *ptrWord, unsigned 
             FTFL_FCCOB7_4 = *ptr_ulWord;                                 // enter the long word to be programmed
     #endif
     #if defined _WINDOWS
-          if (*(unsigned long *)fnGetFlashAdd((unsigned char *)ptrWord) != 0xffffffff) { // {36}
+            if (*(unsigned long *)fnGetFlashAdd((unsigned char *)ptrWord) != 0xffffffff) { // {36}
                 _EXCEPTION("Attempting to write to non-blank flash unit!!");
             }
-            *(unsigned long *)fnGetFlashAdd((unsigned char *)ptrWord) = *ptr_ulWord;
+            if (fnFlashProtected(ptrWord) != 0) {
+                FTFL_FSTAT |= FTFL_STAT_FPVIOL;
+            }
+            else {
+                *(unsigned long *)fnGetFlashAdd((unsigned char *)ptrWord) = *ptr_ulWord; // change the value in flash
+            }
     #endif
     #if (FLASH_ROW_SIZE == 8)                                            // {10} write second long word
             ptr_ulWord++;
-        #if defined KINETIS_KE
+        #if defined FLASH_CONTROLLER_FTMRE
             FTMRH_FCCOBIX = 4;                                           // set the command index
             FTMRH_FCCOBHI = (unsigned char)(*ptr_ulWord >> 8);
             FTMRH_FCCOBLO = (unsigned char)(*ptr_ulWord);
@@ -249,7 +332,7 @@ static int fnFlashNow(unsigned char ucCommand, unsigned long *ptrWord, unsigned 
         #endif
     #endif
         }
-    #if (defined KINETIS_KE && (defined SIZE_OF_EEPROM && SIZE_OF_EEPROM > 0)) // {109}
+    #if (defined FLASH_CONTROLLER_FTMRE && defined KINETIS_KE_EEPROM && (defined SIZE_OF_EEPROM && SIZE_OF_EEPROM > 0)) // {109}
         else if (FCMD_PROGRAM_EEPROM == ucCommand) {                     // if programming to EEPROM write a single byte
             FTMRH_FCCOBIX = 2;                                           // set the command index
             FTMRH_FCCOBLO = *(unsigned char *)ptr_ulWord;
@@ -288,10 +371,42 @@ static int fnFlashNow(unsigned char ucCommand, unsigned long *ptrWord, unsigned 
     #endif
         else {
     #if defined _WINDOWS
-            fnDeleteFlashSector(fnGetFlashAdd((unsigned char *)ptrWord));// the sector erase must be phrase aligned ([2:0] = 0)
+        #if FLASH_BLOCK_COUNT > 1                                        // {203}
+            if (FCMD_ERASE_FLASH_BLOCK == ucCommand) {
+                unsigned char *ptrFlash = fnGetFlashAdd((unsigned char *)ptrWord);
+                unsigned long ulSize = 0;
+                do {
+                    fnDeleteFlashSector(ptrFlash);                       // the sector erase must be phrase aligned ([2:0] = 0) or 128 bit aligned ([3:0] = 0) for some devices
+                    ulSize += FLASH_GRANULARITY;
+                    ptrFlash += FLASH_GRANULARITY;
+                } while (ulSize < FLASH_BLOCK_SIZE);
+            }
+            else {
+                fnDeleteFlashSector(fnGetFlashAdd((unsigned char *)ptrWord)); // the sector erase must be phrase aligned ([2:0] = 0) or 128 bit aligned ([3:0] = 0) for some devices
+            }
+        #else
+            fnDeleteFlashSector(fnGetFlashAdd((unsigned char *)ptrWord));// the sector erase must be phrase aligned ([2:0] = 0) or 128 bit aligned ([3:0] = 0) for some devices
+        #endif
     #endif
         }
         break;
+    #if defined SUPPORT_BACKDOOR_ACCESS_KEY
+    case FCMD_VERIFY_BACKDOOR_ACCESS_KEY:
+        FTFL_FCCOB7_4 = *ptr_ulWord++;                                   // key bytes 0..3
+        FTFL_FCCOBB_8 = *ptr_ulWord;                                     // key bytes 4..7
+        #if defined _WINDOWS
+        if ((KINETIS_FLASH_CONFIGURATION_SECURITY & FTFL_FSEC_KEYEN_DISABLED) == FTFL_FSEC_KEYEN_ENABLED) { // if the backdoor access is enabled
+            if ((FTFL_FCCOB7_4 == ((BACKDOOR_KEY_0 << 24) | (BACKDOOR_KEY_1 << 16) | (BACKDOOR_KEY_2 << 8) | BACKDOOR_KEY_3)) && // and if the backdoor key matches
+                (FTFL_FCCOBB_8 == ((BACKDOOR_KEY_4 << 24) | (BACKDOOR_KEY_5 << 16) | (BACKDOOR_KEY_6 << 8) | BACKDOOR_KEY_7))) {
+                FTFL_FSEC |= (FTFL_FSEC_SEC_UNSECURE);                   // unsecured
+            }
+            else {
+                FTFL_FSTAT |= (FTFL_STAT_ACCERR);                        // set access error flag
+            }
+        }
+        #endif
+        break;
+    #endif
     #if defined SUPPORT_PROGRAM_ONCE                                     // {20}
     case FCMD_READ_ONCE:
         FTFL_FCCOB1 = (unsigned char)(*ptrWord);                         // record index (0..7) for FPU types or (0..15)
@@ -337,7 +452,7 @@ static int fnFlashNow(unsigned char ucCommand, unsigned long *ptrWord, unsigned 
             #endif
             }
             else {
-                _EXCEPTION("OTP location already programmed and can not be modified!!!");
+                _EXCEPTION("OTP location already programmed and cannot be modified!!!");
                 return FTFL_STAT_FPVIOL;                                 // signal programming error
             }
         }
@@ -345,23 +460,28 @@ static int fnFlashNow(unsigned char ucCommand, unsigned long *ptrWord, unsigned 
         break;
     #endif
     }
-    #if defined FLEXFLASH_DATA || (defined KINETIS_KE && (defined SIZE_OF_EEPROM && SIZE_OF_EEPROM > 0)) // {82}{109} if working with FlashNMV in data flash mode or EEPROM
+    #if defined FLEXFLASH_DATA || (defined FLASH_CONTROLLER_FTMRE && (defined SIZE_OF_EEPROM && SIZE_OF_EEPROM > 0)) // {82}{109} if working with FlashNMV in data flash mode or EEPROM
     if (iNoInterruptDisable == 0) {
         uDisable_Interrupt();                                            // protect this region from interrupts
     }
-    #else
+    #elif !defined NO_INTERRUPT_DISABLE_DURING_FLASH_OPERATIONS          // {204}
     uDisable_Interrupt();                                                // protect this region from interrupts
     #endif
-    #if defined _WINDOWS
-    fnFlashRoutine((volatile unsigned char *)FLASH_STATUS_REGISTER);
+    #if defined NO_INTERRUPT_DISABLE_DURING_FLASH_OPERATIONS || defined _WINDOWS // {204}
+    fnFlashRoutine((volatile unsigned char *)FLASH_STATUS_REGISTER);     // execute the command in flash
     #else
     fnRAM_code((volatile unsigned char *)FLASH_STATUS_REGISTER);         // execute the command from SRAM
     #endif
-    #if defined FLEXFLASH_DATA || (defined KINETIS_KE && (defined SIZE_OF_EEPROM && SIZE_OF_EEPROM > 0)) // {82}{109} if working with FlashNMV in data flash mode or EEPROM
+    #if defined FMC_PFB0CR_                                              // prepared but needs testing
+    FMC_PFB0CR |= (FMC_PFBCR_CINV_WAY_0 | FMC_PFBCR_CINV_WAY_1 | FMC_PFBCR_CINV_WAY_2 | FMC_PFBCR_CINV_WAY_3); // invalidate cache to ensure that it has no stale flash content after a flash modification
+    #elif defined FMC_PFB01CR_
+    FMC_PFB1CR |= (FMC_PFBCR_CINV_WAY_0 | FMC_PFBCR_CINV_WAY_1 | FMC_PFBCR_CINV_WAY_2 | FMC_PFBCR_CINV_WAY_3); // invalidate cache to ensure that it has no stale flash content after a flash modification
+    #endif
+    #if defined FLEXFLASH_DATA || (defined FLASH_CONTROLLER_FTMRE && (defined SIZE_OF_EEPROM && SIZE_OF_EEPROM > 0)) // {82}{109} if working with FlashNMV in data flash mode or EEPROM
     if (iNoInterruptDisable == 0) {
         uEnable_Interrupt();                                             // safe to accept interrupts again
     }
-    #else
+    #elif !defined NO_INTERRUPT_DISABLE_DURING_FLASH_OPERATIONS          // {204}
     uEnable_Interrupt();                                                 // safe to accept interrupts again
     #endif
 
@@ -397,7 +517,14 @@ static int fnFlashNow(unsigned char ucCommand, unsigned long *ptrWord, unsigned 
         *ptr_ulWord = FTFL_FCCOB7_4;                                     // update with the result
     }
     #endif
-    return (FTFL_FSTAT & (FTFL_STAT_ACCERR | FTFL_STAT_FPVIOL | FTFL_STAT_MGSTAT0)); // if there was an error this will be non-zero
+    return ((FTFL_FSTAT & (FTFL_STAT_ACCERR | FTFL_STAT_FPVIOL | FTFL_STAT_MGSTAT0)) != 0); // if there was an error this will be non-zero
+}
+#endif
+
+#if defined SUPPORT_BACKDOOR_ACCESS_KEY
+extern int fnBackdoorUnlock(unsigned long Key[2])
+{
+    return (fnFlashNow(FCMD_VERIFY_BACKDOOR_ACCESS_KEY, 0, Key) != 0);
 }
 #endif
 
@@ -475,7 +602,13 @@ extern int fnProgramOnce(int iCommand, unsigned long *ptrBuffer, unsigned char u
 //
 extern int fnMassEraseFlash(void)
 {
-    return (fnFlashNow(FCMD_ERASE_ALL_BLOCKS, 0, 0));
+    int iRtn = fnFlashNow(FCMD_ERASE_ALL_BLOCKS, 0, 0);
+#if defined _WINDOWS
+    if (iRtn == 0) {
+        fnResetBoard();
+    }
+#endif
+    return iRtn;
 }
 #endif
 
@@ -483,7 +616,7 @@ extern int fnMassEraseFlash(void)
 #if defined FLASH_ROUTINES || defined ACTIVE_FILE_SYSTEM || defined USE_PARAMETER_BLOCK
 static int fnWriteInternalFlash(ACCESS_DETAILS *ptrAccessDetails, unsigned char *ucData)
 {
-    #if (defined FLASH_ROUTINES || defined FLASH_FILE_SYSTEM) && (defined FLASH_ROW_SIZE && FLASH_ROW_SIZE > 0)
+    #if (defined FLASH_ROUTINES || defined FLASH_FILE_SYSTEM || defined USE_PARAMETER_BLOCK) && (defined FLASH_ROW_SIZE && FLASH_ROW_SIZE > 0)
     static unsigned char *ptrOpenBuffer = 0;
     unsigned char *ptrFlashBuffer;
     unsigned long ulBufferOffset;
@@ -498,8 +631,8 @@ static int fnWriteInternalFlash(ACCESS_DETAILS *ptrAccessDetails, unsigned char 
         ptrOpenBuffer = (unsigned char *)((CAST_POINTER_ARITHMETIC)ptrOpenBuffer & ~(FLASH_ROW_SIZE - 1));
     }
     else {
-        #if (defined KINETIS_KE && (defined SIZE_OF_EEPROM && SIZE_OF_EEPROM > 0)) // {109}
-        if ((unsigned char *)ptrAccessDetails->ulOffset >= (unsigned char *)(SIZE_OF_FLASH - SIZE_OF_EEPROM)) { // is the address in EEPROM
+        #if (defined FLASH_CONTROLLER_FTMRE && (defined SIZE_OF_EEPROM && SIZE_OF_EEPROM > 0)) // {109}
+        if ((unsigned char *)ptrAccessDetails->ulOffset >= (unsigned char *)(SIZE_OF_FLASH)) { // is the address in EEPROM
             ulBufferOffset = ptrAccessDetails->ulOffset;
         }
         else {
@@ -511,11 +644,14 @@ static int fnWriteInternalFlash(ACCESS_DETAILS *ptrAccessDetails, unsigned char 
         ulBufferOffset = (ptrAccessDetails->ulOffset & (FLASH_ROW_SIZE - 1)); // offset in the long word or phrase
         #endif
     }
+        #if defined HIGH_SPEED_RUN_MODE_AVAILABLE && defined USE_HIGH_SPEED_RUN_MODE && defined AUTO_RUN_MODE_ON_FLASH
+    fnSetHSRUN_mode(0);                                                  // if operating in HSRUN mode we set RUN mode so that flashing works
+        #endif
     do {                                                                 // handle each byte to be programmed
-        #if (defined KINETIS_KE && (defined SIZE_OF_EEPROM && SIZE_OF_EEPROM > 0)) // {109}
-        if ((unsigned char *)ulBufferOffset >= (unsigned char *)(SIZE_OF_FLASH - SIZE_OF_EEPROM)) { // is the address in EEPROM
+        #if (defined FLASH_CONTROLLER_FTMRE && defined KINETIS_KE_EEPROM && (defined SIZE_OF_EEPROM && SIZE_OF_EEPROM > 0)) // {109}
+        if ((unsigned char *)ulBufferOffset >= (unsigned char *)(SIZE_OF_FLASH)) { // is the address in EEPROM
             if ((fnFlashNow(FCMD_PROGRAM_EEPROM, (unsigned long *)ulBufferOffset, (unsigned long *)ucData)) != 0) { // program single bytes
-                return 1;                                                // error
+                return -1;                                               // error
             }
             ucData++;
             ulBufferOffset++;
@@ -539,7 +675,7 @@ static int fnWriteInternalFlash(ACCESS_DETAILS *ptrAccessDetails, unsigned char 
                     uMemcpy((void *)FLEXRAM_START_ADDRESS, ucData, SectionLength); // copy the data to the accelerator RAM
                     ulFlashRow[0] = (SectionLength/FLASH_ROW_SIZE);      // the number of long words/phrases to be written to the section
                     if ((fnFlashNow(FCMD_PROGRAM_SECTOR, (unsigned long *)ptrOpenBuffer, &ulFlashRow[0])) != 0) { // write section
-                        return 1;                                        // error
+                        return -1;                                       // error
                     }
                     ptrOpenBuffer += SectionLength;
                     Length -= SectionLength;
@@ -552,7 +688,7 @@ static int fnWriteInternalFlash(ACCESS_DETAILS *ptrAccessDetails, unsigned char 
             }
         }
         #endif
-        BufferCopyLength = (FLASH_ROW_SIZE - ulBufferOffset);            // remaining buffer space to end of present backup buffer
+        BufferCopyLength = (MAX_FILE_LENGTH)(FLASH_ROW_SIZE - ulBufferOffset); // remaining buffer space to end of present backup buffer
         if (BufferCopyLength > Length) {                                 // limit in case the amount of bytes to be programmed is less than the long word or phrase involved
             BufferCopyLength = Length;
         }
@@ -565,7 +701,7 @@ static int fnWriteInternalFlash(ACCESS_DETAILS *ptrAccessDetails, unsigned char 
             ptrFlashBuffer = (unsigned char *)ulFlashRow;                // set pointer to start of FLASH row backup buffer
             ulBufferOffset = 0;
             if ((fnFlashNow(FCMD_PROGRAM, (unsigned long *)ptrOpenBuffer, &ulFlashRow[0])) != 0) { // {10} write long word/phrase
-                return 1;                                                // error
+                return -1;                                               // error
             }
             ptrOpenBuffer += FLASH_ROW_SIZE;
             uMemset(ulFlashRow, 0xff, FLASH_ROW_SIZE);                   // flush the intermediate buffer
@@ -574,205 +710,25 @@ static int fnWriteInternalFlash(ACCESS_DETAILS *ptrAccessDetails, unsigned char 
             ptrOpenBuffer += BufferCopyLength;
         }
     } while (Length != 0);
+        #if defined HIGH_SPEED_RUN_MODE_AVAILABLE && defined USE_HIGH_SPEED_RUN_MODE && defined AUTO_RUN_MODE_ON_FLASH
+    fnSetHSRUN_mode(1);                                                  // return HSRUN mode after flashing has completed
+        #endif
     #endif
     return 0;
 }
 
-
-    #if defined SPI_FLASH_ENABLED
-// This routine reads data from the defined device into a buffer. The access details inform of the length to be read (already limited to maximum possible length for the device)
-// as well as the address in the specific device
+    #if defined SPI_FLASH_ENABLED                                        // if SPI memory driver required
+// Include generic SPI flash routines
+// static void fnReadSPI(ACCESS_DETAILS *ptrAccessDetails, unsigned char *ptrBuffer);
+// static void fnWriteSPI(ACCESS_DETAILS *ptrAccessDetails, unsigned char *ptrBuffer);
+// static MAX_FILE_LENGTH fnDeleteSPI(ACCESS_DETAILS *ptrAccessDetails);
+// static void fnReadSPI_EEPROM(ACCESS_DETAILS *ptrAccessDetails, unsigned char *ptrBuffer);
+// static void fnWriteSPI_EEPROM(ACCESS_DETAILS *ptrAccessDetails, unsigned char *ptrBuffer);
 //
-static void fnReadSPI(ACCESS_DETAILS *ptrAccessDetails, unsigned char *ptrBuffer)
-{
-    #if !defined SPI_FLASH_SST25 && !defined SPI_FLASH_W25Q && !defined SPI_FLASH_S25FL1_K
-    unsigned short usPageNumber = (unsigned short)(ptrAccessDetails->ulOffset/SPI_FLASH_PAGE_LENGTH); // the page the address is in
-    unsigned short usPageOffset = (unsigned short)(ptrAccessDetails->ulOffset - (usPageNumber * SPI_FLASH_PAGE_LENGTH)); // offset in the page
-    #endif
-
-    #if defined SPI_FLASH_ST
-    fnSPI_command(READ_DATA_BYTES, (unsigned long)((unsigned long)(usPageNumber << 8) | (usPageOffset)), _EXTENDED_CS ptrBuffer, ptrAccessDetails->BlockLength);
-    #elif defined SPI_FLASH_SST25 || defined SPI_FLASH_W25Q || defined SPI_FLASH_S25FL1_K
-    fnSPI_command(READ_DATA_BYTES, ptrAccessDetails->ulOffset, _EXTENDED_CS ptrBuffer, ptrAccessDetails->BlockLength);
-    #else                                                                // ATMEL
-        #if SPI_FLASH_PAGE_LENGTH >= 1024
-            #if SPI_FLASH_PAGE_LENGTH == 1024                            // {108}
-    fnSPI_command(CONTINUOUS_ARRAY_READ, (unsigned long)((unsigned long)(usPageNumber << 10) | (usPageOffset)), _EXTENDED_CS ptrBuffer, ptrAccessDetails->BlockLength);
-            #else
-    fnSPI_command(CONTINUOUS_ARRAY_READ, (unsigned long)((unsigned long)(usPageNumber << 11) | (usPageOffset)), _EXTENDED_CS ptrBuffer, ptrAccessDetails->BlockLength);
-            #endif
-        #elif SPI_FLASH_PAGE_LENGTH >= 512
-            #if SPI_FLASH_PAGE_LENGTH == 512                            // {108}
-    fnSPI_command(CONTINUOUS_ARRAY_READ, (unsigned long)((unsigned long)(usPageNumber << 9) | (usPageOffset)), _EXTENDED_CS ptrBuffer, ptrAccessDetails->BlockLength);
-            #else
-    fnSPI_command(CONTINUOUS_ARRAY_READ, (unsigned long)((unsigned long)(usPageNumber << 10) | (usPageOffset)), _EXTENDED_CS ptrBuffer, ptrAccessDetails->BlockLength);
-            #endif
-        #else
-            #if SPI_FLASH_PAGE_LENGTH == 256                            // {108}
-    fnSPI_command(CONTINUOUS_ARRAY_READ, (unsigned long)((unsigned long)(usPageNumber << 8) | (usPageOffset)), _EXTENDED_CS ptrBuffer, ptrAccessDetails->BlockLength);
-            #else
-    fnSPI_command(CONTINUOUS_ARRAY_READ, (unsigned long)((unsigned long)(usPageNumber << 9) | (usPageOffset)), _EXTENDED_CS ptrBuffer, ptrAccessDetails->BlockLength);
-            #endif
-        #endif
-    #endif
-}
-
-// This routine writes data from a buffer to an area in SPI Flash (the caller has already defined the data to a particular area and device)
-//
-static void fnWriteSPI(ACCESS_DETAILS *ptrAccessDetails, unsigned char *ptrBuffer)
-{
-    MAX_FILE_LENGTH Length = ptrAccessDetails->BlockLength;
-    unsigned long Destination = ptrAccessDetails->ulOffset;
-    unsigned short usDataLength;
-    #if defined SPI_FLASH_SST25
-    int iMultipleWrites = 0;
-    if (Length == 0) {
-        return;                                                          // ignore if length is zero
-    }
-    if (Destination & 0x1) {                                             // start at odd SPI address, requires an initial byte write
-        fnSPI_command(WRITE_ENABLE, 0, _EXTENDED_CS 0, 0);               // command write enable to allow byte programming
-        fnSPI_command(BYTE_PROG, Destination++, _EXTENDED_CS ptrBuffer++, 1);// program last byte 
-        if (--Length == 0) {                                             // single byte write so complete
-            return ;
-        }
-    }
-    fnSPI_command(WRITE_ENABLE, 0, _EXTENDED_CS 0, 0);                   // command write enable to allow programming
-    #else
-    unsigned short usPageNumber = (unsigned short)(Destination/SPI_FLASH_PAGE_LENGTH); // the page the address is in
-    unsigned short usPageOffset = (unsigned short)(Destination - (usPageNumber * SPI_FLASH_PAGE_LENGTH)); // offset in the page
-    #endif
-    while (Length != 0) {
-        usDataLength = (unsigned short)Length;
-    #if defined SPI_FLASH_ST || defined SPI_FLASH_W25Q || defined SPI_FLASH_S25FL1_K
-        if (usDataLength > (SPI_FLASH_PAGE_LENGTH - usPageOffset)) {
-            usDataLength = (SPI_FLASH_PAGE_LENGTH - usPageOffset);
-        }
-      //#if !defined SPI_FLASH_S25FL1_K                                  // {1}
-        fnSPI_command(WRITE_ENABLE, 0, _EXTENDED_CS 0, 0);               // write enable
-      //#endif
-        #if defined SPI_FLASH_W25Q || defined SPI_FLASH_S25FL1_K
-        fnSPI_command(PAGE_PROG, ((usPageNumber * SPI_FLASH_PAGE_LENGTH)) | usPageOffset, _EXTENDED_CS ptrBuffer, usDataLength); // copy new content
-        #else
-        fnSPI_command(PAGE_PROG, ((usPageNumber << 8) | usPageOffset), _EXTENDED_CS ptrBuffer, usDataLength); // copy new content
-        #endif
-        Length -= usDataLength;
-        ptrBuffer += usDataLength;
-        usPageNumber++;
-        usPageOffset = 0;
-    #elif defined SPI_FLASH_SST25
-        #if defined SST25_A_VERSION
-            #define AAI_LENGTH 1
-        #else
-            #define AAI_LENGTH 2
-        #endif
-        if (usDataLength > 1) {
-            if (iMultipleWrites == 0) {
-                fnSPI_command(AAI_WORD_PROG, Destination, _EXTENDED_CS ptrBuffer, AAI_LENGTH); // program 2 bytes (1 byte for A type)
-                iMultipleWrites = 1;                                     // mark that we are in a AAI sequence
-            }
-            else {
-                fnSPI_command(AAI_WORD_PROG, Destination, _EXTENDED_CS ptrBuffer, 0); // continue in AAI sequence - note that the data length is zero but this is used to differentiate - always pairs are written
-            }
-            Destination += AAI_LENGTH;
-            Length -= AAI_LENGTH;
-            ptrBuffer += AAI_LENGTH;
-        }
-        else {
-            if (iMultipleWrites != 0) {
-                fnSPI_command(WRITE_DISABLE, 0, _EXTENDED_CS 0, 0);      // first close AAI sequence
-                fnSPI_command(WRITE_ENABLE, 0, _EXTENDED_CS 0, 0);       // command write enable to allow byte programming
-            }
-            fnSPI_command(BYTE_PROG, Destination, _EXTENDED_CS ptrBuffer, 1); // program last byte 
-            break;               
-        }
-    #else                                                                // ATMEL
-        if ((usPageOffset != 0) || (Length < SPI_FLASH_PAGE_LENGTH)) {   // are we writing a partial page?
-            fnSPI_command(MAIN_TO_BUFFER_1, usPageNumber, _EXTENDED_CS 0, 0); // copy main memory to buffer
-        }
-        if (usDataLength > (SPI_FLASH_PAGE_LENGTH - usPageOffset)) {
-            usDataLength = (SPI_FLASH_PAGE_LENGTH - usPageOffset);
-        }
-        fnSPI_command(WRITE_BUFFER_1, usPageOffset, _EXTENDED_CS ptrBuffer, usDataLength); // copy new content
-        fnSPI_command(PROG_FROM_BUFFER_1, usPageNumber, _EXTENDED_CS 0, 0); // program to main memory
-        Length -= usDataLength;
-        ptrBuffer += usDataLength;
-        usPageNumber++;
-        usPageOffset = 0;
-    #endif
-    }
-    #if defined SPI_FLASH_SST25 || defined SPI_FLASH_W25Q
-    fnSPI_command(WRITE_DISABLE, 0, _EXTENDED_CS 0, 0);                  // disable writes on exit
-    #endif
-}
-
-// The routine is used to delete an area in SPI Flash, whereby the caller has set the address to the start of a page and limited the erase to a single storage area and device
-//
-static MAX_FILE_LENGTH fnDeleteSPI(ACCESS_DETAILS *ptrAccessDetails)
-{
-    MAX_FILE_LENGTH BlockLength = SPI_FLASH_PAGE_LENGTH;
-    #if !defined SPI_FLASH_ST
-    unsigned char  ucCommand;
-    #endif
-    #if !defined SPI_FLASH_SST25 && !defined SPI_FLASH_W25Q && !defined SPI_FLASH_S25FL1_K
-    unsigned short usPageNumber = (unsigned short)(ptrAccessDetails->ulOffset/SPI_FLASH_PAGE_LENGTH); // the page the address is in
-    #endif
-    #if defined SPI_FLASH_ST
-    fnSPI_command(WRITE_ENABLE, 0, _EXTENDED_CS 0, 0);                   // enable the write/erase
-        #if defined SPI_DATA_FLASH
-    fnSPI_command(SUB_SECTOR_ERASE, ((unsigned long)usPageNumber << 8), _EXTENDED_CS 0, 0); // delete appropriate sub-sector
-    BlockLength = SPI_FLASH_SUB_SECTOR_LENGTH;
-        #else
-    fnSPI_command(SECTOR_ERASE, ((unsigned long)usPageNumber << 8), _EXTENDED_CS 0, 0); // delete appropriate sector
-    BlockLength = SPI_FLASH_SECTOR_LENGTH;
-        #endif
-    #elif defined SPI_FLASH_SST25 || defined SPI_FLASH_W25Q || defined SPI_FLASH_S25FL1_K
-      //#if !defined SPI_FLASH_S25FL1_K                                  // {1}
-    fnSPI_command(WRITE_ENABLE, 0, _EXTENDED_CS 0, 0);                   // command write enable to allow byte programming
-      //#endif
-        #if !defined SST25_A_VERSION
-    if ((ptrAccessDetails->BlockLength >= (64 * 1024)) && ((ptrAccessDetails->ulOffset & ((64 * 1024) - 1)) == 0)) { // if a complete 64k block can be deleted
-            #if defined SPI_FLASH_S25FL1_K
-        ucCommand = BLOCK_ERASE;                                         // delete block of 64k
-            #else
-        ucCommand = SECTOR_ERASE;                                        // delete block of 64k
-            #endif
-        BlockLength = (64 * 1024);
-    }
-    else 
-        #endif
-        #if defined SPI_FLASH_S25FL1_K
-    {
-        ucCommand = SECTOR_ERASE;                                        // delete smallest sector of 4k
-        BlockLength = SPI_FLASH_SECTOR_LENGTH;
-    }
-        #else
-    if ((ptrAccessDetails->BlockLength >= SPI_FLASH_HALF_SECTOR_LENGTH) && ((ptrAccessDetails->ulOffset & (SPI_FLASH_HALF_SECTOR_LENGTH - 1)) == 0)) {
-        ucCommand = HALF_SECTOR_ERASE;                                   // delete block of 32k
-        BlockLength = SPI_FLASH_HALF_SECTOR_LENGTH;
-    }
-    else {
-        ucCommand = SUB_SECTOR_ERASE;                                    // delete smallest sector of 4k
-        BlockLength = SPI_FLASH_SUB_SECTOR_LENGTH;
-    }
-        #endif
-    fnSPI_command(ucCommand, ptrAccessDetails->ulOffset, _EXTENDED_CS 0, 0);    
-    #else                                                                // ATMEL
-    if ((ptrAccessDetails->BlockLength >= SPI_FLASH_BLOCK_LENGTH) && (usPageNumber % 8 == 0)) { // if delete range corresponds to a block, use faster block delete
-        BlockLength = SPI_FLASH_BLOCK_LENGTH;
-        ucCommand = BLOCK_ERASE;
-    }
-    else {
-        BlockLength = SPI_FLASH_PAGE_LENGTH;
-        ucCommand = PAGE_ERASE;
-    }
-    fnSPI_command(ucCommand, usPageNumber, _EXTENDED_CS 0, 0);           // delete appropriate page/block
-    #endif
-    return (BlockLength);
-}
+        #include "../SPI_Memory/spi_flash_interface.h"                   // {205}
     #endif
 
     #if !defined ONLY_INTERNAL_FLASH_STORAGE
-
 // Search for the memory type that the starting address is in, return the type and restrict the largest length that can be read,written, erased from that location
 //
 extern unsigned char fnGetStorageType(unsigned char *memory_pointer, ACCESS_DETAILS *ptrAccessDetails)
@@ -795,7 +751,7 @@ extern unsigned char fnGetStorageType(unsigned char *memory_pointer, ACCESS_DETA
                 unsigned long ulDeviceRangeLength = ((unsigned long)((ptrStorageList->ptrMemoryEnd - ptrStorageList->ptrMemoryStart) + 1)/ptrStorageList->ucDeviceCount);
                 unsigned char *ptrStart = ptrStorageList->ptrMemoryStart;
                 unsigned char *ptrEnd = (ptrStorageList->ptrMemoryStart + ulDeviceRangeLength);                
-                while (ptrEnd < memory_pointer) {
+                while (ptrEnd <= memory_pointer) {                       // {201}
                     ptrStart += ulDeviceRangeLength;
                     ptrEnd += ulDeviceRangeLength;
                     ptrAccessDetails->ucDeviceNumber++;                  // the device number that the access is in
@@ -811,6 +767,9 @@ extern unsigned char fnGetStorageType(unsigned char *memory_pointer, ACCESS_DETA
             if (ulMaximumLength < ptrAccessDetails->BlockLength) {
                 ptrAccessDetails->BlockLength = (MAX_FILE_LENGTH)ulMaximumLength; // limit the length to the present storage device
             }
+        #if defined STORAGE_DEVICE_OFFSET                                // {206}
+            ptrAccessDetails->ucDeviceNumber += ptrStorageList->ucDeviceOffset;
+        #endif
             return ptrStorageList->ucStorageType;                        // the storage area type
         }
         ptrStorageList = (STORAGE_AREA_ENTRY *)(ptrStorageList->ptrNext);// move to next storage area
@@ -825,7 +784,7 @@ extern unsigned char fnGetStorageType(unsigned char *memory_pointer, ACCESS_DETA
 //
 extern int fnEraseFlashSector(unsigned char *ptrSector, MAX_FILE_LENGTH Length)
 {
-#if (defined KINETIS_KE && (defined SIZE_OF_EEPROM && SIZE_OF_EEPROM > 0)) // {109}
+#if (defined FLASH_CONTROLLER_FTMRE && (defined SIZE_OF_EEPROM && SIZE_OF_EEPROM > 0)) // {109}
     unsigned short _FLASH_GRANULARITY = FLASH_GRANULARITY;               // assume program flash granularity
 #else
     #define _FLASH_GRANULARITY FLASH_GRANULARITY
@@ -839,8 +798,23 @@ extern int fnEraseFlashSector(unsigned char *ptrSector, MAX_FILE_LENGTH Length)
         AccessDetails.BlockLength = Length;
         switch (fnGetStorageType(ptrSector, &AccessDetails)) {           // get the storage type based on the memory location and also return the largest amount of data that can be read from a single device
         case _STORAGE_INTERNAL_FLASH:
-            Length += (((CAST_POINTER_ARITHMETIC)ptrSector) - ((CAST_POINTER_ARITHMETIC)ptrSector & ~(_FLASH_GRANULARITY - 1)));
+            Length += (MAX_FILE_LENGTH)(((CAST_POINTER_ARITHMETIC)ptrSector) - ((CAST_POINTER_ARITHMETIC)ptrSector & ~(_FLASH_GRANULARITY - 1)));
             ptrSector = (unsigned char *)((CAST_POINTER_ARITHMETIC)ptrSector & ~(_FLASH_GRANULARITY - 1)); // set to sector boundary
+        #if FLASH_BLOCK_COUNT > 1                                        // {203} check whether a block erase can be performed
+            if (((CAST_POINTER_ARITHMETIC)ptrSector & (FLASH_BLOCK_SIZE - 1)) == 0) { // if the start address is on a block boundary
+                if (Length >= FLASH_BLOCK_SIZE) {                        // and the erase length encloses a block
+                    if ((fnFlashNow(FCMD_ERASE_FLASH_BLOCK, (unsigned long *)ptrSector, (unsigned long)0)) != 0) { // erase a single block
+                        return -1;                                       // error
+                    }
+                    if (Length <= FLASH_BLOCK_SIZE) {                    // if completed
+                        break;
+                    }
+                    ptrSector += FLASH_BLOCK_SIZE;
+                    Length -= (MAX_FILE_LENGTH)FLASH_BLOCK_SIZE;
+                    continue;
+                }
+            }
+        #endif
             if ((fnFlashNow(FCMD_ERASE_FLASH_SECTOR, (unsigned long *)(unsigned long)ptrSector, (unsigned long)0)) != 0) { // {53}
                 return -1;                                               // error
             }
@@ -856,8 +830,17 @@ extern int fnEraseFlashSector(unsigned char *ptrSector, MAX_FILE_LENGTH Length)
             }
             break;
         #endif
-        #if defined SPI_EEPROM_FILE_SYSTEM
+        #if defined SPI_EEPROM_ENABLED                                   // {202}
         case _STORAGE_SPI_EEPROM:
+        {
+            unsigned char ucErased[SPI_EEPROM_PAGE_LENGTH];
+            MAX_FILE_LENGTH PageBoundaryOffset = (MAX_FILE_LENGTH)(((CAST_POINTER_ARITHMETIC)(AccessDetails.ulOffset))%SPI_EEPROM_PAGE_LENGTH);
+            Length += PageBoundaryOffset;                                // include length back to start of page
+            ptrSector -= PageBoundaryOffset;                             // set to page boundary
+            uMemset(ucErased, 0xff, SPI_EEPROM_PAGE_LENGTH);             // buffer with 0xff
+            fnWriteSPI(&AccessDetails, ucErased);                        // delete page in SPI eeprom (by programming to 0xff)
+            AccessDetails.BlockLength = SPI_EEPROM_PAGE_LENGTH;
+        }
             break;
         #endif
         #if defined I2C_EEPROM_FILE_SYSTEM
@@ -897,18 +880,36 @@ extern int fnEraseFlashSector(unsigned char *ptrSector, MAX_FILE_LENGTH Length)
             break;
         }
         Length -= AccessDetails.BlockLength;
-    } while (1);
+    } FOREVER_LOOP();
     #else                                                                // case when only internal Flash is available
-        #if (defined KINETIS_KE && (defined SIZE_OF_EEPROM && SIZE_OF_EEPROM > 0)) // {109}
-    if (ptrSector >= (unsigned char *)(SIZE_OF_FLASH - SIZE_OF_EEPROM)) {// is the sector in EEPROM
+        #if (defined FLASH_CONTROLLER_FTMRE && (defined SIZE_OF_EEPROM && SIZE_OF_EEPROM > 0)) // {109}
+    if (ptrSector >= (unsigned char *)(SIZE_OF_FLASH)) {                 // is the sector in EEPROM
         _FLASH_GRANULARITY = KE_EEPROM_GRANULARITY;                      // set EEPROM granularity
     }
         #endif
-    Length += (((CAST_POINTER_ARITHMETIC)ptrSector) - ((CAST_POINTER_ARITHMETIC)ptrSector & ~(_FLASH_GRANULARITY - 1)));
+    Length += (((CAST_POINTER_ARITHMETIC)ptrSector) - ((CAST_POINTER_ARITHMETIC)ptrSector & ~(_FLASH_GRANULARITY - 1))); // increase length to compensate if the address is not on a sector boundary
     ptrSector = (unsigned char *)((CAST_POINTER_ARITHMETIC)ptrSector & ~(_FLASH_GRANULARITY - 1)); // set to sector boundary
+        #if defined HIGH_SPEED_RUN_MODE_AVAILABLE && defined USE_HIGH_SPEED_RUN_MODE && defined AUTO_RUN_MODE_ON_FLASH
+    fnSetHSRUN_mode(0);                                                  // if operating in HSRUN mode we set RUN mode so that flashing works
+        #endif
     do {
+        #if FLASH_BLOCK_COUNT > 1                                        // {203} check whether a block erase can be performed
+        if (((CAST_POINTER_ARITHMETIC)ptrSector & (FLASH_BLOCK_SIZE - 1)) == 0) { // if the start address is on a block boundary
+            if (Length >= FLASH_BLOCK_SIZE) {                            // and the erase length encloses a block
+                if ((fnFlashNow(FCMD_ERASE_FLASH_BLOCK, (unsigned long *)ptrSector, (unsigned long)0)) != 0) { // erase a single block
+                    return -1;                                           // error
+                }
+                if (Length <= FLASH_BLOCK_SIZE) {                        // check whether entire deletion has completed
+                    break;
+                }
+                ptrSector += FLASH_BLOCK_SIZE;                           // advance sector point to next internal flash sector
+                Length -= FLASH_BLOCK_SIZE;
+                continue;
+            }
+        }
+        #endif
         if ((fnFlashNow(FCMD_ERASE_FLASH_SECTOR, (unsigned long *)ptrSector, (unsigned long)0)) != 0) { // erase a single sector
-            return 1;                                                    // error
+            return -1;                                                   // error
         }
         if (Length <= _FLASH_GRANULARITY) {                              // check whether entire deletion has completed
         #if defined MANAGED_FILES
@@ -920,9 +921,12 @@ extern int fnEraseFlashSector(unsigned char *ptrSector, MAX_FILE_LENGTH Length)
         }
         ptrSector += _FLASH_GRANULARITY;                                 // advance sector point to next internal flash sector
         Length -= _FLASH_GRANULARITY;
-    } while (1);
+    } FOREVER_LOOP();
     #endif
-    return 0;
+    #if defined HIGH_SPEED_RUN_MODE_AVAILABLE && defined USE_HIGH_SPEED_RUN_MODE && defined AUTO_RUN_MODE_ON_FLASH
+    fnSetHSRUN_mode(1);                                                  // return HSRUN mode after flashing has completed
+    #endif
+    return 0;                                                            // success
 }
 
 
@@ -931,7 +935,7 @@ extern int fnWriteBytesFlash(unsigned char *ucDestination, unsigned char *ucData
     ACCESS_DETAILS AccessDetails;
     AccessDetails.BlockLength = Length;
     #if !defined ONLY_INTERNAL_FLASH_STORAGE
-    while (1/*Length != 0*/) {                                           // {24} allow zero length write to ensure that open flash buffer can be closed
+    FOREVER_LOOP() {                                                     // {24} allow zero length write to ensure that open flash buffer can be closed
         switch (fnGetStorageType(ucDestination, &AccessDetails)) {       // get the storage type based on the memory location and also return the largest amount of data that can be read from a single device
         case _STORAGE_INTERNAL_FLASH:
             if (fnWriteInternalFlash(&AccessDetails, ucData) != 0) {
@@ -943,8 +947,9 @@ extern int fnWriteBytesFlash(unsigned char *ucDestination, unsigned char *ucData
             fnWriteSPI(&AccessDetails, ucData);
             break;
         #endif
-        #if defined SPI_EEPROM_FILE_SYSTEM
+        #if defined SPI_EEPROM_ENABLED                                   // {202}
         case _STORAGE_SPI_EEPROM:
+            fnWriteSPI_EEPROM(&AccessDetails, ucData);
             break;
         #endif
         #if defined I2C_EEPROM_FILE_SYSTEM
@@ -1004,8 +1009,9 @@ extern void fnGetParsFile(unsigned char *ParLocation, unsigned char *ptrValue, M
                 fnReadSPI(&AccessDetails, ptrValue);                     // read from the SPI device
                 break;
                 #endif
-                #if defined SPI_EEPROM_FILE_SYSTEM
+                #if defined SPI_EEPROM_ENABLED                           // {202}
             case _STORAGE_SPI_EEPROM:
+                fnReadSPI_EEPROM(&AccessDetails, ptrValue);              // read from the SPI eeprom device
                 break;
                 #endif
                 #if defined I2C_EEPROM_FILE_SYSTEM
@@ -1040,9 +1046,9 @@ extern void fnGetParsFile(unsigned char *ParLocation, unsigned char *ptrValue, M
     if (ParLocation >= (unsigned char *)(SIZE_OF_FLASH - SIZE_OF_FLEXFLASH)) { // is the access a read from FlexNVM
         ParLocation += (FLEXNVM_START_ADDRESS - (SIZE_OF_FLASH - SIZE_OF_FLEXFLASH)); // convert to FlexNVM physical address
     }
-            #elif (defined KINETIS_KE && (defined SIZE_OF_EEPROM && SIZE_OF_EEPROM > 0)) // {109}
-    if (ParLocation >= (unsigned char *)(SIZE_OF_FLASH - SIZE_OF_EEPROM)) { // is the access a read from EEPROM
-        ParLocation += (KE_EEPROM_START_ADDRESS - (SIZE_OF_FLASH - SIZE_OF_EEPROM)); // convert to EEPROM physical address
+            #elif (defined FLASH_CONTROLLER_FTMRE && (defined SIZE_OF_EEPROM && SIZE_OF_EEPROM > 0)) // {109}
+    if (ParLocation >= (unsigned char *)(SIZE_OF_FLASH)) { // is the access a read from EEPROM
+        ParLocation += (KE_EEPROM_START_ADDRESS - (SIZE_OF_FLASH)); // convert to EEPROM physical address
     }
             #endif
     uMemcpy(ptrValue, fnGetFlashAdd(ParLocation), Size);                 // directly copy memory since this must be a pointer to code (embedded file)
@@ -1056,8 +1062,8 @@ extern int fnSwapMemory(int iCheck)
 {
     #define FLASH_SWAP_INDICATOR_ADDRESS    ((FLASH_START_ADDRESS + (SIZE_OF_FLASH/2)) - 32) // final sector in the first half of flash memory used as flash swap indicator
     unsigned long ulCommand;
-    while (1) {
-        ulCommand = ((SWAP_CONTROL_CODE_REPORT_SWAP_STATUS << 24) | 0x00ffffff); // note that the unused bytes in the command are set to 0xff so that it is clear whether they are changed by the operation (failed operatios may otherwise not be detectable)
+    FOREVER_LOOP() {
+        ulCommand = ((SWAP_CONTROL_CODE_REPORT_SWAP_STATUS << 24) | 0x00ffffff); // note that the unused bytes in the command are set to 0xff so that it is clear whether they are changed by the operation (failed operations may otherwise not be detectable)
         if (fnFlashNow(FCMD_SWAP, (unsigned long *)FLASH_SWAP_INDICATOR_ADDRESS, &ulCommand) != 0) { // get the swap state
             return SWAP_COMMAND_FAILURE;                                 // error
         }
@@ -1198,7 +1204,7 @@ extern int fnGetParameters(unsigned char ucValidBlock, unsigned short usParamete
     ptrPar += usParameterReference;                                      // {10} move to double-long word location
         #endif
 
-    while (usLength--) {
+    while (usLength-- != 0) {
         fnGetParsFile((unsigned char *)ptrPar, ucValue++, 1);
         ptrPar += (PARAMETER_STATUS_SIZE/2);
     }
@@ -1224,12 +1230,12 @@ extern int fnSetParameters(unsigned char ucValidBlock, unsigned short usParamete
     int iBlockUse = 0;
     unsigned long ulValidCheck[PARAMETER_STATUS_SIZE/2];
 
-    if (TEMP_PARS & ucValidBlock) {
+    if ((TEMP_PARS & ucValidBlock) != 0) {
         ucValidBlock &= ~TEMP_PARS;
         iBlockUse = 1;
     }
 
-    if (ucValidBlock & BLOCK_INVALID) {                                  // no valid parameter blocks have been found so we can use the first for saving the data.
+    if ((ucValidBlock & BLOCK_INVALID) != 0) {                           // no valid parameter blocks have been found so we can use the first for saving the data.
         fnDeleteParBlock((unsigned char *)PARAMETER_BLOCK_1);            // we delete it to be sure it is fresh
     #if defined USE_PAR_SWAP_BLOCK
         fnDeleteParBlock((unsigned char *)PARAMETER_BLOCK_2);
@@ -1290,7 +1296,7 @@ extern int fnSetParameters(unsigned char ucValidBlock, unsigned short usParamete
         #if (FLASH_ROW_SIZE == 8)                                        // {10}
         ulValidCheck[1] = 0xffffffff;
         #endif
-        while (usLength--) {
+        while (usLength-- != 0) {
         #if defined _WINDOWS || defined _LITTLE_ENDIAN
             ulValidCheck[0] = (0xffffff00 | *ucValue++);
         #else

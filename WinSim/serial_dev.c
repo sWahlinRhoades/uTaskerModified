@@ -11,7 +11,7 @@
     File:      serial_dev.c
     Project:   Single Chip Embedded Internet
     ---------------------------------------------------------------------
-    Copyright (C) M.J.Butcher Consulting 2004..2018
+    Copyright (C) M.J.Butcher Consulting 2004..2020
     *********************************************************************
     14.03.2007 Added MAX543X Digital Potentiometer (L,M,N,P suffixes)
     29.09.2007 Added LM80 (microprocessor system hardware monitor) and PCF8574 port expander
@@ -33,6 +33,10 @@
     10.09.2018 Added MAX6957                                              {15}
     13.09.2018 Added SPI shift registers                                  {16}
     26.10.2018 Added FM24CL16B                                            {17}
+    04.07.2019 Add 128k FRAM simulation (1..4 devices)                    {18}
+    06.11.2020 Add FT5406 touch screen controller                         {19}
+    16.11.2020 Extend to devices on multiple I2C interfaces               {20}
+    16.11.2020 Add MCP23017 port expander                                 {21}
 
 */                            
 
@@ -53,7 +57,8 @@
 // Address 0x90
 //
 typedef struct stDS1621
-{     
+{
+    int            iBus;
 	unsigned char  address;
     unsigned char  ucState;
     unsigned char  ucRW;
@@ -64,13 +69,14 @@ typedef struct stDS1621
     unsigned char  ucTemperature[2];
 } DS1621;
 
-static DS1621 simDS1621 = {0x90, 0, 0, 0, 0, 0, 10, 0};                  // {4}
+static DS1621 simDS1621 = {
+    -1,                                                                  // {20} initially the bus the device is connected on is unknown
+    0x90, 0, 0, 0, 0, 0, 10, 0};                                         // {4}
 
 /**************************************************************************/
 /*                  Maxim MAX6956 port-expander/LED driver                */
 /**************************************************************************/
 #if defined MAX6956_CNT
-
 typedef struct stMAX6956
 {     
     unsigned char  address;
@@ -173,6 +179,58 @@ static unsigned char ucMAX6957_BUS[MAX6957_CNT] = {
 };
 #endif
 
+#if defined MCP23017_CNT
+/**************************************************************************/
+/*                Microchip MCP23017 16 bit Port Expander                 */
+/**************************************************************************/
+
+#define ADDRESS_MCP23017  0x40
+
+typedef struct stMCP23017
+{     
+    int            iBus;
+	unsigned char  address;
+    unsigned char  ucState;
+    unsigned char  ucRW;
+    unsigned char  registerAddress;
+
+    unsigned long ulPortInput;
+
+    // IOCON.BANK = 0 addressing
+    //
+    unsigned char  IODIRA;
+    unsigned char  IODIRB;
+    unsigned char  IPOLA;
+    unsigned char  IPOLB;
+    unsigned char  GPINTENA;
+    unsigned char  GPINTENB;
+    unsigned char  DEFVALA;
+    unsigned char  DEFVALB;
+    unsigned char  INTCONA;
+    unsigned char  INTCONB;
+    unsigned char  IOCONA;
+    unsigned char  IOCONB;
+    unsigned char  GPPUA;
+    unsigned char  GPPUB;
+    unsigned char  INTFA;
+    unsigned char  INTFB;
+    unsigned char  INTCAPA;
+    unsigned char  INTCAPB;
+    unsigned char  GPIOA;
+    unsigned char  GPIOB;
+    unsigned char  OLATA;
+    unsigned char  OLATB;
+} MCP23017;
+
+static MCP23017 simMCP23017 = {
+    -1,
+    ADDRESS_MCP23017, 0,0,0,
+    0xffffffff,                                                          // assume inputs pulled up
+    0xff, 0xff,                                                          // IODIRA and IODIRB default to inputs
+    0
+};
+#endif
+
 /**************************************************************************/
 /*                  Maxim MAX6955 port-expander/LED driver                */
 /**************************************************************************/
@@ -233,35 +291,41 @@ typedef struct stMAX6955
 
 static MAX6955 simMAX6955[MAX6955_CNT] = {{{0}}};
 
-#if !defined MAX6955_0_ADD
-    #define MAX6955_0_ADD   0xca
-#endif
+    #if !defined MAX6955_0_ADD
+        #define MAX6955_0_ADD   0xca
+    #endif
 
 static const unsigned char ucMAX6955_ADD[MAX6955_CNT] = {
     MAX6955_0_ADD,
-#if MAX6955_CNT > 1
-    MAX6955_1_ADD,
-#endif
-#if MAX6955_CNT > 2
-    MAX6955_2_ADD,
-#endif
-#if MAX6955_CNT > 3
-    MAX6955_3_ADD,
-#endif
-#if MAX6955_CNT > 4
-    MAX6955_4_ADD,
-#endif
-#if MAX6955_CNT > 5
-    MAX6955_5_ADD,
-#endif
+    #if MAX6955_CNT > 1
+        MAX6955_1_ADD,
+    #endif
+    #if MAX6955_CNT > 2
+        MAX6955_2_ADD,
+    #endif
+    #if MAX6955_CNT > 3
+        MAX6955_3_ADD,
+    #endif
+    #if MAX6955_CNT > 4
+        MAX6955_4_ADD,
+    #endif
+    #if MAX6955_CNT > 5
+        MAX6955_5_ADD,
+    #endif
 };
 #endif
 
-#if (defined MAX6955_CNT && (MAX6955_CNT > 0)) || (defined MAX6956_CNT && (MAX6956_CNT > 0)) || (defined MAX6957_CNT && (MAX6957_CNT > 0)) || (defined SHIFT_REGISTER_IN_CNT && (SHIFT_REGISTER_IN_CNT > 0)) || (defined SHIFT_REGISTER_OUT_CNT && (SHIFT_REGISTER_OUT_CNT > 0))
+#if (defined MAX6955_CNT && (MAX6955_CNT > 0)) || (defined MAX6956_CNT && (MAX6956_CNT > 0)) || (defined MAX6957_CNT && (MAX6957_CNT > 0)) || (defined SHIFT_REGISTER_IN_CNT && (SHIFT_REGISTER_IN_CNT > 0)) || (defined SHIFT_REGISTER_OUT_CNT && (SHIFT_REGISTER_OUT_CNT > 0) || (defined MCP23017_CNT && (MCP23017_CNT > 0)))
 // Get the data direction of port expander pins
 //
 extern unsigned long fnGetExtPortDirection(int iExtPortReference)
 {
+    #if (defined MCP23017_CNT && (MCP23017_CNT > 0))
+        #define FIRST_MCP23017_EXTERNAL_PORT     _PORT_EXT_0
+    if ((iExtPortReference >= FIRST_MCP23017_EXTERNAL_PORT) && (iExtPortReference < (FIRST_MCP23017_EXTERNAL_PORT + MCP23017_CNT))) {
+        return (~(simMCP23017.IODIRA | (simMCP23017.IODIRB << 8))); // data direction is output if the port bit configuration is '0' 
+    }
+    #endif
     #if (defined MAX6955_CNT && (MAX6955_CNT > 0))
     if ((iExtPortReference >= FIRST_MAX6955_EXTERNAL_PORT) && (iExtPortReference < (FIRST_MAX6955_EXTERNAL_PORT + MAX6955_CNT))) {
         int iRef;
@@ -300,6 +364,14 @@ extern unsigned long fnGetExtPortDirection(int iExtPortReference)
 //
 extern unsigned long fnGetExtPortState(int iExtPortReference)
 {
+    #if (defined MCP23017_CNT && (MCP23017_CNT > 0))
+    if ((iExtPortReference >= FIRST_MCP23017_EXTERNAL_PORT) && (iExtPortReference < (FIRST_MCP23017_EXTERNAL_PORT + MCP23017_CNT))) {
+        unsigned long ulOutput = ~(simMCP23017.IODIRA | (simMCP23017.IODIRB << 8));
+        ulOutput &= ((simMCP23017.GPIOA | (simMCP23017.GPIOB << 8)));
+        ulOutput |= ((simMCP23017.IODIRA | (simMCP23017.IODIRB << 8)) & simMCP23017.ulPortInput);
+        return (ulOutput);
+    }
+    #endif
     #if (defined MAX6955_CNT && (MAX6955_CNT > 0))
     if ((iExtPortReference >= FIRST_MAX6955_EXTERNAL_PORT) && (iExtPortReference < (FIRST_MAX6955_EXTERNAL_PORT + MAX6955_CNT))) {
         int iRef;
@@ -338,6 +410,28 @@ extern unsigned long fnGetExtPortState(int iExtPortReference)
 //
 extern void fnSetI2CPort(int iExtPortReference, int iChange, unsigned long bit)
 {
+    #if (defined MCP23017_CNT && (MCP23017_CNT > 0))
+    if ((iExtPortReference >= FIRST_MCP23017_EXTERNAL_PORT) && (iExtPortReference < (FIRST_MCP23017_EXTERNAL_PORT + MCP23017_CNT))) {
+        unsigned char ucState;
+        if ((iChange & (TOGGLE_INPUT | TOGGLE_INPUT_NEG)) != 0) {
+            simMCP23017.ulPortInput ^= (bit);                            // toggle the input state
+        }
+        else if (iChange == SET_INPUT) {
+            simMCP23017.ulPortInput |= (bit);                            // set the input high
+        }
+        else {
+            simMCP23017.ulPortInput &= ~(bit);                           // set the input low
+        }
+        ucState = simMCP23017.GPIOA;
+        ucState &= ~(simMCP23017.IODIRA);
+        ucState |= ((unsigned char)simMCP23017.ulPortInput & (simMCP23017.IODIRA));
+        simMCP23017.GPIOA = ucState;
+        ucState = simMCP23017.GPIOB;
+        ucState &= ~(simMCP23017.IODIRB);
+        ucState |= ((unsigned char)(simMCP23017.ulPortInput >> 8) & (simMCP23017.IODIRB));
+        simMCP23017.GPIOB = ucState;
+    }
+    #endif
     #if (defined MAX6955_CNT && (MAX6955_CNT > 0))
     if ((iExtPortReference >= FIRST_MAX6955_EXTERNAL_PORT) && (iExtPortReference < (FIRST_MAX6955_EXTERNAL_PORT + MAX6955_CNT))) {
         return;
@@ -578,11 +672,45 @@ extern unsigned long fnGetI2CFRAMSize(void)
 {
     return (sizeof(FM24W256_fram));
 }
+#elif defined _STORAGE_I2C_FRAM_ENABLED                                  // {18}
+
+#define ADDRESS_FRAM      0xa0                                           // 0xa2, 0xa4, 0xa6.. 0xae possible (8 devices controlled via A18..A16)
+
+typedef struct stI2C_FRAM
+{
+    unsigned char  address;
+    unsigned char  ucState;
+    unsigned char  ucRW;
+
+    unsigned short usInternalPointer;
+
+    unsigned char ucData[FRAM_CHIP_COUNT * FRAM_CHIP_SIZE];
+} I2C_FRAM;
+
+static I2C_FRAM simFRAM = { ADDRESS_FRAM, 0, 0, 0, {0} };
+
+// Initialise to deleted state
+//
+extern void fnInitI2C_FRAM(void)
+{
+    memset(simFRAM.ucData, 0x00, sizeof(simFRAM.ucData));
+}
+
+extern unsigned char *fnGetI2CFRAMStart(void)
+{
+    return &simFRAM.ucData[0];
+}
+
+extern unsigned long fnGetI2CFRAMSize(void)
+{
+    return (sizeof(simFRAM.ucData));
+}
 #endif
 
 /**************************************************************************/
 /*                      FM24CL16B FRAM                                    */
 /**************************************************************************/
+
 #if defined FM24CL16B_PRESENT
 #define FM24CL16B_ADD   0xa0                                             // fixed ddress (but uses range 0xa0..0xaf on the bus due to its page addressing)
 
@@ -714,6 +842,70 @@ typedef struct stDS3640
 } DS3640;
 
 static DS3640 simDS3640 = {0xa0, 0};
+#endif
+
+#if defined TOUCH_FT5406                                                 // {19}
+/**************************************************************************/
+/*                    FT5406 touch screen controller                      */
+/**************************************************************************/
+typedef struct stFT5406_PEN_STATE
+{
+    unsigned char  TOUCH_XH;                                             // address 0x03
+    unsigned char  TOUCH_XL;                                             // address 0x04
+    unsigned char  TOUCH_YH;                                             // address 0x05
+    unsigned char  TOUCH_YL;                                             // address 0x06
+    unsigned char  ucRes[2];                                             // address 0x07, 0x08
+} FT5406_PEN_STATE;
+
+typedef struct stFT5406
+{     
+    int            iBus;
+	unsigned char  address;
+    unsigned char  ucState;
+    unsigned char  ucRW;
+    unsigned char  ucInternalPointer;
+
+    unsigned char  ucDummy;
+    unsigned char  DEVICE_MODE;                                          // address 0x00
+    unsigned char  GEST_ID;                                              // address 0x01
+    unsigned char  TD_STATUS;                                            // address 0x02
+    FT5406_PEN_STATE TOUCH[5];
+    unsigned char  ucRes4[0x5f];                                         // address 0x1f .. 0x7f
+    unsigned char  ID_G_THGROUP;                                         // address 0x80
+    unsigned char  ID_G_THPEAK;                                          // address 0x81
+    unsigned char  ID_G_THCAL;                                           // address 0x82
+    unsigned char  ID_G_THWATER;                                         // address 0x83
+    unsigned char  ID_G_THTEMP;                                          // address 0x84
+    unsigned char  ucRes5;                                               // address 0x85
+    unsigned char  ID_G_CTRL;                                            // address 0x86
+    unsigned char  ID_G_TIME_ENTER_MONITOR;                              // address 0x87
+    unsigned char  ID_G_PERIODACTIVE;                                    // address 0x88
+    unsigned char  ID_G_PERIOD_MONITOR;                                  // address 0x89
+    unsigned char  ucRes6[0x16];                                         // address 0x8a .. 0x9f
+    unsigned char  ID_G_AUTO_CLB_MODE;                                   // address 0xa0
+    unsigned char  ID_G_LIB_VERSION_H;                                   // address 0xa1
+    unsigned char  ID_G_LIB_VERSION_L;                                   // address 0xa2
+    unsigned char  ID_G_CIPHER;                                          // address 0xa3
+    unsigned char  ID_G_MODE;                                            // address 0xa4
+    unsigned char  ID_G_PMODE;                                           // address 0xa5
+    unsigned char  ID_G_FIRMID;                                          // address 0xa6
+    unsigned char  ID_G_STATE;                                           // address 0xa7
+    unsigned char  ID_G_FT5201ID;                                        // address 0xa8
+    unsigned char  ID_G_ERR;                                             // address 0xa9
+    unsigned char  ID_G_CLB;                                             // address 0xaa
+    unsigned char  ucRes7[3];                                            // address 0xab .. 0xad
+    unsigned char  ID_G_B_AREA_TH;                                       // address 0xae
+    unsigned char  ucRes8[3];                                            // address 0xaf .. 0xfd
+    unsigned char  LOG_MSG_CNT;                                          // address 0xfe
+    unsigned char  LOG_CUR_CHA;                                          // address 0xff
+} FT5406;
+
+#define FT5406_I2C_WRITE_ADDRESS 0x70
+static FT5406 simFT5406 = {
+    -1,                                                                  // initially teh bus that the device is used on is unknown
+    FT5406_I2C_WRITE_ADDRESS,
+    0,
+};
 #endif
 
 /**************************************************************************/
@@ -958,6 +1150,7 @@ typedef struct stPCF8574
 
 static PCF8574 simPCF8574 = {ADDRESS_PCF8574, 0};
 
+
 /**************************************************************************/
 /*                    Freescale MMA8451Q 3-axis accelerometer             */
 /**************************************************************************/
@@ -1175,6 +1368,7 @@ typedef struct stFXOS8700                                                // {11}
 } FXOS8700;
 
 static FXOS8700 simFXOS8700 = {ADDRESS_FXOS8700, 0, 0, 0};
+
 
 /**************************************************************************/
 /*                   Freescale MMA7660F 3-axis accelerometer              */
@@ -1422,6 +1616,8 @@ static PCF8575 simPCF8575[PCF8575_CNT] = {{ADDRESS_PCF8575, 0}};
     }
 #endif
 
+// This is called once at startup in order to initialise device registers as needed
+//
 static void fnInitialiseI2CDevices(void)                                 // {10}
 {
     int i = 0;
@@ -1524,12 +1720,22 @@ static void fnInitialiseI2CDevices(void)                                 // {10}
 
 // When one particular device is addressed all others are reset using this routine
 //
-static void fnResetOthers(unsigned char ucAddress)
+static void fnResetOthers(int iBus, unsigned char ucAddress)             // {20}
 {
     int i = 0;
-    if (ucAddress != simDS1621.address) {
+    if ((iBus == simDS1621.iBus) && (ucAddress != simDS1621.address)) {
         simDS1621.ucState = 0;
     }
+#if defined MCP23017_CNT
+    if ((iBus == simMCP23017.iBus) && (ucAddress != simMCP23017.address)) {
+        simMCP23017.ucState = 0;
+    }
+#endif
+#if defined _STORAGE_I2C_FRAM_ENABLED
+    if ((ucAddress & ~0x0f) != simFRAM.address) {
+        simFRAM.ucState = 0;
+    }
+#endif
     if (ucAddress != simMAX543X.address) {
         simMAX543X.ucState = 0;
     }
@@ -1604,6 +1810,11 @@ static void fnResetOthers(unsigned char ucAddress)
     if (ucAddress != simLM75A.address) {                                 // {3}
         simLM75A.ucState = 0;
     }
+#if defined TOUCH_FT5406
+    if ((iBus == simFT5406.iBus) && (ucAddress != simFT5406.address)) {  // {19}
+        simFT5406.ucState = 0;
+    }    
+#endif
     if (ucAddress != simSTMPE811.address) {                              // {5}
         simSTMPE811.ucState = 0;
     }
@@ -1891,6 +2102,19 @@ extern void fnInitTime(char *argv[])
     fnInitialiseI2CDevices();                                            // {10} initialise also some register values at reset
 }
 
+#if defined TOUCH_FT5406
+static void fnModifyInterruptLineState(int iPortRef, unsigned long ulPortRef, int iNewState)
+{
+    unsigned long ulBit = ulPortRef;
+    unsigned char ucPortBit = 0;
+    while ((ulBit & 0x80000000) == 0) {
+        ucPortBit++;
+        ulBit <<= 1;
+    }
+    fnSimulateInputChange(iPortRef, ucPortBit, iNewState);
+}
+#endif
+
 
 extern int fnCheckRTC(void)
 {
@@ -1918,7 +2142,9 @@ extern int fnCheckRTC(void)
     return 0;
 }
 
-extern unsigned char fnSimI2C_devices(unsigned char ucType, unsigned char ucData)
+// This is called by the I2C driver to simulate I2C bus activity (reads and writes)
+//
+extern unsigned char fnSimI2C_devices(int iBus, unsigned char ucType, unsigned char ucData) // {20}
 {
     switch (ucType) {
     case I2C_ADDRESS:
@@ -1926,6 +2152,12 @@ extern unsigned char fnSimI2C_devices(unsigned char ucType, unsigned char ucData
             simDS1307.ucState = 1;
             simDS1307.ucRW = (ucData & 0x01);
         }
+#if defined _STORAGE_I2C_FRAM_ENABLED
+        else if (((ucData & ~0x0f) == simFRAM.address) && (((ucData >> 1) & 0x7) < FRAM_CHIP_COUNT)) {
+            simFRAM.ucState = 1;
+            simFRAM.ucRW = ucData;                                       // mark whether read or write (and extended address)
+        }
+#endif
         else if ((ucData & ~0x01) == simFXOS8700.address) {              // {11} 6-axis sensor is being addressed
             simFXOS8700.ucState = 1;
             simFXOS8700.ucRW = (ucData & 0x01);                          // mark whether read or write
@@ -1942,13 +2174,21 @@ extern unsigned char fnSimI2C_devices(unsigned char ucType, unsigned char ucData
             simPCF2129A.ucState = 1;
             simPCF2129A.ucRW = (ucData & 0x01);
         }
-        else if ((ucData & ~0x01) == simDS1621.address) {
+        else if (((simDS1621.iBus == -1) || (simDS1621.iBus == iBus)) && ((ucData & ~0x01) == simDS1621.address)) {
+            simDS1621.iBus = iBus;                                       // the bus that the device is connected to
             simDS1621.ucState = 1;
             simDS1621.ucRW = (ucData & 0x01);
             if ((simDS1621.ucCommand == 0xaa) & (ucData & 0x01)) {       // start reading temperature
                 simDS1621.ucState = 2;                                   // 2 bytes to be read
             }
         }
+#if defined MCP23017_CNT
+        else if (((simMCP23017.iBus == -1) || (simMCP23017.iBus == iBus)) && ((ucData & ~0x01) == simMCP23017.address)) {
+            simMCP23017.iBus = iBus;                                     // the bus that the device is connected to
+            simMCP23017.ucState = 1;
+            simMCP23017.ucRW = (ucData & 0x01);
+        }
+#endif
         else if ((ucData & ~0x01) == simWM8510.address) {
             simWM8510.ucState = 1;
             simWM8510.ucRW = (ucData & 0x01);
@@ -2006,6 +2246,13 @@ extern unsigned char fnSimI2C_devices(unsigned char ucType, unsigned char ucData
             simLM80.ucState = 1;
             simLM80.ucRW = (ucData & 0x01);
         }
+#if defined TOUCH_FT5406
+        else if (((simFT5406.iBus == -1) || (simFT5406.iBus == iBus)) && ((ucData & ~0x01) == simFT5406.address)) { // {19} being addressed
+            simFT5406.iBus = iBus;                                       // the bus that the device is connected to
+            simFT5406.ucState = 1;
+            simFT5406.ucRW = (ucData & 0x01);                            // mark whether the address is a read or write address
+        }
+#endif
         else if ((ucData & ~0x01) == simPCF8574.address) {               // being addressed
             simPCF8574.ucState = 1;
             simPCF8574.ucRW = (ucData & 0x01);
@@ -2093,14 +2340,34 @@ extern unsigned char fnSimI2C_devices(unsigned char ucType, unsigned char ucData
             }
 #endif
         }
-        fnResetOthers((unsigned char)(ucData & ~0x01));
+        fnResetOthers(iBus, (unsigned char)(ucData & ~0x01));
         break;
 
     case I2C_TX_DATA:
         if (simDS1307.ucState == 1) {                                    // DS1307 is being written to
             simDS1307.ucInternalPointer = ucData;
             simDS1307.ucState++;
-        }     
+        }
+#if defined _STORAGE_I2C_FRAM_ENABLED
+        else if (simFRAM.ucState == 1) {
+            simFRAM.usInternalPointer = (ucData << 8);                   // address A15..A18
+            simFRAM.ucState++;
+        }
+        else if (simFRAM.ucState == 2) {
+            simFRAM.usInternalPointer |= (ucData);                       // address A7..A0
+            simFRAM.ucState++;
+        }
+        else if (simFRAM.ucState > 2) {                                  // writing FRAM data
+            unsigned long ulFramContent = simFRAM.usInternalPointer;     // A15..A0
+            ulFramContent += (((simFRAM.ucRW >> 1) & 0x7) << 16);        // add A18..A16
+            simFRAM.ucData[ulFramContent] = ucData;
+
+            if (ulFramContent == 6) {
+                ulFramContent = 6;
+            }
+            simFRAM.usInternalPointer++;
+        }
+#endif
         else if (simDS1307.ucState > 1) {                                // date being written
             unsigned char *ptr = (unsigned char *)&simDS1307.bTime;
             ptr += simDS1307.ucInternalPointer++;
@@ -2144,7 +2411,26 @@ extern unsigned char fnSimI2C_devices(unsigned char ucType, unsigned char ucData
             ptr += simPCF2129A.ucInternalPointer++;
             *ptr = ucData;                                               // set the data
         }
-        else if (simDS1621.ucState != 0) {                               // DS1307 is being written to
+#if defined MCP23017_CNT
+        else if ((simMCP23017.iBus == iBus) && (simMCP23017.ucState != 0)) { // port expander is being written to
+            if (simMCP23017.ucState == 1) {                              // collecting the register address
+                simMCP23017.registerAddress = ucData;
+                simMCP23017.ucState = 2;
+            }
+            else {
+                unsigned char *ptrRegister = &simMCP23017.IODIRA;
+                ptrRegister += simMCP23017.registerAddress;
+                *ptrRegister = ucData;
+                if ((simMCP23017.IOCONA & 0x20) == 0) {                  // if sequential operation hasn't been disabled
+                    simMCP23017.registerAddress++;
+                    if (simMCP23017.registerAddress >= 0x15) {
+                        simMCP23017.registerAddress = 0;
+                    }
+                }
+            }
+        }
+#endif
+        else if ((simDS1621.iBus == iBus) && (simDS1621.ucState != 0)) { // DS1307 is being written to
             switch (simDS1621.ucCommand) {                               // {4}
             case 0xac:
                 simDS1621.ucConfigReg = ucData;                          // write configuration
@@ -2275,6 +2561,38 @@ extern unsigned char fnSimI2C_devices(unsigned char ucType, unsigned char ucData
         else if ((simDS3640.ucState == 1) && (simDS3640.ucRW == 0)) {    // being addressed for write
             simDS3640.ucInternalPointer = ucData;                        // set internal pointer
             simDS3640.ucState++;
+        }
+#endif
+#if defined TOUCH_FT5406
+        else if ((simFT5406.iBus == iBus) && (simFT5406.ucState == 1) && (simFT5406.ucRW == 0)) { // {19} being addressed for write
+            simFT5406.ucInternalPointer = ucData;                        // set internal pointer
+            simFT5406.ucState++;
+        }
+        else if ((simFT5406.iBus == iBus) && (simFT5406.ucState == 2) && (simFT5406.ucRW == 0)) { // being addressed for register write
+            unsigned char *ptrData = (unsigned char *)&simFT5406.DEVICE_MODE;
+            ptrData += simFT5406.ucInternalPointer;
+            switch (simFT5406.ucInternalPointer) {
+            case 0x00:                                                   // device mode
+                *ptrData = (ucData & 0x70);
+                break;
+            case 0x80:                                                   // valid touching detect threshold
+            case 0x81:                                                   // valid touching peak detect threshold
+            case 0x82:                                                   // threshold when calculating the focus of touching
+            case 0x83:                                                   // threshold when there is surface water
+            case 0x84:                                                   // threshold of temperature compensation
+            case 0x86:                                                   // power control mode
+            case 0x87:                                                   // timer for entering monitor status
+            case 0x88:                                                   // period active
+            case 0x89:                                                   // timer for entering idle while in monitor status
+            case 0xa0:                                                   // auto-calibration mode
+            case 0xaa:                                                   // configure TP module during calibration in test mode
+            case 0xae:                                                   // threshold of big area
+                *ptrData = ucData;
+                break;
+            default:
+                break;                                                   // ignore writes to read-only registers
+            }
+            simFT5406.ucInternalPointer++;                               // increment the internal pointer
         }
 #endif
         else if ((simSTMPE811.ucState == 1) && (simSTMPE811.ucRW == 0)) {// {5} being addressed for write
@@ -2587,11 +2905,19 @@ extern unsigned char fnSimI2C_devices(unsigned char ucType, unsigned char ucData
         break;
 
     case I2C_RX_DATA:
-        if (simDS1307.ucRW && (simDS1307.ucState == 1)) {
+        if ((simDS1307.ucRW != 0) && (simDS1307.ucState == 1)) {
             unsigned char *ptr = (unsigned char *)&simDS1307.bTime;
             ptr += simDS1307.ucInternalPointer++;
             return (*ptr);
         }
+#if defined _STORAGE_I2C_FRAM_ENABLED
+        else if (((simFRAM.ucRW & 0x01) != 0) && (simFRAM.ucState == 1)) {
+            unsigned long ulFramContent = simFRAM.usInternalPointer;     // A15..A0
+            ulFramContent += (((simFRAM.ucRW >> 1) & 0x7) << 16);        // add A18..A16
+            simFRAM.usInternalPointer++;
+            return (simFRAM.ucData[ulFramContent]);
+        }
+#endif
         else if (simPCF2129A.ucRW && (simPCF2129A.ucState == 1)) {       // {9}
             unsigned char *ptr = (unsigned char *)&simPCF2129A.bTime;
             ptr += simPCF2129A.ucInternalPointer++;
@@ -2620,7 +2946,7 @@ extern unsigned char fnSimI2C_devices(unsigned char ucType, unsigned char ucData
             ucRegisterValue = *ptr;
             return (ucRegisterValue);                                    // return the register value
         }
-        else if (simDS1621.ucRW && (simDS1621.ucState >= 1)) {
+        else if ((simDS1621.iBus == iBus) && (simDS1621.ucRW && (simDS1621.ucState >= 1))) {
             if (simDS1621.ucCommand == 0xaa) {                           // if the get temperature command was previously executed 
                 if (simDS1621.ucState == 2) {
                     simDS1621.ucState--;
@@ -2690,6 +3016,21 @@ extern unsigned char fnSimI2C_devices(unsigned char ucType, unsigned char ucData
             }
             return (ucReturn);
         }
+        #if defined MCP23017_CNT
+        else if ((simMCP23017.iBus == iBus) && (simMCP23017.ucState != 0)) { // port expander is being read from
+        unsigned char ucReturn;
+            unsigned char *ptrRegister = &simMCP23017.IODIRA;
+            ptrRegister += simMCP23017.registerAddress;
+            ucReturn = *ptrRegister;
+            if ((simMCP23017.IOCONA & 0x20) == 0) {                      // if sequential operation hasn't been disabled
+                simMCP23017.registerAddress++;
+                if (simMCP23017.registerAddress >= 0x15) {
+                    simMCP23017.registerAddress = 0;
+                }
+            }
+            return ucReturn;
+        }
+#endif
 #if defined DS3640_CNT && (DS3640_CNT > 0)
         else if (simDS3640.ucRW && (simDS3640.ucState >= 3)) {           // repeated start - first byte is data
             unsigned char *ptrData = (unsigned char *)&simDS3640.ucData;
@@ -2701,6 +3042,17 @@ extern unsigned char fnSimI2C_devices(unsigned char ucType, unsigned char ucData
             }
             ucReturn = *ptrData;
             return (ucReturn);
+        }
+#endif
+#if defined TOUCH_FT5406
+        else if ((simFT5406.iBus == iBus) && (simFT5406.ucRW && (simFT5406.ucState != 0))) { // {19} read from FT5406
+            unsigned char *ptrData = (unsigned char *)&simFT5406.ucDummy;
+            ptrData += simFT5406.ucInternalPointer;
+            if (simFT5406.ucInternalPointer == 0x20) {                   // if all touch registers ave been read
+                fnModifyInterruptLineState(TC_INT_PORT, TC_INT_PORT_BIT, SET_INPUT); // set touch controller interrupt input high
+            }
+            simFT5406.ucInternalPointer++;
+            return (*ptrData);
         }
 #endif
         else if (simSTMPE811.ucRW && (simSTMPE811.ucState != 0)) {       // {5} read from STMPE811
@@ -2894,7 +3246,7 @@ extern unsigned char fnSimI2C_devices(unsigned char ucType, unsigned char ucData
 
     case I2C_RX_COMPLETE:
     case I2C_TX_COMPLETE:
-        fnResetOthers(0);
+        fnResetOthers(iBus, 0);
         break;
 
     case SPI_MODE_CS_ASSERT:                                             // assert chip select to defined device
@@ -3067,13 +3419,12 @@ extern unsigned char fnSimI2C_devices(unsigned char ucType, unsigned char ucData
 }
 
 
-#if defined SUPPORT_TOUCH_SCREEN && defined MB785_GLCD_MODE              // {5}
-
+#if defined SUPPORT_TOUCH_SCREEN                                         // {5}
+    #if defined MB785_GLCD_MODE
 #define MIN_X_TOUCH        0x00f0
 #define MAX_X_TOUCH        0x0f26
 #define MIN_Y_TOUCH        0x0110
 #define MAX_Y_TOUCH        0x0f10
-
 
 // This routine is used to set touch screen ADC values
 //
@@ -3096,4 +3447,78 @@ extern void fnSTMPE811(int iX, int iY)
     simSTMPE811.TSC_DATA_Y[0] = (unsigned char)(usX >> 8);
     simSTMPE811.TSC_DATA_Y[1] = (unsigned char)(usX);
 }
+    #elif defined TOUCH_FT5406
+extern void fnSimulateFT5406(int iPen, int iPenEvent, int iY, int iX)
+{
+    static int iPensDown = 0;
+    static int iPenLocation_X[TOUCH_SCREEN_PENS] = { 0 };
+    static int iPenLocation_Y[TOUCH_SCREEN_PENS] = { 0 };
+    static unsigned char ucPenFlags = 0;
+
+    int iPenUpEvent = 0;
+    int iPenCount;
+    unsigned char ucFlags;
+    int iPenInRef = 0;
+    int iPenOutRef = 0;
+    unsigned char ucEvent = 0;
+
+    switch (iPenEvent) {
+    case 1:                                                              // pen down
+        ucPenFlags |= (1 << iPen);
+        iPensDown++;
+        iPenLocation_X[iPen] = iX;
+        iPenLocation_Y[iPen] = iY;
+        break;
+    case 0:                                                              // pen move
+        iPenLocation_X[iPen] = iX;
+        iPenLocation_Y[iPen] = iY;
+        ucEvent = 0x80;
+        break;
+    case -1:                                                             // pen up
+        if (iPensDown == 0) {                                            // ignore if no pens are down
+            return;
+        }
+        iPenUpEvent = 1;
+        ucEvent = 0x40;
+        break;
+    }
+    // Update the touch screen controller registers accordingly
+    //
+    iPenCount = iPensDown;
+    ucFlags = ucPenFlags;
+    simFT5406.TD_STATUS = (unsigned char)iPenCount;
+    while (iPenCount-- != 0) {
+        while ((ucFlags & 1) == 0) {
+            iPenInRef++;
+            ucFlags >>= 1;
+        }
+        simFT5406.TOUCH[iPenOutRef].TOUCH_XH = (unsigned char)((iPenLocation_X[iPenInRef] >> 8) & 0x0f);
+        simFT5406.TOUCH[iPenOutRef].TOUCH_XL = (unsigned char)(iPenLocation_X[iPenInRef]);
+        simFT5406.TOUCH[iPenOutRef].TOUCH_YH = (unsigned char)((iPenLocation_Y[iPenInRef] >> 8) & 0x0f);
+        simFT5406.TOUCH[iPenOutRef].TOUCH_YL = (unsigned char)(iPenLocation_Y[iPenInRef]);
+        simFT5406.TOUCH[iPenOutRef].TOUCH_YH |= (unsigned char)(iPenInRef << 4);
+        if ((iPen < 0) || (iPen == iPenInRef)) {
+            simFT5406.TOUCH[iPenOutRef].TOUCH_XH |= ucEvent;
+        }
+        else {
+            simFT5406.TOUCH[iPenOutRef].TOUCH_XH |= 0x80;
+        }
+        iPenOutRef++;
+        iPenInRef++;
+        ucFlags >>= 1;
+    }
+
+    if (iPenUpEvent != 0) {
+        if (iPen < 0) {
+            iPensDown = 0;
+            ucPenFlags = 0;
+        }
+        else {
+            iPensDown--;
+            ucPenFlags &= ~(1 << iPen);
+        }
+    }
+    fnModifyInterruptLineState(TC_INT_PORT, TC_INT_PORT_BIT, CLEAR_INPUT);
+}
+    #endif
 #endif

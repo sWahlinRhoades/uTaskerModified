@@ -11,7 +11,7 @@
     File:      udp.c
     Project:   Single Chip Embedded Internet
     ---------------------------------------------------------------------
-    Copyright (C) M.J.Butcher Consulting 2004..2016
+    Copyright (C) M.J.Butcher Consulting 2004..2018
     *********************************************************************
     08.04.2007 Don't send destination unreachable to subnet broadcast (with new SUPPORT_SUBNET_BROADCAST) {1}
     06.09.2010 Optimise reception code when the device performs rx offloading {2}
@@ -25,19 +25,21 @@
     03.12.2014 Modify fnSendUDP_multicast() and fnTransmitUDP() parameters {10}
     01.09.2015 Never send destination unreachable to a multi-cast address {11}
     03.02.2016 Pass interface details to multicast reception             {12}
+    24.03.2016 Correct interface format in socket passed to UDP listener {13}
+    01.10.2016 Add option UDP_SOCKET_NEEDS_LISTENER allowing UDP sockets to be used without listener callback for transmission only usage (loses ICMP destination unreachable notification) {14}
 
 */        
 
 #include "config.h"    
 
 
-#ifdef USE_UDP                                                           // if we want to use UDP
+#if defined USE_UDP                                                      // if we want to use UDP
 
 /* =================================================================== */
 /*                          local definitions                          */
 /* =================================================================== */
 
-#ifndef UDP_SOCKET_MALLOC                                                // {8}
+#if !defined UDP_SOCKET_MALLOC                                           // {8}
     #define UDP_SOCKET_MALLOC(x)      uMalloc((MAX_MALLOC)(x))
 #endif
 
@@ -58,7 +60,7 @@
 
 static UDP_TAB *tUDP = 0;
 
-// An application can obtain an UDP socket by calling this function
+// An application can obtain a UDP socket by calling this function
 //
 extern USOCKET fnGetUDP_socket(unsigned char ucTOS, int (*fnListener)(USOCKET, unsigned char, unsigned char *, unsigned short, unsigned char *, unsigned short), unsigned char ucOpts)
 {
@@ -70,10 +72,11 @@ extern USOCKET fnGetUDP_socket(unsigned char ucTOS, int (*fnListener)(USOCKET, u
     }
 
     ptrUDP = tUDP;
-
+#if defined UDP_SOCKET_NEEDS_LISTENER                                    // {14}
     if (fnListener == 0) {
         return NO_LISTENER_DEFINED;                                      // the application must define a listener function
     }
+#endif
 
     while (udpSocket < UDP_SOCKETS) {
         if (ptrUDP->ucState == UDP_STATE_FREE) {                         // search for the next free socket
@@ -97,7 +100,7 @@ static USOCKET fnFindOpenSocket(unsigned short usDestinationPort)
     UDP_TAB *ptrUDP = tUDP;
     USOCKET udpSocket = 0;
 
-    if (!ptrUDP) {
+    if (ptrUDP == 0) {
         return UDP_NOT_INITIALISED;
     }
 
@@ -255,21 +258,23 @@ extern void fnHandleUDP(ETHERNET_FRAME *ptrRx_frame)                     // {7}
         UDP_TAB *ptrUDP = tUDP;                                          // we have a listening socket for this UDP frame
         ptrUDP += Socket;
 #if !defined IP_RX_CHECKSUM_OFFLOAD || defined IP_INTERFACE_WITHOUT_CS_OFFLOADING || defined _WINDOWS // {2}
-        if ((ptrUDP->ucOptions & UDP_OPT_CHECK_CS) && (received_udp.ucCheckSum != 0)) {
+        if (((ptrUDP->ucOptions & UDP_OPT_CHECK_CS) != 0) && (received_udp.ucCheckSum != 0)) {
             if (fnCheckUDP_checksum(received_ip_packet, upd_data, received_udp.usLength) != 0) { // {9}
                 return;
             }   
         }
 #endif
 #if IP_INTERFACE_COUNT > 1
-        Socket |= defineInterface(ptrRx_frame->ucInterface);             // add the interface to the socket details so that direct responses will be sent back to it
+        Socket |= (ptrRx_frame->ucInterface << INTERFACE_SHIFT);         // {13} add the interface to the socket details so that direct responses will be sent back to it
 #endif
 #if IP_NETWORK_COUNT > 1
         Socket |= defineNetwork(ptrRx_frame->ucNetworkID);               // add the network to the socket details
 #endif
         // Pass the received frame contents to the listener
         //
-        ptrUDP->fnListener(Socket, UDP_EVENT_RXDATA, received_ip_packet->source_IP_address, received_udp.usSourcePort, upd_data, (unsigned short)(received_udp.usLength - UDP_HLEN));
+        if (ptrUDP->fnListener != 0) {
+            ptrUDP->fnListener(Socket, UDP_EVENT_RXDATA, received_ip_packet->source_IP_address, received_udp.usSourcePort, upd_data, (unsigned short)(received_udp.usLength - UDP_HLEN));
+        }
     }
 }
 
@@ -297,7 +302,7 @@ static signed short fnTransmitUDP(UDP_TX_PROPERTIES *ptrUDP, unsigned char *ptrB
     *ptrBuf++ = 0;                                                       // checksum space
     *ptrBuf   = 0;
 #if !defined IP_TX_CHECKSUM_OFFLOAD || defined IP_INTERFACE_WITHOUT_CS_OFFLOADING || defined _WINDOWS // {3}{4}
-    if (ptrUDP->ucOptions & UDP_OPT_SEND_CS) {                           // calculate checksum if needed
+    if ((ptrUDP->ucOptions & UDP_OPT_SEND_CS) != 0) {                    // calculate checksum if needed
     #if IP_NETWORK_COUNT > 1                                             // {7}
         register unsigned char ucNetworkID = extractNetwork(ptrUDP->SocketHandle);
     #endif
@@ -364,7 +369,7 @@ extern signed short fnSendUDP(USOCKET SocketHandle, unsigned char *dest_IP, unsi
 
 #if defined USE_IGMP || defined SUPPORT_MULTICAST_TX                     // {9}
 
-extern signed short fnSendUDP_multicast(int iHostID, UDP_TX_PROPERTIES *ptrUDP, unsigned char  *ptrBuf, unsigned short usDataLen) // {10}
+extern signed short fnSendUDP_multicast(int iHostID, UDP_TX_PROPERTIES *ptrUDP, unsigned char *ptrBuf, unsigned short usDataLen) // {10}
 {
     signed short sResult;
     if ((*ptrUDP->ucIPAddress < 224) || (*ptrUDP->ucIPAddress > 239)) {
@@ -391,7 +396,13 @@ extern void fnReportUDP(unsigned short usSourcePort, unsigned short usDestPort, 
 
     if ((udpSocket = fnFindOpenSocket(usSourcePort)) >= 0) {             // find the (open) socket which sent the UDP message
         UDP_TAB *ptrUDP = tUDP + udpSocket;                              // get socket details
-        (void)ptrUDP->fnListener(udpSocket, ucEvent, ucIP, usDestPort, 0, 0); // inform the event to the server/client 
+    #if !defined UDP_SOCKET_NEEDS_LISTENER                               // {14}
+        if (ptrUDP->fnListener != 0) {
+    #endif
+            (void)ptrUDP->fnListener(udpSocket, ucEvent, ucIP, usDestPort, 0, 0); // inform the event to the server/client 
+    #if !defined UDP_SOCKET_NEEDS_LISTENER                               // {14}
+        }
+    #endif
     }
 }
 #endif                                                                   // end UDP ICMP reporting

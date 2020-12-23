@@ -6,7 +6,7 @@
 
 MEMORY
 {
-    FLASH (rx) : ORIGIN = 0x00008080, LENGTH = 0x00200000-0x8080         /* 1M Flash - boot loader */
+    FLASH (rx) : ORIGIN = 0x00008080, LENGTH = 0x00200000-0x8080         /* 2M Flash - boot loader */
     SRAM (wx)  : ORIGIN = 0x1fff01f0, LENGTH = 0x00040000-0x1f0          /* 256k RAM with vector size 0x1f0 (488 bytes - maximum for all processors) */
 }
 
@@ -29,6 +29,15 @@ SECTIONS
     KEEP(*(.vectors .vectors.*))
   }
   __vectors_end__ = __vector_table + SIZEOF(.vectors);
+
+  __ARM_start__ = ALIGN(__data_load_end__ , 4);
+  .ARM.exidx ALIGN(__data_load_end__ , 4) :
+  {
+    __exidx_start = .;
+    *(.ARM.exidx* .gnu.linkonce.armexidx.*)
+    __exidx_end = .;
+  }
+  __ARM_end__ = __exidx_start + SIZEOF(.ARM.exidx);
 
 
   __init_load_start__ = __FLASH_segment_start__;

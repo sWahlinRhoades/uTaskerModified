@@ -11,7 +11,7 @@
     File:      stm32_TIMER.h
     Project:   Single Chip Embedded Internet
     ---------------------------------------------------------------------
-    Copyright (C) M.J.Butcher Consulting 2004..2018
+    Copyright (C) M.J.Butcher Consulting 2004..2019
     *********************************************************************
     17.10.2017 Add timers 9 and 12                                       {1}
     17.10.2017 Correct prescaler adjustment for PCLK2                    {2}
@@ -31,12 +31,13 @@
 #define TIMER_3_INTREF     1
 #define TIMER_4_INTREF     2
 #define TIMER_5_INTREF     3
-#define TIMER_9_INTREF     4
-#define TIMER_10_INTREF    5
-#define TIMER_11_INTREF    6
-#define TIMER_12_INTREF    7
-#define TIMER_13_INTREF    8
-#define TIMER_14_INTREF    9
+#define TIMER_8_INTREF     4
+#define TIMER_9_INTREF     5
+#define TIMER_10_INTREF    6
+#define TIMER_11_INTREF    7
+#define TIMER_12_INTREF    8
+#define TIMER_13_INTREF    9
+#define TIMER_14_INTREF    10
 
 /* =================================================================== */
 /*                       local structure definitions                   */
@@ -59,7 +60,7 @@
 /* =================================================================== */
 
     #if defined TIMER_10_AVAILABLE                                       // {31}
-static void(*_timer_handler[10])(void) = { 0 };                          // timers 2, 3, 4, 5, 9, 10, 11, 12, 13, 14
+static void(*_timer_handler[11])(void) = { 0 };                          // timers 2, 3, 4, 5, 8, 9, 10, 11, 12, 13, 14
     #else
 static void(*_timer_handler[4])(void) = { 0 };                           // timers 2, 3, 4, 5
     #endif
@@ -126,6 +127,20 @@ static __interrupt void timer_5_irq(void)
 } 
 
     #if defined TIMER_10_AVAILABLE                                       // {31}
+        #if defined TIMER_8_AVAILABLE
+static __interrupt void timer_8_irq(void)
+{
+    TIM8_SR = 0;                                                         // clear the interrupt
+    if ((TIM8_CR1 & TIM_CR1_CEN) == 0) {                                 // in single-shot mode the timer will be automatically disabled
+        POWER_DOWN(APB2, (RCC_APB2ENR_TIM8EN));                          // power down the timer
+    }
+    if (_timer_handler[TIMER_8_INTREF] != 0) {
+        uDisable_Interrupt();                                            // ensure interrupts remain blocked during subroutines
+            _timer_handler[TIMER_8_INTREF]();                            // call the user timer interrupt handler
+        uEnable_Interrupt();                                             // release
+    }
+}
+        #endif
         #if defined TIMER_9_AVAILABLE                                    // {1}
 static __interrupt void timer_9_irq(void)
 {
@@ -266,6 +281,19 @@ static __interrupt void timer_14_irq(void)
                 iTimerIntID = irq_TIM5_ID;
                 timer_irq = timer_5_irq;
                 break;
+    #if defined TIMER_8_AVAILABLE
+            case 8:                                                      // clocked by APB2
+                if ((ptrTimerSetup->timer_mode & TIMER_STOP_TIMER) != 0) { // {26}
+                    POWER_DOWN(APB2, (RCC_APB2ENR_TIM8EN));              // power down the timer
+                    return;
+                }
+                POWER_UP(APB2, (RCC_APB2ENR_TIM8EN));                    // power up the timer module
+                ptrTimer = (TIM2_3_4_5_REGS *)TIM8_BLOCK;                // use as if general purpose 2..5 type since basic functions are compatible
+                iTimerIntID = irq_TIM8_BRK_TIM12_ID;
+                timer_irq = timer_8_irq;
+                iInterruptReference = TIMER_8_INTREF;
+                break;
+    #endif
     #if defined TIMER_9_AVAILABLE                                        // {1}
             case 9:                                                      // clocked by APB2
                 if ((ptrTimerSetup->timer_mode & TIMER_STOP_TIMER) != 0) {
@@ -409,80 +437,90 @@ static __interrupt void timer_14_irq(void)
             ptrTimer->TIM_ARR = (unsigned short)ulCounterMatch;          // program the base frequency
             if (ptrTimerSetup->timer_mode & (TIMER_FREQUENCY | TIMER_PWM_CH1 | TIMER_PWM_CH2 | TIMER_PWM_CH3 | TIMER_PWM_CH4)) { // valid also for generating frequency
                 if ((ptrTimerSetup->timer_mode & TIMER_PWM_CH1) != 0) {  // program PWM mode on channel 1
+                    unsigned short usMode = 0;
                     if ((ptrTimerSetup->timer_mode & TIMER_FREQUENCY) != 0) { // generate frequency rather than PWM
-                        ptrTimer->TIM_CCMR1 |= (TIM_CCMR_OCM_MATCH_TOGGLE | TIM_CCMR_OCPE);
+                        usMode = (TIM_CCMR_OCM_MATCH_TOGGLE | TIM_CCMR_OCPE); // toggle output on each match
                     }
                     else {
                         ptrTimer->TIM_CCR1 = ptrTimerSetup->pwm_value;   // program the PWM control count
-                        ptrTimer->TIM_CCMR1 |= (TIM_CCMR_OCM_PWM_1 | TIM_CCMR_OCPE);
+                        usMode = (TIM_CCMR_OCM_PWM_1 | TIM_CCMR_OCPE);   // PWM 1 mode
                     }
-                    switch (ptrTimerSetup->timer_reference) {
-                    case 2:                                              // pin configuration for timer 2, channel 1
+                    if ((ptrTimerSetup->timer_mode & TIMER_PWM_FORCE_LOW) != 0) {
+                        usMode = (TIM_CCMR_OCM_FORCE_LOW | TIM_CCMR_OCPE);
+                    }
+                    else if ((ptrTimerSetup->timer_mode & TIMER_PWM_FORCE_HIGH) != 0) {
+                        usMode = (TIM_CCMR_OCM_FORCE_HIGH | TIM_CCMR_OCPE);
+                    }
+                    ptrTimer->TIM_CCMR1 |= usMode;
+                    if ((ptrTimerSetup->timer_mode & TIMER_PWM_NO_OUTPUT) == 0) {
+                        switch (ptrTimerSetup->timer_reference) {
+                        case 2:                                          // pin configuration for timer 2, channel 1
     #if defined TIMER_2_PARTIAL_REMAP_1
-                        _PERIPHERAL_REMAP(TIM2_PARTIAL_REMAP_1);
-                        _CONFIG_PERIPHERAL_OUTPUT(A, (PERIPHERAL_TIM1_2), (PORTA_BIT15), (OUTPUT_MEDIUM | OUTPUT_PUSH_PULL));
+                            _PERIPHERAL_REMAP(TIM2_PARTIAL_REMAP_1);
+                            _CONFIG_PERIPHERAL_OUTPUT(A, (PERIPHERAL_TIM1_2), (PORTA_BIT15), (OUTPUT_MEDIUM | OUTPUT_PUSH_PULL));
     #elif defined TIMER_2_PARTIAL_REMAP_2
-                        _PERIPHERAL_REMAP(TIM2_PARTIAL_REMAP_2);
-                        _CONFIG_PERIPHERAL_OUTPUT(A, (PERIPHERAL_TIM1_2), (PORTA_BIT0), (OUTPUT_MEDIUM | OUTPUT_PUSH_PULL));
+                            _PERIPHERAL_REMAP(TIM2_PARTIAL_REMAP_2);
+                            _CONFIG_PERIPHERAL_OUTPUT(A, (PERIPHERAL_TIM1_2), (PORTA_BIT0), (OUTPUT_MEDIUM | OUTPUT_PUSH_PULL));
     #elif defined TIMER_2_FULL_REMAP
-                        _PERIPHERAL_REMAP(TIM2_FULL_REMAP);
-                        _CONFIG_PERIPHERAL_OUTPUT(A, (PERIPHERAL_TIM1_2), (PORTA_BIT15), (OUTPUT_MEDIUM | OUTPUT_PUSH_PULL));
+                            _PERIPHERAL_REMAP(TIM2_FULL_REMAP);
+                            _CONFIG_PERIPHERAL_OUTPUT(A, (PERIPHERAL_TIM1_2), (PORTA_BIT15), (OUTPUT_MEDIUM | OUTPUT_PUSH_PULL));
     #else
-                        _CONFIG_PERIPHERAL_OUTPUT(A, (PERIPHERAL_TIM1_2), (PORTA_BIT0), (OUTPUT_MEDIUM | OUTPUT_PUSH_PULL));
+                            _CONFIG_PERIPHERAL_OUTPUT(A, (PERIPHERAL_TIM1_2), (PORTA_BIT0), (OUTPUT_MEDIUM | OUTPUT_PUSH_PULL));
     #endif
-                        break;
-                    case 3:                                              // pin configuration for timer 3, channel 1
+                            break;
+                        case 3:                                          // pin configuration for timer 3, channel 1
     #if defined TIMER_3_PARTIAL_REMAP
-                        _PERIPHERAL_REMAP(TIM3_PARTIAL_REMAP);
-                        _CONFIG_PERIPHERAL_OUTPUT(B, (PERIPHERAL_TIM3_4_5), (PORTB_BIT4), (OUTPUT_MEDIUM | OUTPUT_PUSH_PULL));
+                            _PERIPHERAL_REMAP(TIM3_PARTIAL_REMAP);
+                            _CONFIG_PERIPHERAL_OUTPUT(B, (PERIPHERAL_TIM3_4_5), (PORTB_BIT4), (OUTPUT_MEDIUM | OUTPUT_PUSH_PULL));
     #elif defined TIMER_3_FULL_REMAP
-                        _PERIPHERAL_REMAP(TIM3_FULL_REMAP);
-                        _CONFIG_PERIPHERAL_OUTPUT(C, (PERIPHERAL_TIM3_4_5), (PORTC_BIT6), (OUTPUT_MEDIUM | OUTPUT_PUSH_PULL));
+                            _PERIPHERAL_REMAP(TIM3_FULL_REMAP);
+                            _CONFIG_PERIPHERAL_OUTPUT(C, (PERIPHERAL_TIM3_4_5), (PORTC_BIT6), (OUTPUT_MEDIUM | OUTPUT_PUSH_PULL));
     #else
-                        _CONFIG_PERIPHERAL_OUTPUT(A, (PERIPHERAL_TIM3_4_5), (PORTA_BIT6), (OUTPUT_MEDIUM | OUTPUT_PUSH_PULL));
+                            _CONFIG_PERIPHERAL_OUTPUT(A, (PERIPHERAL_TIM3_4_5), (PORTA_BIT6), (OUTPUT_MEDIUM | OUTPUT_PUSH_PULL));
     #endif
-                        break;
-                    case 4:                                              // pin configuration for timer 4, channel 1
+                            break;
+                        case 4:                                          // pin configuration for timer 4, channel 1
     #if defined TIMER_4_REMAP
-                        _PERIPHERAL_REMAP(TIM4_REMAP);
-                        _CONFIG_PERIPHERAL_OUTPUT(D, (PERIPHERAL_TIM3_4_5), (PORTD_BIT12), (OUTPUT_MEDIUM | OUTPUT_PUSH_PULL));
+                            _PERIPHERAL_REMAP(TIM4_REMAP);
+                            _CONFIG_PERIPHERAL_OUTPUT(D, (PERIPHERAL_TIM3_4_5), (PORTD_BIT12), (OUTPUT_MEDIUM | OUTPUT_PUSH_PULL));
     #else
-                        _CONFIG_PERIPHERAL_OUTPUT(B, (PERIPHERAL_TIM3_4_5), (PORTB_BIT6), (OUTPUT_MEDIUM | OUTPUT_PUSH_PULL));
+                            _CONFIG_PERIPHERAL_OUTPUT(B, (PERIPHERAL_TIM3_4_5), (PORTB_BIT6), (OUTPUT_MEDIUM | OUTPUT_PUSH_PULL));
     #endif
-                        break;
-                    case 5:                                              // pin configuration for timer 5, channel 1
-                        _CONFIG_PERIPHERAL_OUTPUT(A, (PERIPHERAL_TIM3_4_5), (PORTA_BIT0), (OUTPUT_MEDIUM | OUTPUT_PUSH_PULL));
-                        break;
+                            break;
+                        case 5:                                          // pin configuration for timer 5, channel 1
+                            _CONFIG_PERIPHERAL_OUTPUT(A, (PERIPHERAL_TIM3_4_5), (PORTA_BIT0), (OUTPUT_MEDIUM | OUTPUT_PUSH_PULL));
+                            break;
     #if defined TIMER_9_AVAILABLE
-                    case 9:                                              // pin configuration for timer 9, channel 1
-                        _CONFIG_PERIPHERAL_OUTPUT(A, (PERIPHERAL_TIM8_9_10_11), (PORTA_BIT2), (OUTPUT_MEDIUM | OUTPUT_PUSH_PULL));
-                      //_CONFIG_PERIPHERAL_OUTPUT(E, (PERIPHERAL_TIM8_9_10_11), (PORTE_BIT5), (OUTPUT_MEDIUM | OUTPUT_PUSH_PULL));
-                        break;
+                        case 9:                                          // pin configuration for timer 9, channel 1
+                            _CONFIG_PERIPHERAL_OUTPUT(A, (PERIPHERAL_TIM8_9_10_11), (PORTA_BIT2), (OUTPUT_MEDIUM | OUTPUT_PUSH_PULL));
+                          //_CONFIG_PERIPHERAL_OUTPUT(E, (PERIPHERAL_TIM8_9_10_11), (PORTE_BIT5), (OUTPUT_MEDIUM | OUTPUT_PUSH_PULL));
+                            break;
     #endif
     #if defined TIMER_10_AVAILABLE
-                    case 10:                                             // pin configuration for timer 10, channel 1
-                        _CONFIG_PERIPHERAL_OUTPUT(B, (PERIPHERAL_TIM8_9_10_11), (PORTB_BIT8), (OUTPUT_MEDIUM | OUTPUT_PUSH_PULL));
-                      //_CONFIG_PERIPHERAL_OUTPUT(F, (PERIPHERAL_TIM8_9_10_11), (PORTF_BIT6), (OUTPUT_MEDIUM | OUTPUT_PUSH_PULL));
-                        break;
+                        case 10:                                         // pin configuration for timer 10, channel 1
+                            _CONFIG_PERIPHERAL_OUTPUT(B, (PERIPHERAL_TIM8_9_10_11), (PORTB_BIT8), (OUTPUT_MEDIUM | OUTPUT_PUSH_PULL));
+                          //_CONFIG_PERIPHERAL_OUTPUT(F, (PERIPHERAL_TIM8_9_10_11), (PORTF_BIT6), (OUTPUT_MEDIUM | OUTPUT_PUSH_PULL));
+                            break;
     #endif
     #if defined TIMER_11_AVAILABLE
-                    case 11:                                             // pin configuration for timer 11, channel 1
-                        _CONFIG_PERIPHERAL_OUTPUT(B, (PERIPHERAL_TIM8_9_10_11), (PORTB_BIT9), (OUTPUT_MEDIUM | OUTPUT_PUSH_PULL));
-                      //_CONFIG_PERIPHERAL_OUTPUT(F, (PERIPHERAL_TIM8_9_10_11), (PORTF_BIT7), (OUTPUT_MEDIUM | OUTPUT_PUSH_PULL));
-                        break;
+                        case 11:                                         // pin configuration for timer 11, channel 1
+                            _CONFIG_PERIPHERAL_OUTPUT(B, (PERIPHERAL_TIM8_9_10_11), (PORTB_BIT9), (OUTPUT_MEDIUM | OUTPUT_PUSH_PULL));
+                          //_CONFIG_PERIPHERAL_OUTPUT(F, (PERIPHERAL_TIM8_9_10_11), (PORTF_BIT7), (OUTPUT_MEDIUM | OUTPUT_PUSH_PULL));
+                            break;
     #endif
     #if defined TIMER_12_AVAILABLE
-                    case 12:                                             // pin configuration for timer 12, channel 1
-                        _CONFIG_PERIPHERAL_OUTPUT(B, (PERIPHERAL_CAN1_2_TIM12_13_14), (PORTB_BIT14), (OUTPUT_MEDIUM | OUTPUT_PUSH_PULL));
-                      //_CONFIG_PERIPHERAL_OUTPUT(H, (PERIPHERAL_CAN1_2_TIM12_13_14), (PORTH_BIT6), (OUTPUT_MEDIUM | OUTPUT_PUSH_PULL));
-                        break;
+                        case 12:                                         // pin configuration for timer 12, channel 1
+                            _CONFIG_PERIPHERAL_OUTPUT(B, (PERIPHERAL_CAN1_2_TIM12_13_14), (PORTB_BIT14), (OUTPUT_MEDIUM | OUTPUT_PUSH_PULL));
+                          //_CONFIG_PERIPHERAL_OUTPUT(H, (PERIPHERAL_CAN1_2_TIM12_13_14), (PORTH_BIT6), (OUTPUT_MEDIUM | OUTPUT_PUSH_PULL));
+                            break;
     #endif
     #if defined TIMER_13_AVAILABLE
-                    case 13:                                             // pin configuration for timer 13, channel 1
-                        _CONFIG_PERIPHERAL_OUTPUT(A, (PERIPHERAL_CAN1_2_TIM12_13_14), (PORTA_BIT6), (OUTPUT_MEDIUM | OUTPUT_PUSH_PULL));
-                      //_CONFIG_PERIPHERAL_OUTPUT(F, (PERIPHERAL_CAN1_2_TIM12_13_14), (PORTF_BIT8), (OUTPUT_MEDIUM | OUTPUT_PUSH_PULL));
-                        break;
+                        case 13:                                         // pin configuration for timer 13, channel 1
+                            _CONFIG_PERIPHERAL_OUTPUT(A, (PERIPHERAL_CAN1_2_TIM12_13_14), (PORTA_BIT6), (OUTPUT_MEDIUM | OUTPUT_PUSH_PULL));
+                          //_CONFIG_PERIPHERAL_OUTPUT(F, (PERIPHERAL_CAN1_2_TIM12_13_14), (PORTF_BIT8), (OUTPUT_MEDIUM | OUTPUT_PUSH_PULL));
+                            break;
     #endif
+                        }
                     }
                     ptrTimer->TIM_CCER |= (TIM_CCER_CC1E);               // enable output
                 }
@@ -580,6 +618,11 @@ static __interrupt void timer_14_irq(void)
                     case 5:                                              // pin configuration for timer 5, channel 3
                         _CONFIG_PERIPHERAL_OUTPUT(A, (PERIPHERAL_TIM3_4_5), (PORTA_BIT2), (OUTPUT_MEDIUM | OUTPUT_PUSH_PULL));
                         break;
+    #if defined TIMER_8_AVAILABLE
+                    case 8:                                              // pin configuration for timer 8, channel 3
+                        _CONFIG_PERIPHERAL_OUTPUT(C, (PERIPHERAL_TIM8_9_10_11), (PORTC_BIT8), (OUTPUT_MEDIUM | OUTPUT_PUSH_PULL));
+                        break;
+    #endif
                     }
                     ptrTimer->TIM_CCER |= (TIM_CCER_CC3E);               // enable output
                 }
@@ -626,8 +669,15 @@ static __interrupt void timer_14_irq(void)
                     }
                     ptrTimer->TIM_CCER |= (TIM_CCER_CC4E);               // enable output
                 }
-                ptrTimer->TIM_CR1 = (TIM_CR1_ARPE | TIM_CR1_CEN);        // enable timer in auto-reload mode
-                ptrTimer->TIM_EGR = (TIM_EGR_UG);                        // start the operation
+    #if defined CHIP_HAS_TIM1 || defined CHIP_HAS_TIM8
+                if ((ptrTimerSetup->timer_reference == 8) || (ptrTimerSetup->timer_reference == 1)) { // if an advanced timer
+                    ((TIM1_8_REGS *)ptrTimer)->TIM_BDTR = TIM_BDTR_MOE; // enable the outputs geerally
+                }
+    #endif
+                ptrTimer->TIM_EGR = (TIM_EGR_UG);                       // preload all values
+                if ((ptrTimerSetup->timer_mode & TIMER_PWM_DONT_START) == 0) {
+                    ptrTimer->TIM_CR1 = (TIM_CR1_ARPE | TIM_CR1_CEN);   // enable timer in auto-reload mode
+                }
                 return;
             }
             ptrTimer->TIM_CR1 = 0;                                       // ensure counter is stopped
@@ -637,7 +687,7 @@ static __interrupt void timer_14_irq(void)
                 fnEnterInterrupt(iTimerIntID, ptrTimerSetup->int_priority, timer_irq);
                 ptrTimer->TIM_DIER = (TIM_DIER_UIE);                     // enable interrupt when update count is reached
             }
-            if (ptrTimerSetup->timer_mode & TIMER_PERIODIC) {
+            if ((ptrTimerSetup->timer_mode & TIMER_PERIODIC) != 0) {
                 ptrTimer->TIM_CR1 = (TIM_CR1_URS_UNDER_OVERFLOW | TIM_CR1_ARPE | TIM_CR1_CEN); // enable timer in auto-reload mode
             }
             else {                                                       // single shot timer

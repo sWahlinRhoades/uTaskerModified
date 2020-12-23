@@ -11,7 +11,7 @@
     File:      http.c
     Project:   Single Chip Embedded Internet
     ---------------------------------------------------------------------
-    Copyright (C) M.J.Butcher Consulting 2004..2018
+    Copyright (C) M.J.Butcher Consulting 2004..2020
     *********************************************************************
     16.05.2007 Rename variable from i to iSessionNumber and remove unnecessary zeroing {1}
     16.05.2007 Add iWebHandlerCommand variable for clarity.                            {2}
@@ -95,6 +95,11 @@
     28.03.2015 Enable content caching                                                  {77}
     07.02.2016 Add web socket support                                                  {78}
     11.02 2016 Parameters for fnStartHTTP() modified                                   {79}
+    01.11.2018 Modify search for parameters to allow identification immediately at the start of a request {80}
+    26.06.2019 Add optional PNG and JPG post support                                   {81}
+    26.11.2019 Correct SUPPORT_HTTP_CONTINUE with a new http session flag (ucContinue) and dedicated transmission rountine fnSendHTTP_cont() {82}
+    11.02.2020 Extend fnAddContentType() to allow multiple flags                       {83}
+    07.07.2020 Correct SUPPORT_INTERNAL_HTML_FILES content insertion (without ACTIVE_FILE_SYSTEM) {84}
 
 */
 
@@ -143,7 +148,9 @@
 #define WWW_FORM_CONTENT_RECOGNISED   8
 #define IMAGE_GIF_CONTENT_RECOGNISED  9
 #define IMAGE_BMP_CONTENT_RECOGNISED  10
-#define PDF_CONTENT_RECOGNISED        11
+#define IMAGE_PNG_CONTENT_RECOGNISED  11
+#define IMAGE_JPG_CONTENT_RECOGNISED  12
+#define PDF_CONTENT_RECOGNISED        13
 
 
 /* =================================================================== */
@@ -216,7 +223,7 @@ static const CHAR cGet[]  = {'G', 'E', 'T'};
 #if defined SUPPORT_CHROME                                               // {34} Chrome requires that the web server always sends a HTTP header otherwise it refuses to operate
     static const CHAR cucHTTP_header[] = "HTTP/1.0 200 OK\r\n\r\n";
     #define SIMPLE_HTTP_HEADER_LENGTH    (sizeof(cucHTTP_header) - 1)
-    #if !defined _EXTENDED_HTTP_MIME_CONTENT_SUPPORT                     // {66}
+    #if defined HTTP_HEADER_CONTENT_INFO && defined SUPPORT_MIME_IDENTIFIER && !defined _EXTENDED_HTTP_MIME_CONTENT_SUPPORT // {66}
         static const CHAR cucHTTP_plain_text[] = "Content-Type: text/plain\r\n\r\n"; // {45}
         #define TEXT_PLAIN_HTTP_HEADER_LENGTH    (sizeof(cucHTTP_plain_text) - 1)
     #endif
@@ -249,6 +256,12 @@ static const CHAR cGet[]  = {'G', 'E', 'T'};
         #if defined SUPPORT_POST_BMP
     static const CHAR cContentTypeImageBMP[] = "image/bmp";              // {42}
         #endif
+        #if defined SUPPORT_POST_PNG
+    static const CHAR cContentTypeImagePNG[] = "image/png";              // {81}
+        #endif
+        #if defined SUPPORT_POST_JPG
+    static const CHAR cContentTypeImageJPG[] = "image/jpeg";             // {81}
+        #endif
         #if defined SUPPORT_POST_PDF
     static const CHAR cContentTypePDF[] = "application/pdf";
         #endif
@@ -277,6 +290,12 @@ static const CHAR cGet[]  = {'G', 'E', 'T'};
         #endif
         #if defined SUPPORT_POST_BMP
         {cContentTypeImageBMP,  (sizeof(cContentTypeImageBMP) - 1), IMAGE_BMP_CONTENT_RECOGNISED}, // {42}
+        #endif
+        #if defined SUPPORT_POST_PNG
+        {cContentTypeImagePNG,  (sizeof(cContentTypeImagePNG) - 1), IMAGE_PNG_CONTENT_RECOGNISED}, // {81}
+        #endif
+        #if defined SUPPORT_POST_JPG
+        {cContentTypeImageJPG,  (sizeof(cContentTypeImageJPG) - 1), IMAGE_JPG_CONTENT_RECOGNISED}, // {81}
         #endif
         #if defined SUPPORT_POST_PDF
         {cContentTypePDF,    (sizeof(cContentTypePDF) - 1),    PDF_CONTENT_RECOGNISED},
@@ -475,12 +494,12 @@ static int fnSendHTTP_windows(HTTP *http_session, unsigned short usLen, unsigned
                 if ((ptr_utDirectory->usDirectoryFlags & UTDIR_VALID) && (http_session->utFile.ulFileSize != 0)) {
                     utReadFile(&http_session->utFile, HTTP_Tx->ucTCP_Message, usFrameLength); // read from the file on the SD card
                 }
-        #if defined ACTIVE_FILE_SYSTEM
+        #if defined ACTIVE_FILE_SYSTEM || defined SUPPORT_INTERNAL_HTML_FILES // {84}
                 else {
                     fnGetParsFile((http_session->ptrFileStart + http_session->FilePoint + http_session->usUnacked), HTTP_Tx->ucTCP_Message, usFrameLength); // when not working with SD-card use standard uFileSystem call
                 }
         #endif
-    #else
+    #elif defined ACTIVE_FILE_SYSTEM || defined SUPPORT_INTERNAL_HTML_FILES // {84}
                 fnGetParsFile((http_session->ptrFileStart + http_session->FilePoint + http_session->usUnacked), HTTP_Tx->ucTCP_Message, usFrameLength); // retrieve the data to send
     #endif
                 http_session->usUnackedPreviousContent = usFrameLength;  // raw content length
@@ -508,13 +527,25 @@ static int fnSendHTTP_windows(HTTP *http_session, unsigned short usLen, unsigned
 #endif
 
 #if defined _EXTENDED_HTTP_MIME_CONTENT_SUPPORT                          // {66}
-static unsigned short fnAddContentType(CHAR *ptrBuffer, const CHAR *ptrType, int iCache)
+//#define _CONTENT_TYPE_USER_FLAGS CONTENT_TYPE_ACCESS_CONTROL_ALLOW_ORIGIN
+#if !defined _CONTENT_TYPE_USER_FLAGS
+    #define _CONTENT_TYPE_USER_FLAGS     0
+#endif
+static unsigned short fnAddContentType(CHAR *ptrBuffer, const CHAR *ptrType, unsigned long iFlags)
 {
     CHAR *ptrContent = ptrBuffer;
-    ptrContent = uStrcpy(ptrContent, "Content-Type: ");
-    ptrContent = uStrcpy(ptrContent, ptrType);
-    ptrContent = uStrcpy(ptrContent, "\r\n\r\n");
-    if (iCache != 0) {                                                   // {77}
+    if (ptrType == 0) {                                                  // {83}
+        ptrContent = uStrcpy(ptrContent, "\r\n");
+    }
+    else {
+        ptrContent = uStrcpy(ptrContent, "Content-Type: ");
+        ptrContent = uStrcpy(ptrContent, ptrType);
+        ptrContent = uStrcpy(ptrContent, "\r\n\r\n");
+    }
+    if ((iFlags & CONTENT_TYPE_ACCESS_CONTROL_ALLOW_ORIGIN) != 0) {      // {83}
+        ptrContent = uStrcpy((ptrContent - 2), "Access-Control-Allow-Origin: *\r\n\r\n");
+    }
+    if ((iFlags & CONTENT_TYPE_CACHE_ALLOWED) != 0) {                    // {77}
         ptrContent = uStrcpy((ptrContent - 2), "Cache-Control: max-age=1800, private\r\n\r\n"); // cache for 30 minutes
     }
     return ((ptrContent - (CHAR *)ptrBuffer) - 2);
@@ -525,31 +556,39 @@ static unsigned short fnAddMimeContent(unsigned char *ptrBuffer, unsigned char u
     switch (ucMimeType) {
     #if defined MIME_TXT
     case MIME_TXT:
-        return (fnAddContentType((CHAR *)ptrBuffer, "text/plain", 1));
+        return (fnAddContentType((CHAR *)ptrBuffer, "text/plain", (CONTENT_TYPE_CACHE_ALLOWED)));
     #endif
     #if defined MIME_CSS
     case MIME_CSS:
-        return (fnAddContentType((CHAR *)ptrBuffer, "text/css", 1));
+        return (fnAddContentType((CHAR *)ptrBuffer, "text/css", (CONTENT_TYPE_CACHE_ALLOWED)));
     #endif
     #if defined MIME_JAVA_SCRIPT
     case MIME_JAVA_SCRIPT:
-        return (fnAddContentType((CHAR *)ptrBuffer, "application/javascript", 1));
+        return (fnAddContentType((CHAR *)ptrBuffer, "application/javascript", (CONTENT_TYPE_CACHE_ALLOWED)));
+    #endif
+    #if defined MIME_JSON
+    case MIME_JSON:
+        return (fnAddContentType((CHAR *)ptrBuffer, "application/json", (CONTENT_TYPE_CACHE_ALLOWED)));
     #endif
     #if defined MIME_PNG
     case MIME_PNG:
-        return (fnAddContentType((CHAR *)ptrBuffer, "image/png", 1));
+        return (fnAddContentType((CHAR *)ptrBuffer, "image/png", (CONTENT_TYPE_CACHE_ALLOWED)));
     #endif
     #if defined MIME_JPG
     case MIME_JPG:
-        return (fnAddContentType((CHAR *)ptrBuffer, "image/jpg", 1));
+        return (fnAddContentType((CHAR *)ptrBuffer, "image/jpg", (CONTENT_TYPE_CACHE_ALLOWED)));
     #endif
     #if defined MIME_BMP
     case MIME_BMP:
-        return (fnAddContentType((CHAR *)ptrBuffer, "image/bmp", 1));
+        return (fnAddContentType((CHAR *)ptrBuffer, "image/bmp", (CONTENT_TYPE_CACHE_ALLOWED)));
     #endif
     #if defined MIME_GIF
     case MIME_GIF:
-        return (fnAddContentType((CHAR *)ptrBuffer, "image/gif", 1));
+        return (fnAddContentType((CHAR *)ptrBuffer, "image/gif", (/*CONTENT_TYPE_CACHE_ALLOWED*/0)));
+    #endif
+    #if defined MIME_HTML && (_CONTENT_TYPE_USER_FLAGS != 0)             // {83}
+    case MIME_HTML:
+        return (fnAddContentType((CHAR *)ptrBuffer, 0, (_CONTENT_TYPE_USER_FLAGS)));
     #endif
     default:
         return 0;
@@ -597,7 +636,7 @@ static unsigned short fnGenerateHTTP_header(unsigned char *pucTCP_Message, HTTP 
         utSeek(&http_session->utFile, 0, UTFAT_SEEK_SET);                // ensure at start of file
         utReadFile(&http_session->utFile, (pucTCP_Message + usHTTP_HeaderLength), usLen); // read from the file on the SD card
     }
-        #if defined ACTIVE_FILE_SYSTEM
+        #if defined ACTIVE_FILE_SYSTEM || defined SUPPORT_INTERNAL_HTML_FILES // {84}
     else {
         fnGetParsFile(http_session->ptrFileStart, (pucTCP_Message + usHTTP_HeaderLength), usLen); // when not working with SD-card use standard uFileSystem call
     }
@@ -703,9 +742,9 @@ static int fnDoWebPage(CHAR *cFileName, HTTP *http_session)
         }
 #endif
         if (http_session->FileLength == 0) {                             // file not found
-#if defined FILE404_IN_PROG                                              // processors with linear memory can choose to use a 404 file  in code space
+#if defined FILE404_IN_PROG                                              // processors with linear memory can choose to use a 404 file in code space
             ucFile = ((MEMORY_RANGE_POINTER)cFile404 - FILE_HEADER);
-            http_session->FileLength = sizeof(cFile404);
+            http_session->FileLength = (sizeof(cFile404) - 1);
     #if defined SUPPORT_MIME_IDENTIFIER
             http_session->ucMimeType = MIME_HTML;                        // force HTML type
     #endif
@@ -777,7 +816,7 @@ static int fnDoWebPage(CHAR *cFileName, HTTP *http_session)
         #endif
             ucFile -= FILE_HEADER;
         }
-    #elif defined ACTIVE_FILE_SYSTEM
+    #elif defined ACTIVE_FILE_SYSTEM || defined SUPPORT_INTERNAL_HTML_FILES // {84}
         fnGetParsFile((ucFile + sizeof(MAX_FILE_LENGTH)), &http_session->ucMimeType, 1); // get file type
     #endif
     }
@@ -789,22 +828,22 @@ static int fnDoWebPage(CHAR *cFileName, HTTP *http_session)
     #else
     uMemcpy(HTTP_Tx->ucTCP_Message, cucHTTP_header, SIMPLE_HTTP_HEADER_LENGTH); // copy the HTTP header to start of each file to be transferred
     #if defined HTTP_UTFAT                                               // {47}
-    if ((ptr_utDirectory->usDirectoryFlags & UTDIR_VALID) && (http_session->utFile.ulFileSize != 0)) {
+    if (((ptr_utDirectory->usDirectoryFlags & UTDIR_VALID) != 0) && (http_session->utFile.ulFileSize != 0)) {
         utReadFile(&http_session->utFile, (pucTCP_Message + usHTTP_HeaderLength), usLen); // read from the file on the SD card
     }
     else {
         fnGetParsFile(http_session->ptrFileStart, (HTTP_Tx->ucTCP_Message + SIMPLE_HTTP_HEADER_LENGTH), (usLen/* - SIMPLE_HTTP_HEADER_LENGTH*/)); // when not working with SD-card use standard uFileSystem call {70}
         usLen += SIMPLE_HTTP_HEADER_LENGTH;                              // {70}
     }
-    #else
+    #elif defined ACTIVE_FILE_SYSTEM || defined SUPPORT_INTERNAL_HTML_FILES // {84}
     fnGetParsFile(http_session->ptrFileStart, (HTTP_Tx->ucTCP_Message + SIMPLE_HTTP_HEADER_LENGTH), (usLen/* - SIMPLE_HTTP_HEADER_LENGTH*/)); // get a frame to send {70}
     usLen += SIMPLE_HTTP_HEADER_LENGTH;                                  // {70}
     #endif
-    http_session->ptrFileStart -= SIMPLE_HTTP_HEADER_LENGTH;              // offset for the added header
+    http_session->ptrFileStart -= SIMPLE_HTTP_HEADER_LENGTH;             // offset for the added header
     #endif
 #else
     #if defined HTTP_UTFAT                                               // {47}
-    if ((ptr_utDirectory->usDirectoryFlags & UTDIR_VALID) && (http_session->utFile.ulFileSize != 0)) {
+    if (((ptr_utDirectory->usDirectoryFlags & UTDIR_VALID) != 0) && (http_session->utFile.ulFileSize != 0)) {
         utReadFile(&http_session->utFile, (pucTCP_Message + usHTTP_HeaderLength), usLen);
     }
     else {
@@ -905,6 +944,20 @@ static int fnParameterPost(HTTP *http_session, CHAR *cParameters, unsigned short
 }
     #endif
 
+    #if defined SUPPORT_HTTP_CONTINUE
+static int fnSendHTTP_cont(HTTP *http_session)                           // {82}
+{
+    uMemcpy(HTTP_Tx->ucTCP_Message, &ccHTTP_continue[1], (HTTP_CONTINUE_HEADER_LENGTH - 1));
+    http_session->ucContinue = 1;                                        // mark that we are sending this particular fixed frame (in case we need to repeat it)
+    if (fnSendTCP(http_session->OwnerTCPSocket, (unsigned char *)&HTTP_Tx->tTCP_Header, (HTTP_CONTINUE_HEADER_LENGTH - 1), TCP_FLAG_PUSH) > 0) {
+        return APP_SENT_DATA;
+    }
+    else {
+        return 0;
+    }
+}
+    #endif
+
 // This routine assumes sequence is boundary, length, file start
 //
 static int fnPostFrame(HTTP *http_session, unsigned char *ucIp_Data, unsigned short usPortLen) // {40}
@@ -921,11 +974,11 @@ static int fnPostFrame(HTTP *http_session, unsigned char *ucIp_Data, unsigned sh
         http_session->ucBoundaryLength = 0;
     }
     if (http_session->ucState <= HTTP_STATE_POSTING) {                   // handling header
-        while (usPortLen) {                                              // handle posted data content
-            if (header_search_state.ucState & EXPECTING_BOUNDARY) {      // a mime content is now expected
+        while (usPortLen != 0) {                                         // handle posted data content
+            if ((header_search_state.ucState & EXPECTING_BOUNDARY) != 0) { // a mime content is now expected
                 http_session->FileLength--;                              // reduce the length by boundary and type details
             }
-            if (header_search_state.ucState & COUNTING_BOUNDARY) {
+            if ((header_search_state.ucState & COUNTING_BOUNDARY) != 0) {
                 if (*ucIp_Data == '\r') {
                     header_search_state.ucState &= ~COUNTING_BOUNDARY;   // end of boundary has been found
                     if (header_search_state.ucState & CONTENT_LENGTH_KNOWN) {
@@ -1000,6 +1053,12 @@ static int fnPostFrame(HTTP *http_session, unsigned char *ucIp_Data, unsigned sh
             #if defined SUPPORT_POST_GIF
                             case IMAGE_GIF_CONTENT_RECOGNISED:
             #endif
+            #if defined SUPPORT_POST_PNG
+                            case IMAGE_PNG_CONTENT_RECOGNISED:
+            #endif
+            #if defined SUPPORT_POST_JPG
+                            case IMAGE_JPG_CONTENT_RECOGNISED:
+            #endif
             #if defined SUPPORT_POST_BMP
                             case IMAGE_BMP_CONTENT_RECOGNISED:
             #endif
@@ -1012,20 +1071,7 @@ static int fnPostFrame(HTTP *http_session, unsigned char *ucIp_Data, unsigned sh
         #endif
         #if defined SUPPORT_HTTP_CONTINUE                                // {39}
                             case EXPECT_CONTINUE_FOUND:
-                                #if defined _WINDOWS
-                                http_session->iFetchingInternalMemory = _ACCESS_IN_CODE; // inform the simulator that access to this is definitively from internal FLASH
-                                #endif
-                                uMemcpy(HTTP_Tx->ucTCP_Message, &ccHTTP_continue[1], (HTTP_CONTINUE_HEADER_LENGTH - 1));
-                                http_session->usUnacked = (HTTP_CONTINUE_HEADER_LENGTH - 1);
-                                http_session->FileLength = HTTP_CONTINUE_HEADER_LENGTH;
-                                http_session->FilePoint = 1;             // avoid standard header on regeneration
-                                #if defined SUPPORT_MIME_IDENTIFIER
-                                http_session->ucMimeType = UNKNOWN_MIME; // ensure repetitions are not parsed
-                                #endif
-                                http_session->ptrFileStart = (unsigned char *)ccHTTP_continue; // save start of file address
-                                if (fnSendTCP(http_session->OwnerTCPSocket, (unsigned char *)&HTTP_Tx->tTCP_Header, (HTTP_CONTINUE_HEADER_LENGTH - 1), TCP_FLAG_PUSH) > 0) {
-                                    iPostRtn = APP_SENT_DATA;
-                                }
+                                iPostRtn = fnSendHTTP_cont(http_session);// {82} immediately respond with a continue header
                                 break;
         #endif
                             }
@@ -1054,13 +1100,13 @@ _handle_post_data_content:
         return (fnParameterPost(http_session, (CHAR *)ucIp_Data, usPortLen, &header_search_state.ucState));
     }
 #endif
-    while (usPortLen) {                                                  // handle posted data content
+    while (usPortLen != 0) {                                             // handle posted data content
         if (http_session->FileLength < usPortLen) {
             usPortLen = (unsigned short)http_session->FileLength;        // last part of post is in this frame
         }
         if (http_session->ucState != HTTP_STATE_DUMPING_DATA) {
     #if defined SUPPORT_HTTP_POST_TO_APPLICATION
-            if (!(http_session->ptrFile)) {
+            if (http_session->ptrFile == 0) {
                 MAX_FILE_LENGTH FileLength = http_session->FileLength;
                 http_session->FileLength = usPortLen;
                 fnHandleWeb(POSTING_DATA_TO_APP, (CHAR *)ucIp_Data, http_session);
@@ -1316,6 +1362,12 @@ _continue_ack:
                     fnTCP_close(http_session->OwnerTCPSocket);
                     return APP_REQUEST_CLOSE;                            // inform TCP that we have requested a close
                 }
+#if defined SUPPORT_HTTP_CONTINUE
+                if (http_session->ucContinue == 1) {                     // {82} acknowledge of HTTP 100 cont
+                    http_session->ucContinue = 0;
+                    return 0;
+                }
+#endif
                 http_session->FilePoint += http_session->usUnacked;      // increment the offset to next part of message
                 http_session->usUnacked = 0;                             // reset the unacked value
 #if defined HTTP_WINDOWING_BUFFERS                                       // {7}
@@ -1348,6 +1400,11 @@ _regenerate:
 #if defined HTTP_AUTHENTICATION
                 if (http_session->ucState == HTTP_STATE_REQUEST_CREDS) {
                     return (fnRequestCreds(http_session));
+                }
+#endif
+#if defined SUPPORT_HTTP_CONTINUE
+                if (http_session->ucContinue == 1) {                     // {82} HTTP 100 cont needs to be regenerated
+                    return (fnSendHTTP_cont(http_session));              // repeat the unacknowledged HTTP continue header
                 }
 #endif
                 if (http_session->ucState < HTTP_STATE_ACTIVE) {         // ignore if the server has closed in the meantime {6}
@@ -1392,7 +1449,7 @@ _probe_jumped:
                         else {
                             fnGetParsFile((http_session->ptrFileStart + SIMPLE_HTTP_HEADER_LENGTH), (HTTP_Tx->ucTCP_Message + SIMPLE_HTTP_HEADER_LENGTH), (Len - SIMPLE_HTTP_HEADER_LENGTH)); // when not working with SD-card use standard uFileSystem call
                         }
-        #else
+        #elif defined ACTIVE_FILE_SYSTEM || defined SUPPORT_INTERNAL_HTML_FILES // {84}
                         fnGetParsFile((http_session->ptrFileStart + SIMPLE_HTTP_HEADER_LENGTH), (HTTP_Tx->ucTCP_Message + SIMPLE_HTTP_HEADER_LENGTH), (Len - SIMPLE_HTTP_HEADER_LENGTH)); // get a frame to send
         #endif
     #endif
@@ -1403,12 +1460,12 @@ _probe_jumped:
                             utSeek(&http_session->utFile, (unsigned long)(http_session->ptrFileStart + http_session->FilePoint - FILE_HEADER), UTFAT_SEEK_SET); // set back to start of frame to be repeated
                             utReadFile(&http_session->utFile, HTTP_Tx->ucTCP_Message, (unsigned short)Len); // read from the file on the SD card
                         }
-        #if defined ACTIVE_FILE_SYSTEM
+        #if defined ACTIVE_FILE_SYSTEM || defined SUPPORT_INTERNAL_HTML_FILES // {84}
                         else {
                             fnGetParsFile((http_session->ptrFileStart + http_session->FilePoint), HTTP_Tx->ucTCP_Message, Len); // when not working with SD-card use standard uFileSystem call
                         }
         #endif
-    #else
+    #elif defined ACTIVE_FILE_SYSTEM || defined SUPPORT_INTERNAL_HTML_FILES // {84}
                         fnGetParsFile((http_session->ptrFileStart + http_session->FilePoint), HTTP_Tx->ucTCP_Message, Len);
     #endif
                     }
@@ -1478,7 +1535,7 @@ _probe_jumped:
                             http_session->ucState = HTTP_STATE_START_POST; // POST command
                         }
 #else
-                        if (uMemcmp(ucIp_Data, (unsigned char *)cGet, sizeof(cGet))) {
+                        if (uMemcmp(ucIp_Data, (unsigned char *)cGet, sizeof(cGet)) != 0) {
                             return APP_REJECT_DATA;                      // we expect the GET command if not already in a http block [any thing else is ignored]
                         }
 #endif
@@ -1536,7 +1593,7 @@ _probe_jumped:
                     }
 #endif
 #if defined HTTP_DYNAMIC_CONTENT            
-                    uMemset(&http_session->DynamicCnt[0], 0, sizeof(http_session->DynamicCnt));// {19}
+                    uMemset(&http_session->DynamicCnt[0], 0, sizeof(http_session->DynamicCnt)); // {19}
 #endif
                     // Let our parameter handler look at the data. If it wants, it can choose the page to be displayed, request credentials
                     // or let the standard side be displayed.
@@ -1619,8 +1676,8 @@ static unsigned short fnWebParGenerator(unsigned char *ptrBuffer, HTTP *http_ses
     usToSend = usLen;
     ucAction = NOT_SELECTED;
 
-    while (usLen) {                                                      // we scan the HTTP frame to be sent, looking for a position to fill out
-        if (*ptrBuffer++ == (unsigned char)WEB_PARSER_START) {           // a field has been found which needs to be filled out
+    while (usLen != 0) {                                                 // we scan the HTTP frame to be sent, looking for a position to fill out
+        if (*ptrBuffer++ == (unsigned char)(WEB_PARSER_START)) {         // a field has been found which needs to be filled out
                                                                          // example £sAB - insert select, parameter A / B
             if (usLen < WEB_ESCAPE_LEN) {                                // check whether long enough to ensure correct interpretation in all cases {9}{25}(change <= to <)
                 *usMaxLen -= usLen;
@@ -1663,13 +1720,13 @@ static unsigned short fnWebParGenerator(unsigned char *ptrBuffer, HTTP *http_ses
                 break;
 
             case WEB_INSERT_STRING:                                      // insert value string field
-                if (fnInsertValue) {
+                if (fnInsertValue != 0) {
                     cInsertString = fnInsertValue(ptrBuffer, 0, &usInsertLength PASS_SESSION_INFO); // allow application to insert its own string
                 }
                 break;
     #if defined HTTP_DYNAMIC_CONTENT
             case WEB_INSERT_DYNAMIC:                                     // insert dynamic HTML {16}
-                if (fnInsertValue) {
+                if (0 != fnInsertValue) {
                     CHAR cInput[WEB_ESCAPE_LEN - 2];                     // backup of the control tag
                     LENGTH_CHUNK_COUNT ChunkReference;                   // {24}
                     if (http_session->ucDynamicFlags & MAXIMUM_DYNAMIC_INSERTS) { // {60} do not allow a second insertion in the same frame!!
@@ -1735,9 +1792,9 @@ static unsigned short fnWebParGenerator(unsigned char *ptrBuffer, HTTP *http_ses
             }
             ptrBuffer += (WEB_ESCAPE_LEN - 2);                           // jump over parameters {9}
             usLen -= (WEB_ESCAPE_LEN - 1);                               // {9}
-            if (cInsertString) {
+            if (cInsertString != 0) {
                 signed short sLost;                                      // {17} accept positive and negative values
-                if ((sLost = (signed short)fnInsertHTMLString((CHAR *)cInsertString, usInsertLength, &ptrBuffer, usMaxLen, &usLen, ptrBufferEnd)) != 0) {  // {14} 
+                if ((sLost = (signed short)fnInsertHTMLString((CHAR *)cInsertString, usInsertLength, &ptrBuffer, usMaxLen, &usLen, ptrBufferEnd)) != 0) { // {14} 
                     if (ptrBuffer != 0) {                                // file length reduction
                         usToSend -= sLost;
                     }
@@ -1792,7 +1849,7 @@ static unsigned short fnWebParGen(unsigned char ptrBuffer[], HTTP *http_session,
         unsigned short usOriginalLength = usFrameLength;                 // backup the original frame length
         unsigned short usThisLength;                                     // {18} allow loop quit when buffer cannot grow any more 
         usFrameLength -= usContentShrink;
-        http_session->usUnacked = usContentShrink;                       // for compatibility with fnWebParGenerator (the length to be processed) - it will be changed accoring to inserts made
+        http_session->usUnacked = usContentShrink;                       // for compatibility with fnWebParGenerator (the length to be processed) - it will be changed according to inserts made
         usFrameLength += (usThisLength = fnWebParGenerator(&ptrBuffer[usFrameLength], http_session, &ptrBuffer[usTx_window])); // parse the raw data contents {13}
         http_session->usUnacked += usAdditionalFrameLength;
         usContentShrink = usOriginalLength - http_session->usUnacked;
@@ -1804,7 +1861,7 @@ static unsigned short fnWebParGen(unsigned char ptrBuffer[], HTTP *http_session,
     #endif
         if ((usContentShrink == 0) || (usThisLength == 0) || ((usFrameLength + usContentShrink) >= usTx_window)
     #if defined HTTP_DYNAMIC_CONTENT
-            || (http_session->ucDynamicFlags & QUIT_FRAME_DURING_GENERATION) // when a frame buffer cannot accept more dynamic chunks quit immediately
+            || ((http_session->ucDynamicFlags & QUIT_FRAME_DURING_GENERATION) != 0) // when a frame buffer cannot accept more dynamic chunks quit immediately
     #endif
             ) {                                                          // frame buffer completely full (or shrunk content will have no room)
     #if defined HTTP_DYNAMIC_CONTENT
@@ -1819,12 +1876,12 @@ static unsigned short fnWebParGen(unsigned char ptrBuffer[], HTTP *http_session,
         if ((ptr_utDirectory->usDirectoryFlags & UTDIR_VALID) && (http_session->utFile.ulFileSize != 0)) {
             utReadFile(&http_session->utFile, &HTTP_Tx->ucTCP_Message[usFrameLength], usContentShrink); // read from the file on the SD card
         }
-        #if defined ACTIVE_FILE_SYSTEM
+        #if defined ACTIVE_FILE_SYSTEM || defined SUPPORT_INTERNAL_HTML_FILES // {84}
         else {
             fnGetParsFile((http_session->ptrFileStart + http_session->FilePoint + http_session->usUnacked), &HTTP_Tx->ucTCP_Message[usFrameLength], usContentShrink); // when not working with SD-card use standard uFileSystem call
         }
         #endif
-    #else
+    #elif defined ACTIVE_FILE_SYSTEM || defined SUPPORT_INTERNAL_HTML_FILES // {84}
         fnGetParsFile((http_session->ptrFileStart + http_session->FilePoint + http_session->usUnacked), &HTTP_Tx->ucTCP_Message[usFrameLength], usContentShrink); // retrieve additional data to send
     #endif
         http_session->usUnacked -= usFrameLength;
@@ -1963,16 +2020,15 @@ static int fnWebParHandler(unsigned char *ptrptrFile, unsigned short usDataLengt
     if ((iReturn = fnHandleWeb(GET_STARTING, (CHAR *)/*&ucFile*/ptrFile, http_session)) != APP_ACCEPT) { // inform that a GET is starting {26}{51}
         return iReturn;                                                  // if the initial connection is not accepted
     }
-    while (*(++ptrFile) != ' ') {
-        if ((--usDataLength) == 0) {
-            break;                                                       // end of data - terminate
-        }
-
+    while (usDataLength-- != 0) {                                        // {80}  while data is present in the input buffer
         if ((*ptrFile == '&') || (*ptrFile == '?')) {                    // search for parameters
             unsigned char ucType = *(++ptrFile);
             if ((iReturn = fnHandleWeb(ucType, (CHAR *)++ptrFile, http_session)) != APP_ACCEPT) { // allow the user to handle this frame and return a special page if desired
                 return iReturn;                                          // application is not accepting but rather modifying something
             }
+        }
+        if (*(++ptrFile) == ' ') {                                       // a space after the first character indicates the end of the input
+            break;
         }
     }
 #endif

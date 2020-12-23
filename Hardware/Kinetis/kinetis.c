@@ -1,134 +1,52 @@
 /***********************************************************************
-    Mark Butcher    Bsc (Hons) MPhil MIET
+    Mark Butcher    Bsc (Hons) MPhil MIET 
 
     M.J.Butcher Consulting
     Birchstrasse 20f,    CH-5406, Rütihof
     Switzerland
-
+    
     www.uTasker.com    Skype: M_J_Butcher
     
     ---------------------------------------------------------------------
     File:      kinetis.c
     Project:   Single Chip Embedded Internet
     ---------------------------------------------------------------------
-    Copyright (C) M.J.Butcher Consulting 2004..2019
+    Copyright (C) M.J.Butcher Consulting 2004..2020
     *********************************************************************
     23.02.2012 Allow user defined start-up code immediately after the watchdog configuration and before clock configuration to be defined {1}
-    25.02.2012 Mask PIT old mode before setting new one                  {2}
-    03.03.2012 Add K70 UART2 alternative port mapping                    {3}
-    09.03.2012 Disable PIT before configuring load value so that it is retriggerable {4}
     12.03.2012 Add ADC support                                           {5}
-    05.04.2012 Add UART DMA support for Tx                               {6}
-    06.04.2012 Modify control of RTS line when not using automatic RTS control on transmission {7}
-    06.04.2012 Add UART DMA support for Rx                               {8}
     07.04.2012 DMA channel used by uMemset() and uMemcpy() configurable  {9}
-    07.04.2012 Adapt Flash interface for FPU devices                     {10}
-    21.04.2012 Use link-local IPv6 address for multicast configuration   {11}
-    29.04.2012 Add LAN_TX_FPU_WORKAROUND to workaround a problem with the Ethernet controller missing a queued buffer when caching is enabled {12}
-    08.05.2012 Add UART3 option on port F for K70                        {12}
-    18.06.2012 Add Ethernet parameter to enable passing received CRC-32 to application {13}
-    23.06.2012 Enable RMII clock from external pin                       {14}
-    24.06.2012 Add SERIAL_SUPPORT_DMA_RX_FREERUN support                 {15}
-    24.06.2012 Correct some RTS/CTS pins                                 {16}
     25.06.2012 Enable access to FPU                                      {17}
-    14.07.2012 Add _fnMIIread() and _fnMIIwrite()                        {18}
-    14.07.2012 Add Micrel SMI mode                                       {19}
-    22.07.2012 Add interface for OTP area                                {20}
-    04.08.2012 Configure EMAC buffer descriptor operation for little-endian when this is possible in the device used {21}
-    13.08.2012 Add support for magic reset Ethernet reception frame      {22}
     14.08.2012 Modify the random number location when not working with RND HW {23}
-    12.09.2012 Allow zero length Flash write (together with SPI Flash) to ensure closing outstanding flash buffer {24}
-    14.09.2012 Add UART alternative port options to K61                  {25}
-    24.09.2012 Ensure port interrupt handler is entered before configuring interrupt {26}
-    27.09.2012 Correct LINK UP event                                     {27}
-    09.10.2012 Extend I2C speed settings                                 {28}
-    19.10.2012 Exception only on multicast MAC address                   {29}
-    17.12.2012 Add interface number to Ethernet when working with multiple IP interfaces {30}
-    23.01.2013 Correct long word programming when simulating non-FPU devices (simulation error introduced with {10}) {31}
     26.01.2013 Add _APPLICATION_VALIDATION                               {32}
-    28.03.2013 Add USB HS support                                        {33}
     03.03.2013 Moved RANDOM_SEED_LOCATION and BOOT_MAIL_BOX to kinetis.h
-    21.03.2013 Add PARAMETER_NO_ALIGNMENT option to parameter flash      {35}
-    24.03.2013 Add check of flash write validity when simulating         {36}
-    07.04.2013 Add PHY_POLL_LINK support                                 {37}
     24.05.2013 Add SDRAM initialisation                                  {38}
     03.06.2013 Add DAC interface in SW triggered mode                    {39}
     03.06.2013 Allow user defined startup code in IAR initialisation     {40}
-    03.06.2013 Add ADC result to interrupt call-back                     {41}
-    04.06.2013 Added USB_FS_MALLOC(), USB_FS_MALLOC_ALIGN(), USB_HS_MALLOC(), USB_HS_MALLOC_ALIGN(), ETH_BD_MALLOC_ALIGN(), ETH_RX_BUF_MALLOC_ALIGN() and ETH_TX_BUF_MALLOC_ALIGN() defaults {42}
-    23.06.2013 Add _PHY_KSZ8863 mode                                     {43}
-    23.06.2013 Add PHY tail tagging support                              {44}
-    08.07.2013 Add full duplex event type                                {45}
-    09.07.2013 Implement fnFlashRoutine() as assemble code to avoid possibility of compilers in-lining it {46}
-    27.07.2013 Ensure that SDHC read is not performed using a command that can't save to misaligned memory {47}
     28.07.2013 Correct interrupt priority entry                          {48}
-    28.07.2013 Allow the PHY interrupt handler to be interrupted by higher priority interrupts {49}
-    05.08.2013 Correct SPI flash page delete alignment when page size if not power of 2 size {50}
-    05.08.2013 Add UTC option when setting and retrieving time/date      {51}
-    17.08.2013 Adjust PHY interface when _DP83849I is used               {52}
-    26.09.2013 Correct flash address when simulating internal flash erase together with other memory types {53}
-    30.09.2013 Add ADC A/B input multiplexer control                     {54}
     01.10.2013 Make fnEnterInterrupt() global                            {55}
-    23.10.2013 Ensure source address remains stable in free-running UART mode {56}
-    27.10.2013 Add ADC DMA configuration                                 {57}
     27.10.2013 Add PDB interface                                         {58}
-    17.11.2013 Add uReverseMemcpy() using DMA                            {59}
-    19.11.2013 Add DAC DMA configuration                                 {60}
-    19.11.2013 Add DAC triggering via PDB                                {61}
-    18.12.2013 Add monitoring of SDHC transmission buffer and break on stall {62}
-    18.12.2013 Reset SDHC flags at re-initialisation to ensure no old error flags remain {63}
     26.12.2013 Add RANDOM_NUMBER_GENERATOR_B for devices without RNGA    {64}
-    11.01.2013 Set CAN controller clock source before moving to freeze mode {65}
     24.01.2014 Add crystal gain mode control                             {66}
     25.01.2014 Add Kinetis KL support                                    {67}
-    04.02.2014 Power up PIT module after setting mode to protect from power down from another PIT channel interrupt - also protect mode variable changes from interrupts {68}
-    18.02.2014 Correct fnConvertSecondsTime() calculation                {69}
-    04.03.2014 Correct CAN time stamp request option                     {70}
-    05.03.2014 Add USB error counters and clear errors in the USB interrupt routine {71}
     05.04.2014 Add FlexTimer monostable/periodic timer support           {72}
     10.04.2014 Add volatile to ensure that interrupt flags are not optimised away when code in-lining takes place {73}
-    16.04.2014 Add fnModifyMulticastFilter() for IGMP use                {74}
-    17.04.2014 Use RTC seconds interrupt rather than alarm interrupt, when available {75}
-    21.04.2014 Add KL PIT support                                        {76}
-    24.04.2014 Add KL RTC support based on LPO clock or external 32kHz oscillator {77}
-    25.04.2014 Add automatic I2C lockup detection and recovery           {78}
-    28.04.2014 Make some flash drivers conditional on FLASH_ROUTINES so that they can be used without any file system support {79}
     06.05.2014 Add KL DMA based uMemcpy() and uMemset()                  {80}
-    06.05.2014 Add KL DMA based UART transmission                        {81}
-    11.05.2014 Add FlexNVM data flash mode                               {82}
-    28.05.2014 Move re-enable of USB SIE token processing to after input handling to avoid sporadic SETUP frame loss {83}
-    02.06.2014 Add _KSZ8081RNA status register settings                  {84}
     09.06.2014 Add Crossbar Switch configuration                         {85}
     15.06.2014 Add low power timer                                       {86}
     17.06.2014 Optimised DMA based uMemset()/uMemcpy()/uReverseMemcpy() to utilise widest transfer sizes possible {87}
-    21.06.2014 Don't use different ADC result register when channel B mux input is used {88}
-    21.06.2014 Adjust FlexTimer/TPM use of FTM_SC_TOF to clear interrupt correctly {89}
     24.06.2014 Add USB clock from PLL1 as option                         {90}
     25.06.2014 Add hardware operating details for simulator display      {91}
-    05.07.2014 Rework of UART interrupt handler including receiver overrun checking {92}
     15.07.2014 Add optional power mode setting after basic initialisation {93}
     19.07.2014 Add option to run system TICK from low power timer        {94}
     19.07.2014 Add option to clock the processor directly from the external clock without using the PLL {95}
-    19.07.2014 Add UART low power stop mode support                      {96}
-    21.07.2014 Add PIT errate e2682 workaround for some older devices    {97}
-    22.07.2014 Add fnGetLowPowerMode() and fnSetLowPowerMode()           {98}
-    22.07.2014 Add clock source selection to TPM                         {99}
     02.08.2014 Add option to run system TICK from the RTC (KE)           {100}
     19.08.2014 Add clock divider configuration when running directly from the external clock {101}
     22.08.2014 Add uMask_Interrupt()                                     {102}
-    02.09.2014 Move remaining byte copy in DMA based uMemcpy() to after DMA termination {103}
-    30.10.2014 Add optional crystal-less USB clock for K64, K63, K22 and K24 {104}
-    07.11.2014 Add section programming where possible (faster programming of larger Flash blocks) {105}
-    17.11.2014 Add KL03 LPUART support                                   {106}
-    04.12.2014 Ensure source and destination addresses remain stable in UART tx DMA mode {107}
-    12.12.2014 Add power of 2s ATMEL flash support                       {108}
-    29.12.2014 Add KE02 EEPROM support                                   {109}
     30.12.2014 Add Green Hills project support (_COMPILE_GHS)            {110}
     01.01.2015 Allow interrupt vectors to be fixed in flash              {111}
     11.01.2015 Add wake-up interrupt support                             {112}
     28.01.2015 Add COSMIC project support (_COMPILE_COSMIC)              {113}
-    08.02.2015 Time keeping routines moved to uTasker\time_keeper.c      {114}
-    18.02.2015 fnConnectGPIO() modified to allow modifying only parts of pin characteristics {115}
     24.03.2015 Peripheral drivers removed to their own include files
     19.07.2015 Correct SysTick priority shift                            {116}
     26.07.2015 Respect that SMC_PMPROT is one-time write by setting maximum level once {117}
@@ -136,10 +54,31 @@
     16.10.2015 Write to SYSTICK_CURRENT to synchronise the Systick counter after configuration {119}
     16.10.2015 Add routine to drive CLKOUT for measurment purposes       {120}
     23.10.2015 Use kinetis_USB_OTG.h for FS device/host                  {121}
-    27.08.2019 Update SYSTICK based fnDelayLoop() with improved accuracy {141}
+    18.03.2016 Add NMI_IN_FLASH option                                   {123}
+    11.04.2016 Set registers to volatile to ensure no optimisation in fnDelayLoop() {124}
+    25.11.2016 Add ROM bootloader errata workaround                      {125}
+    31.01.2017 Add fnClearPending() and fnIsPending()                    {126}
+    02.03.2017 Add optional alternative memcpy DMA channel for use by interrupts {127}
+    12.05.2017 Allow detection of RNG type in case both revison 1 and revision 2 parts may be encountered {128}
+    05.09.2017 Add watchdog interrupt (needs WDOG_STCTRLH_IRQRSTEN or WDOG_CS1_INT set in the watchdog configuration) {129}
+    12.09.2017 Added INTMUX support                                      {130}
+    29.11.2017 Add fnMaskInterrupt()                                     {131}
+    04.12.2017 Add MMDVSQ                                                {132}
+    06.12.2017 Use TSTMR as time base for fnDelayLoop() when it is available {133}
+    31.01.2018 If HSRUN mode is detected after a reset the RUN mode can be returned to avoid flash programming issues {134}
+    07.03.2018 Add 25AA160 SPI EEPROM support                            {135}
+    08.07.2018 Add optional power loss interrupt support (SUPPORT_LOW_VOLTAGE_DETECTION) {136}
+    29.09.2018 Allow memcpy() type DMA to be pre-empted by higher priority DMA channels {137}
+    13.10.2018 Add comparator support                                    {138}
+    06.03.2019 Random number pointer set during variable initialisation  {139}
+    09.03.2019 Change location of SPI memory includes (to ../SPI_Memory)
+    09.04.2019 Add fnEnterNMI()                                          {140}
+    27.08.2019 Correct SYSTICK based loop delay that could quit too early with long delays {141}
+    26.02.2020 Clear FPU flags when jumping to the application to ensure that subsequent exceptions do not initially use FPU stacking {142}
+    09.04.2020 Add fnUnmaskInterrupt()                                   {143}
+    15.05.2020 Included USB driver changed to kinetis_USB_FS_OTG.h and kinetis_USB_HS_OTG.h {144}
 
 */
-
 
 /* =================================================================== */
 /*                           include files                             */
@@ -150,16 +89,22 @@
     extern void fnUpdateOperatingDetails(void);                          // {91}
     #define INITHW  extern
     extern void fec_txf_isr(void);
-    extern void fnSimulateDMA(int channel);
+    extern void fnSimulateDMA(int channel, unsigned char ucTriggerSource);
+    #define __disable_interrupt()
+    #define __enable_interrupt()
     #define START_CODE 0
+    #if defined MMDVSQ_AVAILABLE                                         // {132}
+        #include <math.h>
+    #endif
 #else
     #define OPSYS_CONFIG                                                 // this module owns the operating system configuration
     #define INITHW  static
     #include "config.h"
-    #define  fnSimulateDMA(x)
+    #define  fnSimulateDMA(x, y)
     #if defined _COMPILE_KEIL
         extern void __main(void);
         #define START_CODE _init
+        #define uMask_Interrupt(ucMaskLevel)  __set_BASEPRI(ucMaskLevel)
     #elif defined _COMPILE_IAR
         extern void __iar_program_start(void);                           // IAR library initialisation routine
         #define START_CODE disable_watchdog
@@ -207,6 +152,19 @@
 #define UART4_RX_CLK_REQUIRED 0x00000400
 #define UART5_RX_CLK_REQUIRED 0x00000800
 
+#define I2C0_CLK_REQUIRED     0x00001000
+#define I2C1_CLK_REQUIRED     0x00002000
+#define I2C2_CLK_REQUIRED     0x00004000
+#define I2C3_CLK_REQUIRED     0x00008000
+
+#if defined KINETIS_K_FPU || defined KINETIS_KL || defined KINETIS_KM || defined KINETIS_REVISION_2 || (KINETIS_MAX_SPEED > 100000000) && !defined SMC_PMPROT_LOW_POWER_LEVEL
+    #if defined HIGH_SPEED_RUN_MODE_AVAILABLE
+        #define SMC_PMPROT_LOW_POWER_LEVEL (SMC_PMPROT_AVLLS | SMC_PMPROT_ALLS | SMC_PMPROT_AVLP | SMC_PMPROT_AHSRUN) // allow all low power modes if nothing else defined
+    #else
+        #define SMC_PMPROT_LOW_POWER_LEVEL (SMC_PMPROT_AVLLS | SMC_PMPROT_ALLS | SMC_PMPROT_AVLP) // allow all low power modes if nothing else defined
+    #endif
+#endif
+
 
 /* =================================================================== */
 /*                       local structure definitions                   */
@@ -232,7 +190,6 @@ static void _LowLevelInit(void);
     static int fnPresentLP_mode(void);
 #endif
 
-
 /* =================================================================== */
 /*                             constants                               */
 /* =================================================================== */
@@ -243,23 +200,32 @@ static void _LowLevelInit(void);
         (unsigned char *)(FLASH_START_ADDRESS),                          // start address of internal flash
         (unsigned char *)(FLASH_START_ADDRESS + (SIZE_OF_FLASH - 1)),    // end of internal flash
         _STORAGE_INTERNAL_FLASH,                                         // type
-        0                                                                // not multiple devices
+        0,                                                               // not multiple devices
+    #if defined STORAGE_DEVICE_OFFSET
+        0
+    #endif
     };
 
     STORAGE_AREA_ENTRY *UserStorageListPtr = (STORAGE_AREA_ENTRY *)&default_flash; // default entry
 #endif
 
 #if defined SPI_SW_UPLOAD || defined SPI_FLASH_FAT || (defined SPI_FILE_SYSTEM && defined FLASH_FILE_SYSTEM)
-    #if !defined SPI_FLASH_ST && !defined SPI_FLASH_SST25 && !defined SPI_FLASH_W25Q && !defined SPI_FLASH_S25FL1_K
+    #if !defined SPI_FLASH_ST && !defined SPI_FLASH_SST25 && !defined SPI_FLASH_W25Q && !defined SPI_FLASH_S25FL1_K && !defined SPI_FLASH_MX25L
         #define SPI_FLASH_ATMEL                                          // default if not otherwise defined
     #endif
     #define _SPI_DEFINES
-        #include "spi_flash_kinetis_atmel.h"
-        #include "spi_flash_kinetis_stmicro.h"
-        #include "spi_flash_kinetis_sst25.h"
-        #include "spi_flash_w25q.h"
-        #include "spi_flash_kinetis_s25fl1-k.h"
+        #include "../SPI_Memory/spi_flash_kinetis_atmel.h"
+        #include "../SPI_Memory/spi_flash_kinetis_stmicro.h"
+        #include "../SPI_Memory/spi_flash_kinetis_sst25.h"
+        #include "../SPI_Memory/spi_flash_w25q.h"
+        #include "../SPI_Memory/spi_flash_s25fl1-k.h"
+        #include "../SPI_Memory/spi_flash_MX25L.h"
     #undef _SPI_DEFINES
+#endif
+#if defined SPI_EEPROM_FILE_SYSTEM
+    #define _SPI_EEPROM_DEFINES                                          // {135}
+        #include "../SPI_Memory/spi_eeprom_25AA160.h"
+    #undef _SPI_EEPROM_DEFINES
 #endif
 
 /* =================================================================== */
@@ -272,26 +238,26 @@ static int iInterruptLevel = 0;                                          // pres
     static unsigned long ulPeripheralNeedsClock = 0;                     // {96} stop mode is blocked if a peripheral is in use that needs a clock that will be stopped
 #endif
 #if defined RANDOM_NUMBER_GENERATOR && !defined RND_HW_SUPPORT
-    unsigned short *ptrSeed;
+    unsigned short *ptrSeed = RANDOM_SEED_LOCATION;                       // {139}
 #endif
 #if defined FLASH_ROUTINES || defined ACTIVE_FILE_SYSTEM || defined USE_PARAMETER_BLOCK
-    static unsigned long ulFlashRow[FLASH_ROW_SIZE/sizeof(unsigned long)] = {0}; // FLASH row backup buffer (on word boundary)
+    static unsigned long ulFlashRow[FLASH_ROW_SIZE/sizeof(unsigned long)] = {0}; // FLASH row backup buffer (on long word boundary)
 #endif
 #if defined SPI_SW_UPLOAD || defined SPI_FLASH_FAT || (defined SPI_FILE_SYSTEM && defined FLASH_FILE_SYSTEM)
     #if !defined SPI_FLASH_DEVICE_COUNT
         #define SPI_FLASH_DEVICE_COUNT 1
     #endif
     static unsigned long SPI_FLASH_Danger[SPI_FLASH_DEVICE_COUNT] = {0}; // signal that the FLASH status should be checked before using since there is a danger that it is still busy
-    static unsigned char ucSPI_FLASH_Type[SPI_FLASH_DEVICE_COUNT] = {0}; // list of attached FLASH devices
+    static unsigned char ucSPI_FLASH_Type[SPI_FLASH_DEVICE_COUNT] = {NO_SPI_FLASH_AVAILABLE}; // list of attached FLASH devices
 
     #if defined SPI_FLASH_MULTIPLE_CHIPS
-        unsigned long ulChipSelect[SPI_FLASH_DEVICE_COUNT] = {
+        unsigned long ulChipSelect[SPI_FLASH_DEVICE_COUNT] = {           // the register bit controling the CS output state
             CS0_LINE,
-            CS1_LINE                                                     // at least 2 expected when multiple devices are defined
-        #if defined CS2_LINE
-            ,CS2_LINE
-            #if defined CS3_LINE
-            ,CS3_LINE
+            CS1_LINE,                                                    // at least 2 expected when multiple devices are defined
+        #if SPI_FLASH_DEVICE_COUNT > 2
+            CS2_LINE,
+            #if SPI_FLASH_DEVICE_COUNT > 3
+            CS3_LINE,
             #endif
         #endif
         };
@@ -301,6 +267,12 @@ static int iInterruptLevel = 0;                                          // pres
         #define EXTENDED_CS
         #define _EXTENDED_CS
     #endif
+#endif
+#if (defined SPI_EEPROM_FILE_SYSTEM && defined FLASH_FILE_SYSTEM)
+    #if !defined SPI_EEPROM_DEVICE_COUNT
+        #define SPI_EEPROM_DEVICE_COUNT 1
+    #endif
+    static unsigned long SPI_EEPROM_Danger[SPI_EEPROM_DEVICE_COUNT] = {0}; // signal that the FLASH status should be checked before using since there is a danger that it is still busy
 #endif
 
 
@@ -332,13 +304,21 @@ static int iInterruptLevel = 0;                                          // pres
     extern __interrupt void _start(void);                                // reset vector location
 #endif
 
-#define _SPI_FLASH_INTERFACE                                             // insert manufacturer dependent SPI Flash driver code
-    #include "spi_flash_kinetis_atmel.h"
-    #include "spi_flash_kinetis_stmicro.h"
-    #include "spi_flash_kinetis_sst25.h"
-    #include "spi_flash_w25q.h"
-    #include "spi_flash_kinetis_s25fl1-k.h"
-#undef _SPI_FLASH_INTERFACE
+#if defined SPI_SW_UPLOAD || defined SPI_FLASH_FAT || (defined SPI_FILE_SYSTEM && defined FLASH_FILE_SYSTEM)
+    #define _SPI_FLASH_INTERFACE                                         // insert manufacturer dependent SPI Flash driver code
+        #include "../SPI_Memory/spi_flash_kinetis_atmel.h"
+        #include "../SPI_Memory/spi_flash_kinetis_stmicro.h"
+        #include "../SPI_Memory/spi_flash_kinetis_sst25.h"
+        #include "../SPI_Memory/spi_flash_w25q.h"
+        #include "../SPI_Memory/spi_flash_s25fl1-k.h"
+        #include "../SPI_Memory/spi_flash_MX25L.h"
+    #undef _SPI_FLASH_INTERFACE
+#endif
+#if defined SPI_EEPROM_FILE_SYSTEM
+    #define _SPI_EEPROM_INTERFACE                                            // {135}
+        #include "../SPI_Memory/spi_eeprom_25AA160.h"
+    #undef _SPI_EEPROM_INTERFACE
+#endif
 
 
 /* =================================================================== */
@@ -368,7 +348,7 @@ static int iInterruptLevel = 0;                                          // pres
             #define asm(x) _asm(x)
         #endif
         #if defined _COMPILE_GHS                                         // {110}
-            #define __disable_interrupt() asm("cpsid i")                 // __DI() intrinsics are not used becasue they are asm("cpsid if") which doesn't allow correct low power mode operation
+            #define __disable_interrupt() asm("cpsid i")                 // __DI() intrinsics are not used because they are asm("cpsid if") which doesn't allow correct low power mode operation
             #define __enable_interrupt()  asm("cpsie i")                 // __EI()
             #define __sleep_mode()        asm("wfi")
         #else
@@ -422,10 +402,15 @@ static void disable_watchdog(void)
         ACTIVATE_WATCHDOG();                                             // allow user configuration of internal watch dog timer
     }
     else {
-        #if defined KINETIS_KL && !defined KINETIS_KL82                  // {67}
+        #if defined KINETIS_WITH_WDOG32
+        UNLOCK_WDOG();                                                   // open a window to write to watchdog
+        WDOG0_CS = WDOG_CS_UPDATE;                                       // disable watchdog but allow updates
+        WDOG0_TOVAL = 0xffff;
+        WDOG0_WIN = 0;  
+        #elif defined KINETIS_KL && !defined KINETIS_KL82                // {67}
         SIM_COPC = SIM_COPC_COPT_DISABLED;                               // disable the COP
         #else
-        UNLOCK_WDOG();                                                   // open a windows to write to watchdog
+        UNLOCK_WDOG();                                                   // open a window to write to watchdog
             #if defined KINETIS_KE
         WDOG_CS2 = 0;                                                    // this is required to disable the watchdog
         WDOG_TOVAL = 0xffff;
@@ -437,9 +422,16 @@ static void disable_watchdog(void)
         #endif
     }
         #if defined SUPPORT_LOW_POWER && (defined KINETIS_K_FPU || defined KINETIS_KL || defined KINETIS_REVISION_2 || (KINETIS_MAX_SPEED > 100000000))
-        PMC_REGSC = PMC_REGSC_ACKISO;                                    // acknowledge the isolation mode to set certain peripherals and I/O pads back to normal run state
+            #if defined SUPPORT_LPTMR                                    // ensure no interrupts pending after waking from VLLS modes via LPTMR
+    POWER_UP_ATOMIC(5, LPTMR0);                                          // power up the low power timer
+    PMC_REGSC = PMC_REGSC_ACKISO;                                        // acknowledge the isolation mode to set certain peripherals and I/O pads back to normal run state
+    LPTMR0_CSR = 0;                                                      // clear possible pending interrupt and stop the timer
+    POWER_DOWN_ATOMIC(5, LPTMR0);                                        // power down the low power timer
+            #else
+    PMC_REGSC = PMC_REGSC_ACKISO;                                        // acknowledge the isolation mode to set certain peripherals and I/O pads back to normal run state
+            #endif
         #endif
-    INIT_WATCHDOG_LED();                                                 // allow user configuration of a blink LED    
+    INIT_WATCHDOG_LED();                                                 // allow user configuration of a blink LED
         #if defined USER_STARTUP_CODE                                    // {40} allow user defined start-up code immediately after the watchdog configuration and before clock configuration to be defined
     USER_STARTUP_CODE;
         #endif
@@ -465,10 +457,6 @@ static void disable_watchdog(void)
 //
 extern int main(void)
 {
-#if defined MULTISTART
-    MULTISTART_TABLE *prtInfo;
-    unsigned char *pucHeapStart;
-#endif
 #if defined (_COMPILE_IAR)
     if (__sfe(".bss") > __sfe(".data")) {                                // set last used SRAM address
         ptrTopOfUsedMemory = __sfe(".bss");
@@ -529,7 +517,6 @@ extern int main(void)
 
     } FOREVER_LOOP();
     #elif !defined _WINDOWS || defined RUN_IN_FREE_RTOS
-  //fnInitialiseHeap(ctOurHeap, HEAP_START_ADDRESS);                     // initialise heap
     uTaskerStart((UTASKTABLEINIT *)ctTaskTable, ctNodes, PHYSICAL_QUEUES); // start the operating system (and TICK interrupt)
     FOREVER_LOOP() {
         uTaskerSchedule();                                               // schedule uTasker
@@ -553,14 +540,31 @@ extern void _init(void)
     #if defined RND_HW_SUPPORT
 extern void fnInitialiseRND(unsigned short *usSeedValue)
 {
-    #if defined RANDOM_NUMBER_GENERATOR_B                                // {64}
-    POWER_UP(3, SIM_SCGC3_RNGB);                                         // power up RNGB
-    RNG_CR = (RNG_CR_FUFMODE_TE | RNG_CR_AR);                            // automatic reseed mode and generate a bus error on FIFO underrun
+    #if defined RANDOM_NUMBER_GENERATOR_B                                // {64} support revison 1 types
+    POWER_UP_ATOMIC(3, RNGB);                                            // power up RNGB
+        #if defined RANDOM_NUMBER_GENERATOR_A                            // {128} support revison 2 types too
+    if (((SIM_SDID & SIM_SDID_REVID_MASK) >> SIM_SDID_REVID_SHIFT) > 3) {// if from revision 2 part is detected (clock enable is compatible)
+        RNGA_CR = (RNGA_CR_INTM | RNGA_CR_HA | RNGA_CR_GO);              // start first conversion in RNGA module
+        return;
+    }
+        #endif
+    RNG_CR = (RNG_CR_FUFMODE_TE | RNG_CR_AR);                            // automatic re-seed mode and generate a bus error on FIFO underrun
     RNG_CMD = (RNG_CMD_GS | RNG_CMD_CI | RNG_CMD_CE);                    // start the initial seed process
                                                                          // the initial seeding takes some time but we don't wait for it to complete here - if it hasn't completed when we first need a value we will wait for it then
-    #else
-    POWER_UP(3, SIM_SCGC3_RNGA);                                         // power up RNGA
-    RNG_CR = (RNG_CR_INTM | RNG_CR_HA | RNG_CR_GO);                      // start first conversion
+    #elif defined RANDOM_NUMBER_GENERATOR_A
+    POWER_UP_ATOMIC(3, RNGA);                                            // power up RNGA
+    RNGA_CR = (RNGA_CR_INTM | RNGA_CR_HA | RNGA_CR_GO);                  // start first conversion
+    #elif defined TRUE_RANDOM_NUMBER_GENERATOR
+        #if defined SIM_SCGC3
+    POWER_UP_ATOMIC(3, TRNG0);                                           // power up TRNG0
+        #else
+    POWER_UP_ATOMIC(6, TRNG0);                                           // power up TRNG0
+        #endif
+    TRNG0_MCTL = (TRNG_MCTL_PRGM | TRNG_MCTL_RST_DEF);                   // ensure we are in programming mode with defaults set
+    TRNG0_FRQMIN = 0;
+    TRNG0_FRQMAX = 0x03ffff;                                             // the default maximum value is too low and causes a frequency count failure if not increased
+    TRNG0_SDCTL = ((1600 << 16) | (2500));                               // entropy delay and sample size reduced to half of default
+    TRNG0_MCTL = (TRNG_MCTL_PRGM_RUN | TRNG_MCTL_SAMP_MODE_VON_NEUMANN | TRNG_MCTL_TRNG_ACC | TRNG_MCTL_OSC_DIV_1); // set to run mode with TRNG access
     #endif
 }
 
@@ -568,32 +572,99 @@ extern void fnInitialiseRND(unsigned short *usSeedValue)
 //
 extern unsigned short fnGetRndHW(void)
 {
+    #if defined RANDOM_NUMBER_GENERATOR_B                                // {64} support revison 1 types
     unsigned long ulRandomNumber;
-    #if defined RANDOM_NUMBER_GENERATOR_B                                // {64}
-    while (RNG_SR & RNG_SR_BUSY) {}                                      // wait for the RNGB to become ready (it may be seeding)
-    while ((RNG_SR & RNG_SR_FIFO_LVL_MASK) == 0) {                       // wait for at least one output word to become available
         #if defined _WINDOWS
-        RNG_OUT = rand();
-        RNG_SR |= 0x00000100;                                            // put one result in the FIFO
-        #endif
+    if (IS_POWERED_UP(3, RNGB) == 0) {
+        _EXCEPTION("Warning: RNG being used before initialised!!!");
     }
-    ulRandomNumber = RNG_OUT;                                            // read from the FIFO
-        #if defined _WINDOWS
-    RNG_SR &= ~RNG_SR_FIFO_LVL_MASK;
         #endif
-    #else                                                                // RNGA
-    while (!(RNG_SR & RNG_SR_OREG_LVL)) {                                // wait for an output to become available
-        #if defined _WINDOWS
-        RNG_SR |= RNG_SR_OREG_LVL;
-        RNG_OR = rand();
+        #if defined RANDOM_NUMBER_GENERATOR_A                            // {128} support revison 2 types too
+    if (((SIM_SDID & SIM_SDID_REVID_MASK) >> SIM_SDID_REVID_SHIFT)== 0) {// if not from revision 2 part
         #endif
+        while ((RNG_SR & RNG_SR_BUSY) != 0) {}                           // wait for the RNGB to become ready (it may be seeding)
+        while ((RNG_SR & RNG_SR_FIFO_LVL_MASK) == 0) {                   // wait for at least one output word to become available
+        #if defined _WINDOWS
+            RNG_OUT = rand();
+            RNG_SR |= 0x00000100;                                        // put one result in the FIFO
+        #endif
+        }
+        ulRandomNumber = RNG_OUT;                                        // read from the FIFO
+        #if defined _WINDOWS
+        RNG_SR &= ~RNG_SR_FIFO_LVL_MASK;
+        #endif
+        return (unsigned short)(ulRandomNumber);                         // return 16 bits of output
+        #if defined RANDOM_NUMBER_GENERATOR_A
     }
-        #if defined _WINDOWS
-    RNG_SR &= ~RNG_SR_OREG_LVL;
         #endif
-    ulRandomNumber = RNG_OR;                                             // read output value that has been generated
     #endif
+    #if defined RANDOM_NUMBER_GENERATOR_A                                // RNGA
+        #if !defined RANDOM_NUMBER_GENERATOR_B
+    unsigned long ulRandomNumber;
+        #endif
+        #if defined _WINDOWS
+    if (IS_POWERED_UP(3, RNGA) == 0) {
+        _EXCEPTION("Warning: RNGA being used before initialised!!!");
+    }
+        #endif
+    while ((RNGA_SR & RNGA_SR_OREG_LVL) == 0) {                          // wait for an output to become available
+        #if defined _WINDOWS
+        RNGA_SR |= RNGA_SR_OREG_LVL;
+        RNGA_OR = rand();
+        #endif
+    }
+        #if defined _WINDOWS
+    RNGA_SR &= ~RNGA_SR_OREG_LVL;
+        #endif
+    ulRandomNumber = RNGA_OR;                                            // read output value that has been generated
     return (unsigned short)(ulRandomNumber);                             // return 16 bits of output
+    #endif
+    #if defined TRUE_RANDOM_NUMBER_GENERATOR
+    static int iEntropyIndex = 0;
+    volatile unsigned long *ptrEntropy = TRNG0_ENT0_ADD;                 // the first entropy register
+        #if defined _WINDOWS
+            #if defined SIM_SCGC3
+    if (IS_POWERED_UP(3, TRNG0) == 0)
+            #else
+    if (IS_POWERED_UP(6, TRNG0) == 0)
+            #endif
+    {
+        _EXCEPTION("Warning: TRNG0 being used before initialised!!!");
+    }
+        #endif
+    ptrEntropy += iEntropyIndex;                                         // read entropy registers 0..15
+    while ((TRNG0_MCTL & TRNG_MCTL_ENT_VAL) == 0) {                      // wait until random value is ready
+        #if defined _WINDOWS
+        TRNG0_ENT0 = rand();
+        TRNG0_ENT1 = rand();
+        TRNG0_ENT2 = rand();
+        TRNG0_ENT3 = rand();
+        TRNG0_ENT4 = rand();
+        TRNG0_ENT5 = rand();
+        TRNG0_ENT6 = rand();
+        TRNG0_ENT7 = rand();
+        TRNG0_ENT8 = rand();
+        TRNG0_ENT9 = rand();
+        TRNG0_ENT10 = rand();
+        TRNG0_ENT11 = rand();
+        TRNG0_ENT12 = rand();
+        TRNG0_ENT13 = rand();
+        TRNG0_ENT14 = rand();
+        TRNG0_ENT15 = rand();
+        TRNG0_MCTL |= TRNG_MCTL_ENT_VAL;                                 // flag that the entropy values are valid
+        #endif
+        if ((TRNG0_MCTL & TRNG_MCTL_ERR) != 0) {                         // if an error is signalled
+            break;
+        }
+    }
+    if (++iEntropyIndex > 15) {
+        iEntropyIndex = 0;
+        #if defined _WINDOWS
+        TRNG0_MCTL &= ~(TRNG_MCTL_ENT_VAL);                              // reading the last entropy register causes the next conversion to be started
+        #endif
+    }
+    return (unsigned short)(*ptrEntropy);
+    #endif
 }
     #else
 // How the random number seed is set depends on the hardware possibilities available.
@@ -624,9 +695,56 @@ extern void fnClearSLCD(void)
 }
 #endif
 
+// This delay ensures at least the requested delay in us
+// - it may be extended by interrupts occuring during its us wait loop that take longer that us to complete
+// - its main use is for short delays to ensure respecting minimum hardware stabilisation times and such
+//
 extern void fnDelayLoop(unsigned long ulDelay_us)
-{ 
-#if !defined TICK_USES_LPTMR && !defined TICK_USES_RTC                   // if the SYSTICK is operating we use it as a us timer for best independence of code execution speed and compiler
+{
+#if defined TSTMR_AVAILABLE                                              // {133}
+    // Use the time stamp timer module to count us
+    //
+    unsigned long ulMatchTimeHigh;
+    unsigned long ulMatchTimeLow;
+    unsigned long ulPresentTimeStamp = TSTMR0_L;                         // get lowest 32 bits of timer
+    (void)TSTMR0_H;                                                      // dummy read of highest 20 bits so that the next low work read is unlocked
+    ulMatchTimeLow = ulPresentTimeStamp;
+    ulMatchTimeHigh = (ulPresentTimeStamp + ulDelay_us);                 // the count value after the delay (rounded up)
+    if (ulMatchTimeHigh > ulPresentTimeStamp) {                          // no long word overflow will normally occur
+        FOREVER_LOOP() {
+            ulPresentTimeStamp = TSTMR0_L;                               // get lowest 32 bits of timer
+            (void)TSTMR0_H;                                              // dummy read of highest 20 bits so that the next low work read is unlocked
+            if ((ulPresentTimeStamp >= ulMatchTimeHigh) || (ulPresentTimeStamp < ulMatchTimeLow)) {
+                // The time has been reached, or passed (including overflow after the match was passed)
+                //
+                return;
+            }
+    #if defined _WINDOWS
+            TSTMR0_L = (TSTMR0_L + 1);
+            if (TSTMR0_L == 0) {
+                TSTMR0_H = (TSTMR0_H + 1);
+            }
+    #endif
+        }
+    }
+    else {                                                               // a long word overfow will occur before the match
+        FOREVER_LOOP() {
+            ulPresentTimeStamp = TSTMR0_L;                               // get lowest 32 bits of timer
+            (void)TSTMR0_H;                                              // dummy read of highest 20 bits so that the next low work read is unlocked
+            if ((ulPresentTimeStamp >= ulMatchTimeHigh) && (ulPresentTimeStamp < ulMatchTimeLow)) {
+                // The time has been reached, or passed
+                //
+                return;
+            }
+    #if defined _WINDOWS
+            TSTMR0_L = (TSTMR0_L + 1);
+            if (TSTMR0_L == 0) {
+                TSTMR0_H = (TSTMR0_H + 1);
+            }
+    #endif
+        }
+    }
+#elif !defined TICK_USES_LPTMR && !defined TICK_USES_RTC                 // if the SYSTICK is operating we use it as a us timer for best independence of code execution speed and compiler
     #define CORE_US (CORE_CLOCK/1000000)                                 // the number of core clocks in a us
     register unsigned long ulMatch;
     register unsigned long _ulDelay_us = ulDelay_us;                     // ensure that the compiler puts the variable in a register rather than work with it on the stack
@@ -653,11 +771,11 @@ extern void fnDelayLoop(unsigned long ulDelay_us)
     #endif
     } while (--_ulDelay_us != 0);                                        // one us period has expired so count down the requested periods until zero
 #else
-    register unsigned long _ulDelay_us = ulDelay_us;                     // ensure that the compiler puts the variable in a register rather than work with it on the stack
-    register unsigned long ul_us;
-    while (_ulDelay_us--) {                                              // for each us required        
+    volatile register unsigned long _ulDelay_us = ulDelay_us;            // {124} ensure that the compiler puts the variable in a register rather than work with it on the stack
+    volatile register unsigned long ul_us;
+    while (_ulDelay_us-- != 0) {                                         // for each us required        
         ul_us = (CORE_CLOCK/8000000);                                    // tuned but may be slightly compiler dependent - interrupt processing may increase delay
-        while (ul_us--) {}                                               // simple loop tuned to perform us timing
+        while (ul_us-- != 0) {}                                          // simple loop tuned to perform us timing
     }
 #endif
 }
@@ -683,6 +801,15 @@ INITHW void fnInitHW(void)                                               // perf
     #endif
     #if PORTS_AVAILABLE > 5
         PORT5_DEFAULT_INPUT,
+    #endif
+    #if PORTS_AVAILABLE > 6
+        PORT6_DEFAULT_INPUT,
+    #endif
+    #if PORTS_AVAILABLE > 7
+        PORT7_DEFAULT_INPUT,
+    #endif
+    #if PORTS_AVAILABLE > 8
+        PORT8_DEFAULT_INPUT,
     #endif
     #if defined SUPPORT_ADC                                              // {5}
         ((ADC0_0_START_VOLTAGE * 0xffff) / ADC_REFERENCE_VOLTAGE),
@@ -790,8 +917,8 @@ INITHW void fnInitHW(void)                                               // perf
     #endif
     };
     #if defined RANDOM_NUMBER_GENERATOR && !defined RND_HW_SUPPORT
-    static unsigned short usRandomSeed = 0;
-    ptrSeed = &usRandomSeed;
+  //static unsigned short usRandomSeed = 0;
+  //ptrSeed = &usRandomSeed;
     #endif
     fnInitialiseDevice(ulPortPullups);
 #endif
@@ -804,25 +931,41 @@ INITHW void fnInitHW(void)                                               // perf
     fnInitIP();                                                          // initialise IP routines to run from SRAM
     #endif
 #endif
-#if !defined DEVICE_WITHOUT_DMA && !defined KINETIS_KL
+#if !defined DEVICE_WITHOUT_DMA && ((!defined KINETIS_KL && !defined KINETIS_KM) || defined DEVICE_WITH_eDMA)
+    #if defined KINETIS_WITH_PCC && !defined KINETIS_KE15                // powered up by default in KE15
+    POWER_UP_ATOMIC(0, DMA0);                                            // power up the DMA module
+    #endif
     #if defined DEVICE_WITH_TWO_DMA_GROUPS
     DMA_CR = (DMA_CR_GRP0PRI_0 | DMA_CR_GRP1PRI_1);                      // set the two DMA groups to non-conflicting priorities
     #else
     DMA_CR = 0;
     #endif
 #endif
+#if defined KINETIS_KE15                                                 // ADCs in KE15 are powered up by default
+    PCC_ADC0 = PCC_PR;                                                   // power down ADCs so that their clock source can be configured when needed
+    PCC_ADC1 = PCC_PR;
+#endif
 #if defined DMA_MEMCPY_SET && !defined DEVICE_WITHOUT_DMA                // set the eDMA registers to a known zero state
     {
-    #if !defined KINETIS_KL && !defined KINETIS_KE                       // {80}
+    #if ((!defined KINETIS_KL && !defined KINETIS_KM) || defined DEVICE_WITH_eDMA) // {80}
         unsigned long *ptr_eDMAdes = (unsigned long *)eDMA_DESCRIPTORS;
         KINETIS_DMA_TDC *ptrDMA_TCD = (KINETIS_DMA_TDC *)eDMA_DESCRIPTORS; // {9}
-        ptrDMA_TCD += DMA_MEMCPY_CHANNEL;
+        ptrDMA_TCD += DMA_MEMCPY_CHANNEL;                                // the DMA channel used for memory copy DMA
         while (ptr_eDMAdes < eDMA_DESCRIPTORS_END) {
             *ptr_eDMAdes++ = 0;                                          // clear out DMA descriptors after reset
         }
         ptrDMA_TCD->DMA_TCD_SOFF = 4;                                    // {87} source increment one long word for uMemcpy()
         ptrDMA_TCD->DMA_TCD_DOFF = 4;                                    // destination increment one long word
         ptrDMA_TCD->DMA_TCD_BITER_ELINK = 1;
+        ptrDMA_TCD->DMA_TCD_ATTR = (DMA_TCD_ATTR_DSIZE_32 | DMA_TCD_ATTR_SSIZE_32); // {87} default transfer sizes long words
+        #if defined DMA_MEMCPY_CHANNEL_ALT                               // {127}
+        ptrDMA_TCD = (KINETIS_DMA_TDC *)eDMA_DESCRIPTORS;
+        ptrDMA_TCD += DMA_MEMCPY_CHANNEL_ALT;                            // move to the alternate channel (may be used by interrupts)
+        ptrDMA_TCD->DMA_TCD_SOFF = 4;                                    // source increment one long word for uMemcpy()
+        ptrDMA_TCD->DMA_TCD_DOFF = 4;                                    // destination increment one long word
+        ptrDMA_TCD->DMA_TCD_BITER_ELINK = 1;
+        ptrDMA_TCD->DMA_TCD_ATTR = (DMA_TCD_ATTR_DSIZE_32 | DMA_TCD_ATTR_SSIZE_32); // default transfer sizes long words
+        #endif
         #if defined DMA_CHANNEL_0_PRIORITY                               // user defined channel priorities
         _SET_DMA_CHANNEL_PRIORITY(0, DMA_CHANNEL_0_PRIORITY);            // DMA priority, whereby channel can suspend a lower priority channel
         _SET_DMA_CHANNEL_PRIORITY(1, DMA_CHANNEL_1_PRIORITY);            // all channel priorities are set before use since it can be dangerous to change them later when DMA operations could take place during the process
@@ -841,13 +984,21 @@ INITHW void fnInitHW(void)                                               // perf
         _SET_DMA_CHANNEL_PRIORITY(14, DMA_CHANNEL_14_PRIORITY);
         _SET_DMA_CHANNEL_PRIORITY(15, DMA_CHANNEL_15_PRIORITY);
         _SET_DMA_CHANNEL_CHARACTERISTIC(DMA_MEMCPY_CHANNEL, (DMA_DCHPRI_ECP | DMA_DCHPRI_DPA)); // can be pre-empted by higher priority channel - it is expected that this channel will normally have priority 0
+            #if defined DMA_MEMCPY_CHANNEL_ALT
+        _SET_DMA_CHANNEL_CHARACTERISTIC(DMA_MEMCPY_CHANNEL_ALT, (DMA_DCHPRI_ECP | DMA_DCHPRI_DPA)); // can be pre-empted by higher priority channel - it is expected that this channel will normally have priority 1
+            #endif
         #else                                                            // leave default channel priority (equal to the corresponding channel number)
-        _SET_DMA_CHANNEL_PRIORITY(DMA_MEMCPY_CHANNEL, (/*DMA_DCHPRI_ECP | */DMA_DCHPRI_DPA | 0)); // lowest DMA priority and can be pre-empted by higher priority channel
+        _SET_DMA_CHANNEL_PRIORITY(DMA_MEMCPY_CHANNEL, (DMA_DCHPRI_DPA | DMA_DCHPRI_ECP | 0)); // {137} lowest DMA priority and can be pre-empted by higher priority channel
             #if DMA_MEMCPY_CHANNEL != 0
         _SET_DMA_CHANNEL_PRIORITY(0, (DMA_MEMCPY_CHANNEL));              // no two priorities may ever be the same when the controller is used - switch priorities to avoid
             #endif
+            #if defined DMA_MEMCPY_CHANNEL_ALT                           // {127}
+        _SET_DMA_CHANNEL_PRIORITY(DMA_MEMCPY_CHANNEL_ALT, (DMA_DCHPRI_DPA | DMA_DCHPRI_ECP | 1)); // {137} second lowest DMA priority and can be pre-empted by higher priority channel
+                #if DMA_MEMCPY_CHANNEL_ALT != 1
+        _SET_DMA_CHANNEL_PRIORITY(1, (DMA_MEMCPY_CHANNEL_ALT));          // no two priorities may ever be the same when the controller is used - switch priorities to avoid
+                #endif
+            #endif
         #endif
-        ptrDMA_TCD->DMA_TCD_ATTR = (DMA_TCD_ATTR_DSIZE_32 | DMA_TCD_ATTR_SSIZE_32); // {87} default transfer sizes long words
     #endif
     }
 #endif
@@ -870,21 +1021,27 @@ INITHW void fnInitHW(void)                                               // perf
   //#endif
   //}
 #endif
-    fnUserHWInit();                                                      // allow the user to initialise hardware specific things - note that heap can not be used by this routine
+    fnUserHWInit();                                                      // allow the user to initialise hardware specific things - note that heap cannot be used by this routine
 #if defined _WINDOWS
-    fnSimPorts();                                                        // ensure port states are recognised
+    fnSimPorts(-1);                                                      // ensure port states are recognised
 #endif
-#if defined SPI_SW_UPLOAD || defined SPI_FLASH_FAT || (defined SPI_FILE_SYSTEM && defined FLASH_FILE_SYSTEM)
+#if defined SPI_SW_UPLOAD || defined SPI_FLASH_FAT || ((defined SPI_FILE_SYSTEM || defined SPI_EEPROM_FILE_SYSTEM) && defined FLASH_FILE_SYSTEM)
     // Power up the SPI interface, configure the pins used and select the mode and speed
     //
     POWER_UP_SPI_FLASH_INTERFACE();
-    CONFIGURE_SPI_FLASH_INTERFACE();                                     // configure SPI interface for maximum possible speed (after TICK has been configured due to poential use of delay routine)
+    CONFIGURE_SPI_FLASH_INTERFACE();                                     // configure SPI interface for maximum possible speed (after TICK has been configured due to potential use of delay routine)
     #define _CHECK_SPI_CHIPS                                             // insert manufacturer dependent code
-        #include "spi_flash_kinetis_atmel.h"
-        #include "spi_flash_kinetis_stmicro.h"
-        #include "spi_flash_kinetis_sst25.h"
-        #include "spi_flash_w25q.h"
-        #include "spi_flash_kinetis_s25fl1-k.h"
+    #if defined SPI_FILE_SYSTEM || defined SPI_SW_UPLOAD || defined SPI_FLASH_FAT
+        #include "../SPI_Memory/spi_flash_kinetis_atmel.h"
+        #include "../SPI_Memory/spi_flash_kinetis_stmicro.h"
+        #include "../SPI_Memory/spi_flash_kinetis_sst25.h"
+        #include "../SPI_Memory/spi_flash_w25q.h"
+        #include "../SPI_Memory/spi_flash_s25fl1-k.h"
+        #include "../SPI_Memory/spi_flash_MX25L.h"
+    #endif
+    #if defined SPI_EEPROM_FILE_SYSTEM                                   // {135}
+        #include "../SPI_Memory/spi_eeprom_25AA160.h"
+    #endif
     #undef _CHECK_SPI_CHIPS
 #endif
 }
@@ -894,6 +1051,7 @@ INITHW void fnInitHW(void)                                               // perf
 /*                    General Interrupt Control                        */
 /* =================================================================== */
 
+
 // Routine to disable interrupts during critical region
 //
 extern void uDisable_Interrupt(void)
@@ -901,7 +1059,11 @@ extern void uDisable_Interrupt(void)
 #if defined _WINDOWS
     kinetis.CORTEX_M4_REGS.ulPRIMASK = INTERRUPT_MASKED;                 // mark that interrupts are masked
 #else
+    #if defined SYSTEM_NO_DISABLE_LEVEL
+    uMask_Interrupt(SYSTEM_NO_DISABLE_LEVEL << __NVIC_PRIORITY_SHIFT);   // interrupts with higher priorities are not disabled
+    #else
     __disable_interrupt();                                               // disable interrupts to core
+    #endif
 #endif
     iInterruptLevel++;                                                   // monitor the level of disable nesting
 }
@@ -911,7 +1073,7 @@ extern void uDisable_Interrupt(void)
 extern void uEnable_Interrupt(void)
 {
 #if defined _WINDOWS
-    if (iInterruptLevel == 0) {
+    if (iInterruptLevel == 0) {                                          // it is expected that this routine is only called when interrupts are presently disabled
         // A routine is enabling interrupt although they are presently off. This may not be a serious error but it is unexpected so best check why...
         //
         _EXCEPTION("Unsymmetrical use of interrupt disable/enable detected!!");
@@ -920,12 +1082,16 @@ extern void uEnable_Interrupt(void)
     if ((--iInterruptLevel) == 0) {                                      // only when no more interrupt nesting
 #if defined _WINDOWS
         extern void fnExecutePendingInterrupts(int iRecursive);
-        kinetis.CORTEX_M4_REGS.ulPRIMASK = 0;                            // mark that interrupts are not masked
+        kinetis.CORTEX_M4_REGS.ulPRIMASK = 0;                            // unmask global interrupts
     #if defined RUN_IN_FREE_RTOS
         fnExecutePendingInterrupts(0);                                   // pending interrupts that were blocked by the main task can be executed now
     #endif
 #else
+    #if defined SYSTEM_NO_DISABLE_LEVEL
+        uMask_Interrupt(LOWEST_PRIORITY_PREEMPT_LEVEL << __NVIC_PRIORITY_SHIFT); // allow all interrupts again
+    #else
         __enable_interrupt();                                            // enable processor interrupts
+    #endif
 #endif
     }
 }
@@ -933,11 +1099,160 @@ extern void uEnable_Interrupt(void)
 // Routine to change interrupt level mask
 //
 #if !defined _COMPILE_KEIL
-extern void uMask_Interrupt(unsigned char ucMaskLevel)                    // {102}
+    #if defined _GNU
+        #define DONT_INLINE __attribute__((noinline))
+    #else
+        #define DONT_INLINE
+    #endif
+extern void DONT_INLINE uMask_Interrupt(unsigned char ucMaskLevel) // {102}
 {
-    #if !defined KINETIS_KL && !defined KINETIS_KE && !defined KINETIS_KV && !defined _WINDOWS
+    #if !defined ARM_MATH_CM0PLUS                                         // mask not supported by Cortex-m0+
+        #if defined _WINDOWS
+    kinetis.CORTEX_M4_REGS.ulBASEPRI = ucMaskLevel;                       // value 0 has no effect - non-zero defines the base priority for exception processing (the processor does not process any exception with a priority value greater than or equal to BASEPRI))
+        #else
     asm("msr basepri, r0");                                               // modify the base priority to block interrupts with a lower priority than this level
     asm("bx lr");                                                         // return
+        #endif
+    #endif
+}
+#endif
+
+
+#if 0                                                                    // example of code that may be usable for Cortex-M0+ to disable all interrupts apart from specified ones
+#define NVIC_SET_REGISTERS  3
+
+static unsigned long _SYSTICK_CSR = 0;
+static unsigned long NVICIntSet[NVIC_SET_REGISTERS] = {0};
+
+#define DISABLEMASK_0_31    0xffffffff                                   // all to be disabled
+#define DISABLEMASK_32_63   0xfffffffe                                   // all to be disabled apart from IRQ32
+#define DISABLEMASK_64_95   0xffffffff                                   // all to be disabled
+#define DISABLEMASK_96_127  0xffffffff                                   // all to be disabled
+#define DISABLEMASK_128_159 0xffffffff                                   // all to be disabled
+#define DISABLEMASK_160_191 0xffffffff                                   // all to be disabled
+#define DISABLEMASK_192_223 0xffffffff                                   // all to be disabled
+#define DISABLEMASK_224_239 0xffffffff                                   // all to be disabled
+
+extern void fnDisableOtherInterrupts(void)
+{
+    _SYSTICK_CSR = (SYSTICK_CSR & SYSTICK_TICKINT);                      // save original systick interrupt mask
+    SYSTICK_CSR &= ~(SYSTICK_TICKINT);                                   // disable systick interrupt
+    NVICIntSet[0] = IRQ0_31_SER;                                         // save original NVIC interrupt flags
+    IRQ0_31_CER = DISABLEMASK_0_31;                                      // disable interrupts
+    NVICIntSet[1] = IRQ32_63_SER;
+    IRQ32_63_CER = DISABLEMASK_32_63;
+    #if NVIC_SET_REGISTERS > 2
+    NVICIntSet[2] = IRQ64_95_SER;
+    IRQ64_95_CER = DISABLEMASK_64_95;
+    #endif
+    #if NVIC_SET_REGISTERS > 3
+    NVICIntSet[3] = IRQ96_127_SER
+    IRQ96_127_CER = DISABLEMASK_96_127;
+    #endif
+    #if NVIC_SET_REGISTERS > 4
+    NVICIntSet[4] = IRQ128_159_SER
+    IRQ128_159_CER = DISABLEMASK_128_159;
+    #endif
+    #if NVIC_SET_REGISTERS > 5
+    NVICIntSet[5] = IRQ160_191_SER
+    IRQ160_191_CER = DISABLEMASK_160_191;
+    #endif
+    #if NVIC_SET_REGISTERS > 6
+    NVICIntSet[6] = IRQ192_223_SER
+    IRQ192_223_CER = DISABLEMASK_192_223;
+    #endif
+    #if NVIC_SET_REGISTERS > 7
+    NVICIntSet[7] = IRQ224_239_SER
+    IRQ224_239_CER = DISABLEMASK_224_239;
+    #endif
+}
+
+extern void fnReenableInterrupts(void)
+{
+    SYSTICK_CSR |= _SYSTICK_CSR;                                         // re-enable systick interrupt if it was previously enabled
+    IRQ0_31_SER = NVICIntSet[0];                                         // re-enable previously enabled interrupts
+    IRQ32_63_SER = NVICIntSet[1];
+    #if NVIC_SET_REGISTERS > 2
+    IRQ64_95_SER = NVICIntSet[2];
+    #endif
+    #if NVIC_SET_REGISTERS > 3
+    IRQ96_127_SER = NVICIntSet[3];
+    #endif
+    #if NVIC_SET_REGISTERS > 4
+    IRQ128_159_SER = NVICIntSet[4];
+    #endif
+    #if NVIC_SET_REGISTERS > 5
+    IRQ160_191_SER = NVICIntSet[5];
+    #endif
+    #if NVIC_SET_REGISTERS > 6
+    IRQ192_223_SER = NVICIntSet[6];
+    #endif
+    #if NVIC_SET_REGISTERS > 7
+    IRQ224_239_SER = NVICIntSet[7];
+    #endif
+}
+#endif
+
+#if defined INTMUX0_AVAILABLE                                            // {130}
+
+// Dispatch INTMUX0 source interrupt handler
+//
+static void fnDispatchINTMUX(unsigned long ulInterruptOffset)
+{
+    if (ulInterruptOffset != 0) {                                        // ignore spurious interrupts since they are not latched in the INTMUX
+        void(*ptrIRQ)(void);
+        unsigned char *ptrVect = (unsigned char *)VECTOR_TABLE_OFFSET_REG; // vector table
+        ptrVect += ulInterruptOffset;                                    // move to the offset
+        ptrIRQ = (void(*)(void ))*(unsigned long *)ptrVect;              // load the handler address
+        ptrIRQ();                                                        // call the interrupt handler
+    }
+}
+
+// INTMUX0 channel 0 interrupt
+//
+static void fnINTMUX0(void)
+{
+    fnDispatchINTMUX(INTMUX0_CH0_VEC);                                   // get the highest priority pending interrupt on this channel
+    #if defined _WINDOWS                                                 // assume that the interrupt source was cleared
+    INTMUX0_CH0_IPR_31_0 = 0;
+    INTMUX0_CH0_CSR &= ~(INTMUX_CSR_IRQP);
+    INTMUX0_CH0_VEC = 0;
+    #endif
+}
+
+// INTMUX0 channel 1 interrupt
+//
+static void fnINTMUX1(void)
+{
+    fnDispatchINTMUX(INTMUX0_CH1_VEC);                                   // get the highest priority pending interrupt on this channel
+    #if defined _WINDOWS                                                 // assume that the interrupt source was cleared
+    INTMUX0_CH1_IPR_31_0 = 0;
+    INTMUX0_CH1_CSR &= ~(INTMUX_CSR_IRQP);
+    INTMUX0_CH1_VEC = 0;
+    #endif
+}
+
+// INTMUX0 channel 2 interrupt
+//
+static void fnINTMUX2(void)
+{
+    fnDispatchINTMUX(INTMUX0_CH2_VEC);                                   // get the highest priority pending interrupt on this channel
+    #if defined _WINDOWS                                                 // assume that the interrupt source was cleared
+    INTMUX0_CH2_IPR_31_0 = 0;
+    INTMUX0_CH2_CSR &= ~(INTMUX_CSR_IRQP);
+    INTMUX0_CH2_VEC = 0;
+    #endif
+}
+
+// INTMUX0 channel 3 interrupt
+//
+static void fnINTMUX3(void)
+{
+    fnDispatchINTMUX(INTMUX0_CH3_VEC);                                   // get the highest priority pending interrupt on this channel
+    #if defined _WINDOWS                                                 // assume that the interrupt source was cleared
+    INTMUX0_CH3_IPR_31_0 = 0;
+    INTMUX0_CH3_CSR &= ~(INTMUX_CSR_IRQP);
+    INTMUX0_CH3_VEC = 0;
     #endif
 }
 #endif
@@ -947,7 +1262,12 @@ extern void uMask_Interrupt(unsigned char ucMaskLevel)                    // {10
 extern void fnEnterInterrupt(int iInterruptID, unsigned char ucPriority, void (*InterruptFunc)(void)) // {55}
 {
     volatile unsigned long *ptrIntSet = IRQ0_31_SER_ADD;                 // {73}
+#if defined ARM_MATH_CM0PLUS                                             // only long word accesses are possible to the priority registers
+    volatile unsigned long *ptrPriority = (unsigned long *)IRQ0_3_PRIORITY_REGISTER_ADD;
+    int iShift;
+#else
     volatile unsigned char *ptrPriority = IRQ0_3_PRIORITY_REGISTER_ADD;  // {73}
+#endif
 #if !defined INTERRUPT_VECTORS_IN_FLASH                                  // {111}
     VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
     void (**processor_ints)(void);
@@ -958,15 +1278,70 @@ extern void fnEnterInterrupt(int iInterruptID, unsigned char ucPriority, void (*
     unsigned long ulState2 = IRQ64_95_SER;
     IRQ0_31_SER = IRQ32_63_SER = IRQ64_95_SER = IRQ0_31_CER = IRQ32_63_CER = IRQ64_95_CER = 0; // reset registers
 #endif
+#if defined INTMUX0_AVAILABLE                                            // {130}
+    if (iInterruptID >= irq_INTMUX0_0_ID) {
+        KINETIS_INTMUX *ptrINTMUX = (KINETIS_INTMUX *)INTMUX0_BLOCK;
+        int iChannel = (iInterruptID - irq_INTMUX0_0_ID);
+    #if defined KINETIS_WITH_PCC
+        PCC_INTMUX0 |= PCC_CGC;
+    #else
+        POWER_UP_ATOMIC(6, INTMUX0);                                     // power up the INTMUX0 module
+    #endif
+        ptrINTMUX += iChannel;                                           // moved to the channel to be used
+        ptrINTMUX->INTMUX_CHn_IER_31_0 |= (1 << ucPriority);             // enable the peripheral source interrupt to the INTMUX module
+    #if !defined INTERRUPT_VECTORS_IN_FLASH
+        processor_ints = (void(**)(void))&ptrVect->processor_interrupts; // first processor interrupt location in the vector table
+        processor_ints += (irq_INTMUX0_3_ID + 1 + ucPriority);           // move the pointer to the location used by this interrupt number
+        *processor_ints = InterruptFunc;                                 // enter the interrupt handler into the (extended) vector table
+    #endif
+        iInterruptID = (irq_INTMUX0_0_ID + iChannel);
+        switch (iChannel) {
+        case 0:
+            InterruptFunc = fnINTMUX0;
+            ucPriority = PRIORITY_INTMUX0_0_INT;
+            break;
+        case 1:
+            InterruptFunc = fnINTMUX1;
+            ucPriority = PRIORITY_INTMUX0_1_INT;
+            break;
+        case 2:
+            InterruptFunc = fnINTMUX2;
+            ucPriority = PRIORITY_INTMUX0_2_INT;
+            break;
+        case 3:
+            InterruptFunc = fnINTMUX3;
+            ucPriority = PRIORITY_INTMUX0_3_INT;
+            break;
+        default:
+            _EXCEPTION("Illegal INTMUX0 channel!");
+            break;
+        }
+    }
+#endif
+#if defined _WINDOWS                                                     // check for valid interrupt priority range
+    if (ucPriority > INTERRUPT_LOWEST_PRIORITY) {
+    #if defined ARM_MATH_CM0PLUS
+            _EXCEPTION("Invalid Cortex-M0+ priority being used!!");
+    #else
+            _EXCEPTION("Invalid Cortex-M4 priority being used!!");
+    #endif
+    }
+#endif
 #if !defined INTERRUPT_VECTORS_IN_FLASH
     processor_ints = (void (**)(void))&ptrVect->processor_interrupts;    // first processor interrupt location in the vector table
     processor_ints += iInterruptID;                                      // move the pointer to the location used by this interrupt number
-    *processor_ints = InterruptFunc;                                     // enter the interrupt handler into the vector tale
+    *processor_ints = InterruptFunc;                                     // enter the interrupt handler into the vector table
 #endif
+#if defined ARM_MATH_CM0PLUS
+    ptrPriority += (iInterruptID/4);                                     // move to the priority location used by this interrupt
+    iShift = ((iInterruptID % 4) * 8);
+    *ptrPriority = ((*ptrPriority & ~(0xff << iShift)) | (ucPriority << (iShift + __NVIC_PRIORITY_SHIFT)));
+#else
     ptrPriority += iInterruptID;                                         // move to the priority location used by this interrupt
-    *ptrPriority = (ucPriority << __NVIC_PRIORITY_SHIFT);                // {48} define the interrupt's priority (16 levels for K and 4 levels for KE/KL)
+    *ptrPriority = (ucPriority << __NVIC_PRIORITY_SHIFT);                // {48} define the interrupt's priority (16 levels for Cortex-m4 and 4 levels for Cortex-m0+)
+#endif
     ptrIntSet += (iInterruptID/32);                                      // move to the interrupt enable register in which this interrupt is controlled
-    *ptrIntSet = (0x01 << (iInterruptID%32));                            // enable the interrupt
+    *ptrIntSet = (0x01 << (iInterruptID % 32));                          // enable the interrupt
 #if defined _WINDOWS
     IRQ0_31_SER  |= ulState0;                                            // synchronise the interrupt masks
     IRQ32_63_SER |= ulState1;
@@ -974,6 +1349,88 @@ extern void fnEnterInterrupt(int iInterruptID, unsigned char ucPriority, void (*
     IRQ0_31_CER   = IRQ0_31_SER;
     IRQ32_63_CER  = IRQ32_63_SER;
     IRQ64_95_CER  = IRQ64_95_SER;
+#endif
+}
+
+extern void fnMaskInterrupt(int iInterruptID)                            // {131}
+{
+#if defined _WINDOWS                                                     // back up the present enabled interrupt registers
+    IRQ0_31_CER = IRQ32_63_CER = IRQ64_95_CER = 0;                       // reset registers
+#endif
+    volatile unsigned long *ptrIntMask = IRQ0_31_CER_ADD;
+    ptrIntMask += (iInterruptID/32);                                     // move to the clear enable register in which this interrupt is controlled
+    *ptrIntMask = (0x01 << (iInterruptID % 32));                         // disable the interrupt
+#if defined _WINDOWS
+    IRQ0_31_SER  &= ~IRQ0_31_CER;                                        // synchronise the interrupt masks
+    IRQ32_63_SER &= ~IRQ32_63_CER;
+    IRQ64_95_SER &= ~IRQ64_95_CER;
+    IRQ0_31_CER   = IRQ0_31_SER;
+    IRQ32_63_CER  = IRQ32_63_SER;
+    IRQ64_95_CER  = IRQ64_95_SER;
+#endif
+}
+
+extern void fnUnmaskInterrupt(int iInterruptID)                          // {143}
+{
+#if defined _WINDOWS                                                     // back up the present enabled interrupt registers
+    unsigned long ulState0 = IRQ0_31_SER;
+    unsigned long ulState1 = IRQ32_63_SER;
+    unsigned long ulState2 = IRQ64_95_SER;
+    IRQ0_31_SER = IRQ32_63_SER = IRQ64_95_SER = IRQ0_31_CER = IRQ32_63_CER = IRQ64_95_CER = 0; // reset registers
+#endif
+    volatile unsigned long *ptrIntSet = IRQ0_31_SER_ADD;
+    ptrIntSet += (iInterruptID / 32);                                    // move to the clear enable register in which this interrupt is controlled
+    *ptrIntSet = (0x01 << (iInterruptID % 32));                          // enable the interrupt
+#if defined _WINDOWS
+    IRQ0_31_SER |= ulState0;                                             // synchronise the interrupt masks
+    IRQ32_63_SER |= ulState1;
+    IRQ64_95_SER |= ulState2;
+    IRQ0_31_CER = IRQ0_31_SER;
+    IRQ32_63_CER = IRQ32_63_SER;
+    IRQ64_95_CER = IRQ64_95_SER;
+#endif
+}
+
+extern void fnClearPending(int iInterruptID)                             // {126}
+{
+    volatile unsigned long *ptrIntClr = IRQ0_31_CPR_ADD;                 // the first clear pending register
+    ptrIntClr += (iInterruptID/32);                                      // move to the clear pending interrupt enable register in which this interrupt is controlled
+    *ptrIntClr = (0x01 << (iInterruptID % 32));                          // clear the pending interrupt
+}
+
+extern int fnIsPending(int iInterruptID)                                 // {126}
+{
+    volatile unsigned long *ptrIntActive = IRQ0_31_CPR_ADD;              // the first clear pending register, which also shows pending interrupts
+    ptrIntActive += (iInterruptID/32);                                   // move to the clear pending interrupt enable register in which this interrupt is controlled
+    return ((*ptrIntActive & (0x01 << (iInterruptID % 32))) != 0);       // return the pending state of this interrupt
+}
+
+// Allow the user to enter an NMI handler, ensuring that the NMI pin is configured as NMI function
+// - note that the NMI may not have been disabled to allow this to work
+//
+extern void fnEnterNMI(void (*_NMI_handler)(void))                       // {140}
+{
+#if !defined INTERRUPT_VECTORS_IN_FLASH 
+    VECTOR_TABLE *ptrVect;
+    #if defined _WINDOWS
+    ptrVect = (VECTOR_TABLE *)&vector_ram;
+    #else
+    ptrVect = (VECTOR_TABLE *)(RAM_START_ADDRESS);
+    #endif
+    #if defined NMI_IN_FLASH
+    ptrVect->reset_vect.ptrNMI = _NMI_handler;                            // enter interrupt handler
+    #else
+    ptrVect->ptrNMI = _NMI_handler;                                       // enter interrupt handler
+    #endif
+    #if defined PB_4_NMI                                                  // set the NMI pin function
+    _CONFIG_PERIPHERAL(B, 4, (PB_4_NMI | PORT_PS_UP_ENABLE));
+    #elif defined PB_18_NMI                                               // set the NMI pin function
+    _CONFIG_PERIPHERAL(B, 18, (PB_18_NMI | PORT_PS_UP_ENABLE));
+    #elif defined PB_5_NMI                                                // set the NMI pin function
+    _CONFIG_PERIPHERAL(B, 5, (PB_5_NMI | PORT_PS_UP_ENABLE));
+    #else
+    _CONFIG_PERIPHERAL(A, 4, (PA_4_NMI | PORT_PS_UP_ENABLE));
+    #endif
 #endif
 }
 
@@ -1006,13 +1463,28 @@ static __interrupt void _RealTimeInterrupt(void)
 }
 #endif
 
+#if defined SUPPORT_LOW_VOLTAGE_DETECTION                                // {136} enable low voltage detection interrupt warning
+// Interrupt to warn that the voltage is close to the reset threshold
+// - the interrupt is disabled since in the case of power loss in progress it will not be possible to clear the interrupt flag
+// - the user callback can request the interrupt to be re-enabled and a clear be attempted by returing a non-zero value if it is prepared to handle multiple interrupts
+//
+static __interrupt void _low_voltage_irq(void)
+{
+    PMC_LVDSC2 &= ~(PMC_LVDSC2_LVWIE);                                   // disable further interrupts so that the processor can continue operation (it can decide to re-enable interrupts if desired)
+    if (fnPowerFailureWarning() != 0) {                                  // user supplied routine to handle power faiure (interrupt call back)
+        OR_ONE_TO_CLEAR(PMC_LVDSC2, (PMC_LVDSC2_LVWACK));                // acknowledge the interrupt and attempt to clear the flag (in the case of power loss in progress this will never be able to clear the flag)
+        PMC_LVDSC2 |= (PMC_LVDSC2);                                      // re-enable the interrupt
+    }
+}
+#endif
 
-// Routine to initialise the tick interrupt (uses Cortex M4/M0+ SysTick timer, RTC or low power timer)
+#if !defined APPLICATION_WITHOUT_TICK
+// Routine to initialise the tick interrupt (uses Cortex M7/M4/M0+ SysTick timer, RTC or low power timer)
 //
 extern void fnStartTick(void)
 {
 #if defined TICK_USES_LPTMR                                              // {94} use the low power timer to derive the tick interrupt from
-    POWER_UP(5, SIM_SCGC5_LPTIMER);                                      // ensure that the timer can be accessed
+    POWER_UP_ATOMIC(5, LPTMR0);                                          // ensure that the timer can be accessed
     LPTMR0_CSR = LPTMR_CSR_TCF;                                          // reset the timer and ensure no pending interrupts
     #if defined LPTMR_CLOCK_LPO                                          // define the low power clock speed for calculations
     LPTMR0_PSR = (LPTMR_PSR_PCS_LPO | LPTMR_PSR_PBYP);
@@ -1022,19 +1494,43 @@ extern void fnStartTick(void)
     #elif defined LPTMR_CLOCK_INTERNAL_4MHz
     MCG_C2 |= MCG_C2_IRCS;                                               // select fast internal reference clock
     LPTMR0_PSR = (LPTMR_PSR_PCS_MCGIRCLK | LPTMR_PSR_PBYP);
-    #elif defined LPTMR_CLOCK_EXTERNAL_32kHz
-    LPTMR0_PSR = (LPTMR_PSR_PCS_ERCLK32K | LPTMR_PSR_PBYP);
-    #else                                                                // LPTMR_CLOCK_OSCERCLK
-    OSC0_CR |= (OSC_CR_ERCLKEN | OSC_CR_EREFSTEN);                       // enable the external reference clock and keep it enabled in stop mode
+    #elif defined LPTMR_CLOCK_RTC_32kHz
+    POWER_UP_ATOMIC(6, RTC);                                             // enable access and interrupts to the RTC
+    if ((RTC_SR & RTC_SR_TIF) != 0) {                                    // if timer invalid
+        RTC_SR = 0;                                                      // ensure stopped
+        RTC_TSR = 0;                                                     // write to clear RTC_SR_TIF in status register when not yet enabled
+        #if !defined KINETIS_KL
+        RTC_CR = (RTC_CR_OSCE);                                          // enable oscillator and supply it to other peripherals
+        #endif
+    }
+    SIM_SOPT1 = ((SIM_SOPT1 & ~SIM_SOPT1_OSC32KSEL_MASK) | SIM_SOPT1_OSC32KSEL_32k); // select ERCLK32K from the RTC 32k clock
+        #if defined KINETIS_K22
+  //SIM_SOPT1 = ((SIM_SOPT1 & ~SIM_SOPT1_OSC32KOUT_MASK) | SIM_SOPT1_OSC32KOUT_PTE0); // 32kHz output to CLKOUT32k pin
+        #endif
         #if defined LPTMR_PRESCALE
     LPTMR0_PSR = (LPTMR_PSR_PCS_OSC0ERCLK | ((LPTMR_PRESCALE_VALUE) << LPTMR_PSR_PRESCALE_SHIFT)); // program prescaler
         #else
+    LPTMR0_PSR = (LPTMR_PSR_PCS_ERCLK32K | LPTMR_PSR_PBYP);
+        #endif
+    #else                                                                // LPTMR_CLOCK_EXTERNAL_32kHz or LPTMR_CLOCK_OSCERCLK
+    OSC0_CR |= (OSC_CR_ERCLKEN | OSC_CR_EREFSTEN);                       // enable the external reference clock and keep it enabled in stop mode
+        #if defined LPTMR_CLOCK_EXTERNAL_32kHz                           // 32kHz crystal
+            #if defined LPTMR_PRESCALE
+    LPTMR0_PSR = (LPTMR_PSR_PCS_OSC0ERCLK | ((LPTMR_PRESCALE_VALUE) << LPTMR_PSR_PRESCALE_SHIFT)); // program prescaler
+            #else
+    LPTMR0_PSR = (LPTMR_PSR_PCS_ERCLK32K | LPTMR_PSR_PBYP);
+            #endif
+        #else
+            #if defined LPTMR_PRESCALE
+    LPTMR0_PSR = (LPTMR_PSR_PCS_OSC0ERCLK | ((LPTMR_PRESCALE_VALUE) << LPTMR_PSR_PRESCALE_SHIFT)); // program prescaler
+            #else
     LPTMR0_PSR = (LPTMR_PSR_PCS_OSC0ERCLK | LPTMR_PSR_PBYP);
+            #endif
         #endif
     #endif
-    fnEnterInterrupt(irq_LPT_ID, LPTMR0_INTERRUPT_PRIORITY, (void (*)(void))_RealTimeInterrupt); // enter interrupt handler
+    fnEnterInterrupt(irq_LPTMR0_ID, LPTMR0_INTERRUPT_PRIORITY, (void (*)(void))_RealTimeInterrupt); // enter interrupt handler
     LPTMR0_CSR |= LPTMR_CSR_TIE;                                         // enable timer interrupt
-    LPTMR0_CMR = LPTMR_MS_DELAY(TICK_RESOLUTION);                        // TICK period
+    LPTMR0_CMR = LPTMR_US_DELAY((TICK_RESOLUTION));                      // TICK period
     #if defined _WINDOWS
     if (LPTMR0_CMR > 0xffff) {
         _EXCEPTION("LPTMR0_CMR value too large (16 bits)");
@@ -1042,12 +1538,14 @@ extern void fnStartTick(void)
     #endif
     LPTMR0_CSR |= LPTMR_CSR_TEN;                                         // enable the low power timer
 #elif defined TICK_USES_RTC                                              // {100} use RTC to derive the tick interrupt from
-    POWER_UP(6, SIM_SCGC6_RTC);                                          // ensure the RTC is powered
+    POWER_UP_ATOMIC(6, RTC);                                             // ensure the RTC is powered
     fnEnterInterrupt(irq_RTC_OVERFLOW_ID, PRIORITY_RTC, (void (*)(void))_RealTimeInterrupt); // enter interrupt handler
-    #if defined RTC_USES_EXT_CLK || defined RTC_USES_INT_REF
-    RTC_MOD = ((((TICK_RESOLUTION * _EXTERNAL_CLOCK)/RTC_CLOCK_PRESCALER_1)/1000) - 1); // set the match value
+    #if defined RTC_USES_EXT_CLK
+    RTC_MOD = (unsigned long)((((unsigned long long)((unsigned long long)TICK_RESOLUTION * (unsigned long long)_EXTERNAL_CLOCK)/RTC_CLOCK_PRESCALER_1)/1000000) - 1); // set the match value
+    #elif defined RTC_USES_INT_REF
+    RTC_MOD = ((((TICK_RESOLUTION * ICSIRCLK)/RTC_CLOCK_PRESCALER_1)/1000000) - 1); // set the match value
     #else
-    RTC_MOD = ((((TICK_RESOLUTION * _EXTERNAL_CLOCK)/RTC_CLOCK_PRESCALER_2)/1000) - 1); // set the match value
+    RTC_MOD = ((((TICK_RESOLUTION * ICSIRCLK) / RTC_CLOCK_PRESCALER_2) / 1000000) - 1); // set the match value
     #endif
     RTC_SC = (RTC_SC_RTIE | RTC_SC_RTIF | _RTC_CLOCK_SOURCE | _RTC_PRESCALER); // clock the RTC from the defined clock source/pre-scaler and enable interrupt
     #if defined _WINDOWS
@@ -1056,7 +1554,7 @@ extern void fnStartTick(void)
     }
     #endif
 #else                                                                    // use systick to derive the tick interrupt from
-    #define REQUIRED_US ((1000000/(TICK_RESOLUTION)))                    // the TICK frequency we require in MHz
+    #define REQUIRED_US (1000000/(TICK_RESOLUTION))                      // the TICK frequency we require in MHz
     #define TICK_DIVIDE (((CORE_CLOCK + REQUIRED_US/2)/REQUIRED_US) - 1) // the divide ratio required (for systick)
 
     #if TICK_DIVIDE > 0x00ffffff
@@ -1083,7 +1581,41 @@ extern void fnStartTick(void)
 #if defined MONITOR_PERFORMANCE                                          // configure a timer that will be used to measure the duration of task operation
     INITIALISE_MONITOR_TIMER();
 #endif
+#if defined SUPPORT_LOW_VOLTAGE_DETECTION                                // {136} enable low voltage detection interrupt warning
+    #if !defined LOW_VOLTAGE_DETECTION_VOLTAGE_mV                        // if no value is defined we delault to 2.10V warning threshold and 1.6V reset threshold
+        #define LOW_VOLTAGE_DETECTION_VOLTAGE_mV   2100
+    #endif
+    fnEnterInterrupt(irq_LOW_VOLTAGE_ID, 0, _low_voltage_irq);           // enter highest priority interrupt to warn of failing voltage
+    #if LOW_VOLTAGE_DETECTION_VOLTAGE_mV > 2400                          // sensitive detection level
+    // K64 reference: high reset threshold is typically 2.56V
+    //
+    PMC_LVDSC1 = (PMC_LVDSC1_LVDV | PMC_LVDSC1_LVDRE | PMC_LVDSC1_LVDACK); // high voltage level trip with reset enabled (clear flag)
+        #if LOW_VOLTAGE_DETECTION_VOLTAGE_mV >= 3000
+    PMC_LVDSC2 = (PMC_LVDSC2_LVWV_HIGH | PMC_LVDSC2_LVWIE | PMC_LVDSC2_LVWACK); // enable low voltage warning interrupt (clear flag) 3.00V typical
+        #elif LOW_VOLTAGE_DETECTION_VOLTAGE_mV >= 2950
+    PMC_LVDSC2 = (PMC_LVDSC2_LVWV_MID2 | PMC_LVDSC2_LVWIE | PMC_LVDSC2_LVWACK); // enable low voltage warning interrupt (clear flag) 2.90V typical
+        #elif LOW_VOLTAGE_DETECTION_VOLTAGE_mV >= 2850
+    PMC_LVDSC2 = (PMC_LVDSC2_LVWV_MID1 | PMC_LVDSC2_LVWIE | PMC_LVDSC2_LVWACK); // enable low voltage warning interrupt (clear flag) 2.80V typical
+        #else
+    PMC_LVDSC2 = (PMC_LVDSC2_LVWV_LOW | PMC_LVDSC2_LVWIE | PMC_LVDSC2_LVWACK); // enable low voltage warning interrupt (clear flag) 2.70V typical
+        #endif
+    #else
+    // K64 reference: low reset threshold is typically 1.6V
+    //
+    PMC_LVDSC1 = (PMC_LVDSC1_LVDRE | PMC_LVDSC1_LVDACK);                 // low voltage level trip with reset enabled (clear flag)
+        #if LOW_VOLTAGE_DETECTION_VOLTAGE_mV > 2050
+    PMC_LVDSC2 = (PMC_LVDSC2_LVWV_HIGH | PMC_LVDSC2_LVWIE | PMC_LVDSC2_LVWACK); // enable low voltage warning interrupt (clear flag) 2.10V typical
+        #elif LOW_VOLTAGE_DETECTION_VOLTAGE_mV >= 1950
+    PMC_LVDSC2 = (PMC_LVDSC2_LVWV_MID2 | PMC_LVDSC2_LVWIE | PMC_LVDSC2_LVWACK); // enable low voltage warning interrupt (clear flag) 2.00V typical
+        #elif LOW_VOLTAGE_DETECTION_VOLTAGE_mV >= 1850
+    PMC_LVDSC2 = (PMC_LVDSC2_LVWV_MID1 | PMC_LVDSC2_LVWIE | PMC_LVDSC2_LVWACK); // enable low voltage warning interrupt (clear flag) 1.90V typical
+        #else
+    PMC_LVDSC2 = (PMC_LVDSC2_LVWV_LOW | PMC_LVDSC2_LVWIE | PMC_LVDSC2_LVWACK); // enable low voltage warning interrupt (clear flag) 1.80V typical
+        #endif
+    #endif
+#endif
 }
+#endif
 
 /* =================================================================== */
 /*                             Watchdog                                */
@@ -1093,13 +1625,17 @@ extern void fnStartTick(void)
 //
 extern void fnRetriggerWatchdog(void)
 {
-#if defined KINETIS_KL && !defined KINETIS_KL82                          // {67}
-    if (SIM_COPC & SIM_COPC_COPT_LONGEST) {                              // if the COP is enabled
-        SIM_SRVCOP = SIM_SRVCOP_1;                                       // issue COP service sequency
+#if defined KINETIS_WITH_WDOG32
+    if ((WDOG0_CS & WDOG_CS_EN) != 0) {
+        REFRESH_WDOG();
+    }
+#elif (defined KINETIS_KL && !defined KINETIS_KL82) || defined KINETIS_KW3X || defined KINETIS_KW4X // {67}
+    if ((SIM_COPC & SIM_COPC_COPT_LONGEST) != 0) {                       // if the COP is enabled
+        SIM_SRVCOP = SIM_SRVCOP_1;                                       // issue COP service sequence
         SIM_SRVCOP = SIM_SRVCOP_2;
     }
 #elif defined KINETIS_KE
-    if (WDOG_CS1 & WDOG_CS1_EN) {                                        // if watchdog is enabled
+    if ((WDOG_CS1 & WDOG_CS1_EN) != 0) {                                 // if watchdog is enabled
         uDisable_Interrupt();                                            // protect the refresh sequence from interrupts
             REFRESH_WDOG();
         uEnable_Interrupt();
@@ -1118,14 +1654,12 @@ extern void fnRetriggerWatchdog(void)
 /* =================================================================== */
 /*                                 DMA                                 */
 /* =================================================================== */
-    #if defined SUPPORT_ADC || (defined SUPPORT_DAC && (DAC_CONTROLLERS > 0)) || (defined SUPPORT_TIMER && defined SUPPORT_PWM_MODULE && (FLEX_TIMERS_AVAILABLE > 0))
-#define _DMA_SHARED_CODE
-    #include "kinetis_DMA.h"                                             // include driver code for peripheral/buffer DMA
-#undef _DMA_SHARED_CODE
-    #endif
-#define _DMA_MEM_TO_MEM
-    #include "kinetis_DMA.h"                                             // include memory-memory transfer code 
-#undef _DMA_MEM_TO_MEM
+    #define _DMA_SHARED_CODE
+        #include "kinetis_DMA.h"                                         // include driver code for peripheral/buffer DMA
+    #undef _DMA_SHARED_CODE
+    #define _DMA_MEM_TO_MEM
+        #include "kinetis_DMA.h"                                         // include memory-memory transfer code 
+    #undef _DMA_MEM_TO_MEM
 #endif
 
 #if (defined ETH_INTERFACE && defined ETHERNET_AVAILABLE && !defined NO_INTERNAL_ETHERNET)
@@ -1141,9 +1675,12 @@ extern void fnRetriggerWatchdog(void)
 /*                                USB                                  */
 /* =================================================================== */
     #if defined USB_HS_INTERFACE
-        #include "kinetis_USB_HS_Device.h"                               // include USB controller hardware HS device driver code
+        #if defined USB_FS_INTERFACE
+             #include "kinetis_USB_FS_OTG.h"                          // include USB controller hardware full-speed OTG driver code
+        #endif
+        #include "kinetis_USB_HS_OTG.h"                               // {144} include USB controller hardware high-speed OTG driver code
     #else
-        #include "kinetis_USB_OTG.h"                                     // {121} include USB controller hardware OTG driver code
+        #include "kinetis_USB_FS_OTG.h"                               // {121}{144} include USB controller hardware full-speed OTG driver code
     #endif
 #endif
 
@@ -1154,8 +1691,14 @@ extern void fnRetriggerWatchdog(void)
     #include "kinetis_UART.h"                                            // include UART/LPUART hardware driver code
 #endif
 
+#if defined SPI_INTERFACE
+/* =================================================================== */
+/*                            SPI Interface                            */
+/* =================================================================== */
+    #include "kinetis_SPI.h"                                             // include SPI hardware driver code
+#endif
 
-#if defined CAN_INTERFACE
+#if defined CAN_INTERFACE && (NUMBER_OF_CAN_INTERFACES > 0)
 /* =================================================================== */
 /*                            FlexCAN/MSCAN                            */
 /* =================================================================== */
@@ -1167,7 +1710,11 @@ extern void fnRetriggerWatchdog(void)
 /* =================================================================== */
 /*                                  I2C                                */
 /* =================================================================== */
-    #include "kinetis_I2C.h"                                             // include I2C hardware driver code
+    #if I2C_AVAILABLE > 0
+        #include "kinetis_I2C.h"                                         // include I2C hardware driver code
+    #elif LPI2C_AVAILABLE > 0
+        #include "kinetis_LPI2C.h"                                       // include LPI2C hardware driver code
+    #endif
 #endif
 
 
@@ -1212,6 +1759,12 @@ extern void fnRetriggerWatchdog(void)
 #undef _LPTMR_CODE
 #endif
 
+#if defined SUPPORT_TIMER && (FLEX_TIMERS_AVAILABLE > 0) && (defined SUPPORT_PWM_MODULE || defined SUPPORT_CAPTURE || defined SUPPORT_TIMER_SQUARE_WAVE)
+/* =================================================================== */
+/*                       FlexTimer/TPM pin connections                 */
+/* =================================================================== */
+    #include "kinetis_timer_pins.h"
+#endif
 
 #if defined SUPPORT_TIMER && (FLEX_TIMERS_AVAILABLE > 0)                 // {72} basic timer support based on FlexTimer
 /* =================================================================== */
@@ -1232,7 +1785,7 @@ extern void fnRetriggerWatchdog(void)
 #endif
 
 
-#if defined SUPPORT_PDB && !defined KINETIS_KL && !defined KINETIS_KE    // {58}
+#if defined SUPPORT_PDB && defined PDB_AVAILABLE                         // {58}
 /* =================================================================== */
 /*                    Programmable Delay Block (PDB)                   */
 /* =================================================================== */
@@ -1294,6 +1847,170 @@ extern void fnRetriggerWatchdog(void)
 #undef _ADC_INTERRUPT_CODE
 #endif
 
+#if defined SUPPORT_COMPARATOR                                           // {138}
+/* =================================================================== */
+/*                            Comparator                               */
+/* =================================================================== */
+#define _CMP_INTERRUPT_CODE
+    #include "kinetis_CMP.h"                                             // include driver code for comparator
+#undef _CMP_INTERRUPT_CODE
+#endif
+
+#if defined MMDVSQ_AVAILABLE                                             // {132}
+/* =================================================================== */
+/*                 Memory-Mapped Divide and Square Root                */
+/* =================================================================== */
+static volatile unsigned char ucMMDVSQ_in_use = 0;
+
+// Warning - do not use from interrupt if it could disturb use already in operation (not protected)
+//
+extern unsigned short fnIntegerSQRT(unsigned long ulInput)
+{
+    register volatile unsigned long ulResult;
+    MMDVSQ0_RCND = ulInput;                                              // write the radicand, which starts the calculation
+    while ((MMDVSQ0_CSR & MMDVSQ0_CSR_BUSY) != 0) {                      // wait until the result is ready
+    }
+    #if defined _WINDOWS
+    MMDVSQ0_RES = (unsigned long)sqrt(MMDVSQ0_RCND);                     // perfrom a traditional square root operation
+    #endif
+    ulResult = MMDVSQ0_RES;                                              // long word read is needed of the result of the square root calculation
+    return ((unsigned short)ulResult);                                   // return the short word result
+}
+
+// This is safe to be used in interrupt routines since it will not disturb an operation in progress
+//
+extern unsigned long fnFastUnsignedModulo(unsigned long ulValue, unsigned long ulMod)
+{
+    if (ucMMDVSQ_in_use != 0) {                                          // if the module is busy we use a traditional calculation
+        return (ulValue % ulMod);
+    }
+    else {
+        unsigned long ulModulo;
+        ucMMDVSQ_in_use = 1;                                             // protect the module from interrupts that may want to use it too
+        MMDVSQ0_CSR = (MMDVSQ0_CSR_REM_REMAINDER | MMDVSQ0_CSR_USGN_UNSIGNED); // perform unsigned division and request the remainder (fast mode is enabled so we don't need to command a start)
+        MMDVSQ0_DEND = ulValue;
+        MMDVSQ0_DSOR = ulMod;
+        while ((MMDVSQ0_CSR & MMDVSQ0_CSR_BUSY) != 0) {                  // wait until the calculation has completed
+        }
+    #if defined _WINDOWS
+        MMDVSQ0_RES = (MMDVSQ0_DEND / MMDVSQ0_DSOR);
+        MMDVSQ0_RES = (MMDVSQ0_DEND - (MMDVSQ0_RES * MMDVSQ0_DSOR));
+    #endif
+        ulModulo = MMDVSQ0_RES;                                          // remainder of the divide calculation
+        ucMMDVSQ_in_use = 0;                                             // module free to use again
+        return ulModulo;
+    }
+}
+
+// This is safe to be used in interrupt routines since it will not disturb an operation in progress
+//
+extern signed long fnFastSignedModulo(signed long slValue, signed long slMod)
+{
+    if (ucMMDVSQ_in_use != 0) {                                          // if the module is busy we use a traditional calculation
+        return (slValue % slMod);
+    }
+    else {
+        signed long slModulo;
+        ucMMDVSQ_in_use = 1;                                             // protect the module from interrupts that may want to use it too
+        MMDVSQ0_CSR = (MMDVSQ0_CSR_REM_REMAINDER | MMDVSQ0_CSR_USGN_SIGNED); // perform signed division and request the remainder (fast mode is enabled so we don't need to command a start)
+        MMDVSQ0_DEND = (signed long)slValue;
+        MMDVSQ0_DSOR = (signed long)slMod;
+        while ((MMDVSQ0_CSR & MMDVSQ0_CSR_BUSY) != 0) {                  // wait until the calculation has completed
+        }
+#if defined _WINDOWS
+        MMDVSQ0_RES = ((signed long)MMDVSQ0_DEND / (signed long)MMDVSQ0_DSOR);
+        MMDVSQ0_RES = (signed long)((signed long)MMDVSQ0_DEND - ((signed long)MMDVSQ0_RES * (signed long)MMDVSQ0_DSOR));
+#endif
+        slModulo = (signed long)MMDVSQ0_RES;                             // remainder of the divide calculation
+        ucMMDVSQ_in_use = 0;                                             // module free to use again
+        return slModulo;
+    }
+}
+
+// This is safe to be used in interrupt routines since it will not disturb an operation in progress
+//
+extern unsigned long fnFastUnsignedIntegerDivide(unsigned long ulDivide, unsigned long ulBy)
+{
+    if (ucMMDVSQ_in_use != 0) {                                          // if the module is busy we use a traditional calculation
+        return (ulDivide / ulBy);
+    }
+    else {
+        unsigned long ulResult;
+        ucMMDVSQ_in_use = 1;                                             // protect the module from interrupts that may want to use it too
+        MMDVSQ0_CSR = (MMDVSQ0_CSR_REM_QUOTIENT | MMDVSQ0_CSR_USGN_UNSIGNED); // perform unsigned division and request the quotient (fast mode is enabled so we don't need to command a start)
+        MMDVSQ0_DEND = ulDivide;
+        MMDVSQ0_DSOR = ulBy;
+        while ((MMDVSQ0_CSR & MMDVSQ0_CSR_BUSY) != 0) {                  // wait until the calculation has completed
+        }
+    #if defined _WINDOWS
+        MMDVSQ0_RES = (MMDVSQ0_DEND / MMDVSQ0_DSOR);
+    #endif
+        ulResult = MMDVSQ0_RES;                                          // result of the divide calculation
+        ucMMDVSQ_in_use = 0;                                             // module free to use again
+        return ulResult;
+    }
+}
+
+// This is safe to be used in interrupt routines since it will not disturb an operation in progress
+//
+extern signed long fnFastSignedIntegerDivide(signed long slDivide, signed long slBy)
+{
+    if (ucMMDVSQ_in_use != 0) {                                          // if the module is busy we use a traditional calculation
+        return (slDivide / slBy);
+    }
+    else {
+        signed long slResult;
+        ucMMDVSQ_in_use = 1;                                             // protect the module from interrupts that may want to use it too
+        MMDVSQ0_CSR = (MMDVSQ0_CSR_REM_QUOTIENT | MMDVSQ0_CSR_USGN_SIGNED); // perform signed division and request the quotient (fast mode is enabled so we don't need to command a start)
+        MMDVSQ0_DEND = (unsigned long)slDivide;
+        MMDVSQ0_DSOR = (unsigned long)slBy;
+        while ((MMDVSQ0_CSR & MMDVSQ0_CSR_BUSY) != 0) {                  // wait until the calculation has completed
+        }
+    #if defined _WINDOWS
+        MMDVSQ0_RES = ((signed long)MMDVSQ0_DEND / (signed long)MMDVSQ0_DSOR);
+    #endif
+        slResult = (signed long)MMDVSQ0_RES;                             // result of the divide calculation
+        ucMMDVSQ_in_use = 0;                                             // module free to use again
+        return slResult;
+    }
+}
+#else
+// If the command are used by processors that do not have co-processor for integer square root it will cause an exception when simulating
+//
+extern unsigned short fnIntegerSQRT(unsigned long ulInput)
+{
+    _EXCEPTION("Not supported on devices without co-processor!");
+    return 0;
+}
+
+// Traditional calculation for compatibility
+//
+extern unsigned long fnFastUnsignedModulo(unsigned long ulValue, unsigned long ulMod)
+{
+    return (ulValue % ulMod);
+}
+
+// Traditional calculation for compatibility
+//
+extern signed long fnFastSignedModulo(signed long slValue, signed long slMod)
+{
+    return (slValue % slMod);
+}
+
+// Traditional calculation for compatibility
+//
+extern unsigned long fnFastUnsignedIntegerDivide(unsigned long ulDivide, unsigned long ulBy)
+{
+    return (ulDivide / ulBy);
+}
+
+// Traditional calculation for compatibility
+//
+extern signed long fnFastSignedIntegerDivide(signed long slDivide, signed long slBy)
+{
+    return (slDivide / slBy);
+}
+#endif
 
 /* =================================================================== */
 /*                General Peripheral/Interrupt Interface               */
@@ -1382,6 +2099,13 @@ extern void fnConfigureInterrupt(void *ptrSettings)
     #undef _ADC_CONFIG_CODE
         break;
 #endif
+#if defined SUPPORT_COMPARATOR
+    case COMPARATOR_INTERRUPT:
+    #define _CMP_CONFIG_CODE
+        #include "kinetis_CMP.h"                                         // include comparator configuration code
+    #undef _CMP_CONFIG_CODE
+        break;
+#endif
     default: 
         _EXCEPTION("Attempting configuration of interrupt interface without appropriate support enabled!!");
         break;
@@ -1408,13 +2132,24 @@ extern void fnResetBoard(void)
 {
     APPLICATION_INT_RESET_CTR_REG = (VECTKEY | SYSRESETREQ);             // request Cortex core reset, which will cause the software reset bit to be set in the mode controller for recognition after restart
 #if !defined _WINDOWS
-    while (1) {}
+    FOREVER_LOOP() {}
 #endif
 }
 
-#if defined CLKOUT_AVAILABLE && !defined KINETIS_WITH_PCC
+#if defined CLKOUT_AVAILABLE
 extern int fnClkout(int iClockSource)                                    // {120}
 {
+    #if defined KINETIS_WITH_PCC
+    switch (iClockSource) {                                              // set the required clock source to be output on CLKOUT
+    case RTC_CLOCK_OUT:
+    #if defined KINETIS_KE15
+        _CONFIG_PERIPHERAL(C, 5, (PC_5_RTC_CLKOUT | PORT_SRE_FAST | PORT_DSE_HIGH)); // configure the CLKOUT pin (the RTC must be operating for the signal to be present)
+    #endif
+        break;
+    default:
+        return -1;                                                       // unsupported
+    }
+    #else
     unsigned long ulSIM_SOPT2 = (SIM_SOPT2 & ~(SIM_SOPT2_CLKOUTSEL_MASK)); // original control register value with clock source masked
     switch (iClockSource) {                                              // set the required clock source to be output on CLKOUT
     case FLASH_CLOCK_OUT:
@@ -1430,38 +2165,43 @@ extern int fnClkout(int iClockSource)                                    // {120
     case EXTERNAL_OSCILLATOR_CLOCK_OUT:
         ulSIM_SOPT2 |= SIM_SOPT2_CLKOUTSEL_OSCERCLK0;
         break;
-    #if defined KINETIS_HAS_IRC48M
+        #if defined KINETIS_HAS_IRC48M
     case INTERNAL_IRC48M_CLOCK_OUT:
         ulSIM_SOPT2 |= SIM_SOPT2_CLKOUTSEL_IRC48M;
         break;
-    #endif
-    case RTC_CLOCK_OUT:
-    #if defined KINETIS_KL03
-        _CONFIG_PERIPHERAL(B, 13, (PB_13_RTC_CLKOUT | PORT_SRE_SLOW | PORT_DSE_LOW)); // configure the RTC_CLKOUT pin
-    #elif defined KINETIS_K64 || defined KINETIS_K65 || defined KINETIS_K66
-        #if defined RTC_CLKOUT_ON_PTE_LOW
-            _CONFIG_PERIPHERAL(E, 0, (PE_0_RTC_CLKOUT | PORT_SRE_SLOW | PORT_DSE_LOW)); // configure the RTC_CLKOUT pin (alt. 7)
-        #else
-            _CONFIG_PERIPHERAL(E, 26, (PE_26_RTC_CLKOUT | PORT_SRE_SLOW | PORT_DSE_LOW)); // configure the RTC_CLKOUT pin (alt. 6)
         #endif
-    #endif
+    case RTC_CLOCK_OUT:
+        #if defined KINETIS_KL03
+        _CONFIG_PERIPHERAL(B, 13, (PB_13_RTC_CLKOUT | PORT_SRE_SLOW | PORT_DSE_LOW)); // configure the RTC_CLKOUT pin
+        #elif defined KINETIS_K24 || defined KINETIS_K64 || defined KINETIS_K65 || defined KINETIS_K66
+            #if defined RTC_CLKOUT_ON_PTE_LOW
+            _CONFIG_PERIPHERAL(E, 0, (PE_0_RTC_CLKOUT | PORT_SRE_SLOW | PORT_DSE_LOW)); // configure the RTC_CLKOUT pin (alt. 7)
+            #else
+            _CONFIG_PERIPHERAL(E, 26, (PE_26_RTC_CLKOUT | PORT_SRE_SLOW | PORT_DSE_LOW)); // configure the RTC_CLKOUT pin (alt. 6)
+            #endif
+        #endif
         return 0;
-    #if defined KINETIS_K64
+        #if defined KINETIS_K64 || (defined KINETIS_K24 && (SIZE_OF_FLASH == (1024 * 1024)))
     case FLEXBUS_CLOCK_OUT:
         ulSIM_SOPT2 &= ~(SIM_SOPT2_CLKOUTSEL_IRC48M);
-    #endif
+        #endif
     default:
         return -1;                                                       // invalid clock source
     }
     SIM_SOPT2 = ulSIM_SOPT2;                                             // select the clock source to be driven to the CLKOUT pin
-    #if defined KINETIS_KL03
-    _CONFIG_PERIPHERAL(A, 12, (PA_12_CLKOUT | PORT_SRE_FAST | PORT_DSE_HIGH)); // configure the CLKOUT pin (PA_4_CLKOUT would be an alternative possibility)
-    #elif defined KINETIS_KL05
-    _CONFIG_PERIPHERAL(A, 15, (PA_15_CLKOUT | PORT_SRE_FAST | PORT_DSE_HIGH)); // configure the CLKOUT pin (PA_4_CLKOUT would be an alternative possibility)
-    #elif defined KINETIS_K64 && (PIN_COUNT == PIN_COUNT_144_PIN)
+        #if (defined KINETIS_KL03 || defined KINETIS_KL05) && defined CLKOUT_ON_PTA4
+    _CONFIG_PERIPHERAL(A, 4, (PA_4_CLKOUT | PORT_SRE_FAST | PORT_DSE_HIGH)); // configure the CLKOUT pin
+        #elif defined KINETIS_KL03
+    _CONFIG_PERIPHERAL(A, 12, (PA_12_CLKOUT | PORT_SRE_FAST | PORT_DSE_HIGH)); // configure the CLKOUT pin
+        #elif defined KINETIS_KL05
+    _CONFIG_PERIPHERAL(A, 15, (PA_15_CLKOUT | PORT_SRE_FAST | PORT_DSE_HIGH)); // configure the CLKOUT pin
+        #elif defined KINETIS_K64 && (PIN_COUNT == PIN_COUNT_144_PIN)
     _CONFIG_PERIPHERAL(A, 6, (PA_6_CLKOUT | PORT_SRE_FAST | PORT_DSE_HIGH)); // configure the CLKOUT pin
-    #else
+        #elif (defined KINETIS_K24 && (SIZE_OF_FLASH == (1024 * 1024))) && defined CLKOUT_ON_PTA
+    _CONFIG_PERIPHERAL(A, 6, (PA_6_CLKOUT | PORT_SRE_FAST | PORT_DSE_HIGH)); // configure the CLKOUT pin
+        #else
     _CONFIG_PERIPHERAL(C, 3, (PC_3_CLKOUT | PORT_SRE_FAST | PORT_DSE_HIGH)); // configure the CLKOUT pin
+        #endif
     #endif
     return 0;                                                            // valid clock source has been selected
 }
@@ -1478,7 +2218,7 @@ extern unsigned char fnSPI_Flash_available(void)
     #if defined SPI_FLASH_MULTIPLE_CHIPS
 extern unsigned char fnSPI_FlashExt_available(int iExtension)
 {
-    if (iExtension > SPI_FLASH_DEVICE_COUNT) {
+    if (iExtension >= SPI_FLASH_DEVICE_COUNT) {
         return 0;
     }
     return ucSPI_FLASH_Type[iExtension];
@@ -1495,7 +2235,7 @@ static void fnConfigureSDRAM(void)
     MT46H32M16LFBF-5                                                        default
     MT46H32M16LFBF-6                                                        (compatible)
 */
-    POWER_UP(3, SIM_SCGC3_DDR);                                          // power up the DDR controller
+    POWER_UP_ATOMIC(3, DDR);                                             // power up the DDR controller
 
     // The DDR controller requires MCGDDRCLK2, which is generated by PLL1 ({90} moved to _LowLevelInit() so that it can be shared by FS USB)
     //
@@ -1669,10 +2409,6 @@ static void irq_debug_monitor(void)
 {
 }
 
-static void irq_NMI(void)
-{
-}
-
     #if !defined RUN_IN_FREE_RTOS
 static void irq_SVCall(void)
 {
@@ -1683,13 +2419,27 @@ static void irq_pend_sv(void)
 }
     #endif
 #endif
+#if !defined _MINIMUM_IRQ_INITIALISATION || defined NMI_IN_FLASH         // {123}
+static void irq_NMI(void)
+{
+    #if defined NMI_IN_FLASH                                             // this is executed immediately out of reset if the NMI line is enabled and held low
+        #if defined PB_4_NMI                                             // set the NMI line to an input to remove the NMI function and allow the processor to continue
+    _CONFIG_PORT_INPUT_FAST_LOW(B, PORTB_BIT4, PORT_PS_UP_ENABLE);
+        #elif defined PB_18_NMI                                          // set the NMI line to an input to remove the NMI function and allow the processor to continue
+    _CONFIG_PORT_INPUT_FAST_HIGH(B, PORTB_BIT18, PORT_PS_UP_ENABLE);
+        #else
+    _CONFIG_PORT_INPUT_FAST_LOW(A, PORTA_BIT4, PORT_PS_UP_ENABLE);       // set the NMI line to an input to remove the NMI function and allow the processor to continue
+        #endif
+    #endif
+}
+#endif
 
 
-// Default handler to indicate processor input from unconfigured source
+// Default handler to indicate processor input from un-configured source
 //
 static void irq_default(void)
 {
-    _EXCEPTION("undefined interrupt!!!");
+    _EXCEPTION("undefined interrupt!!! - read the exception number in the Cortex CPU IPSR register to see which vector is pending");
 }
 
 
@@ -1710,7 +2460,7 @@ extern void __init_gnu_data(void)
     const unsigned char *ptrFlash = &__data_load_start__;
     ulInitDataLength = (&__data_end__ - &__data_start__);
     ptrData = &__data_start__;
-    while (ulInitDataLength--) {                                         // initialise data
+    while (ulInitDataLength-- != 0) {                                    // initialise data
         *ptrData++ = *ptrFlash++;
     }
 
@@ -1718,19 +2468,33 @@ extern void __init_gnu_data(void)
     ptrFlash = &__text_load_start__;
     if (ptrFlash != ptrData) {                                           // if a move is required
         ulInitDataLength = (&__text_end__ - &__text_start__);
-        while (ulInitDataLength--) {                                     // initialise text
+        while (ulInitDataLength-- != 0) {                                // initialise text
             *ptrData++ = *ptrFlash++;
         }
     }
     #endif
     ptrData = &__bss_start__;
     ulInitDataLength = (&__bss_end__ - &__bss_start__);
-    while (ulInitDataLength--) {                                         // initialise bss
+    while (ulInitDataLength-- != 0) {                                    // initialise bss
         *ptrData++ = 0;
     }
 }
 #endif
 
+#if defined WDOG_STCTRLL || defined WDOG_CS1                             // {129} watchdog interrupt
+static __interrupt void wdog_irq(void)
+{
+    #if defined WDOG_STCTRLL
+    WDOG_STCTRLL = (WDOG_STCTRLL_INTFLG | WDOG_STCTRLL_RES1);            // clear interrupt flag
+        #if defined _WINDOWS
+    WDOG_STCTRLL = 0;
+        #endif
+    #elif defined WDOG_CS1
+    WRITE_ONE_TO_CLEAR(WDOG_CS2, WDOG_CS2_FLG);                          // clear interrupt flag
+    #endif
+    *BOOT_MAIL_BOX = 0x9876;                                             // set a pattern to the boot mailbox to show that the watchdog interrupt took place
+}
+#endif
 
 // Perform very low level initialisation - called by the start-up code
 //
@@ -1742,7 +2506,7 @@ static void _LowLevelInit(void)
     void (**processor_ints)(void);
     #endif
 #endif
-#if defined KINETIS_K64 && (defined RUN_FROM_HIRC_PLL || defined RUN_FROM_HIRC_FLL || defined RUN_FROM_HIRC) // older K64 devies require the IRC48M to be switched on by the USB module
+#if (defined KINETIS_K64 || (defined KINETIS_K24 && (SIZE_OF_FLASH == (1024 * 1024)))) && (defined RUN_FROM_HIRC_PLL || defined RUN_FROM_HIRC_FLL || defined RUN_FROM_HIRC) // older K64 devices require the IRC48M to be switched on by the USB module
     #define IRC48M_TIMEOUT 1000
     int iIRC48M_USB_control = 0;
 #endif
@@ -1752,7 +2516,12 @@ static void _LowLevelInit(void)
         ACTIVATE_WATCHDOG();                                             // allow user configuration of internal watchdog timer
     }
     else {                                                               // disable the watchdog
-    #if defined KINETIS_KL && !defined KINETIS_KL82                      // {67}
+    #if defined KINETIS_WITH_WDOG32
+        UNLOCK_WDOG();                                                   // open a window to write to watchdog
+        WDOG0_CS = WDOG_CS_UPDATE;                                       // disable watchdog but allow updates
+        WDOG0_TOVAL = 0xffff;
+        WDOG0_WIN = 0;                                  
+    #elif (defined KINETIS_KL && !defined KINETIS_KL82) || defined KINETIS_KW3X || defined KINETIS_KW4X // {67}
         SIM_COPC = SIM_COPC_COPT_DISABLED;                               // disable the COP
     #else
         UNLOCK_WDOG();                                                   // open a window to write to watchdog
@@ -1767,7 +2536,15 @@ static void _LowLevelInit(void)
     #endif
     }
     #if defined SUPPORT_LOW_POWER && (defined KINETIS_K_FPU || defined KINETIS_KL || defined KINETIS_REVISION_2 || (KINETIS_MAX_SPEED > 100000000))
+        #if defined SUPPORT_LPTMR && LPTMR_AVAILABLE > 0                 // ensure no interrupts pending after waking from VLLS modes via LPTMR
+    POWER_UP_ATOMIC(5, LPTMR0);                                          // power up the low power timer
     PMC_REGSC = PMC_REGSC_ACKISO;                                        // acknowledge the isolation mode to set certain peripherals and I/O pads back to normal run state
+    LPTMR0_CSR = 0;                                                      // clear possible pending interrupt and stop the timer
+    POWER_DOWN_ATOMIC(5, LPTMR0);                                        // power down the low power timer
+    fnClearPending(irq_LPTMR0_ID);
+        #else
+    PMC_REGSC = PMC_REGSC_ACKISO;                                        // acknowledge the isolation mode to set certain peripherals and I/O pads back to normal run state
+        #endif
     #endif
     INIT_WATCHDOG_LED();                                                 // allow user configuration of a blink LED
 #endif
@@ -1777,359 +2554,120 @@ static void _LowLevelInit(void)
 #if defined USER_STARTUP_CODE                                            // {1} allow user defined start-up code immediately after the watchdog configuration and before clock configuration to be defined
     USER_STARTUP_CODE;
 #endif
-#if !defined ERRATA_E2644_SOLVED && !defined KINETIS_FLEX
+#if defined ERRATA_ID_2644 && !defined KINETIS_FLEX
     FMC_PFB0CR &= ~(BANK_DPE | BANKIPE);                                 // disable speculation logic
     FMC_PFB1CR &= ~(BANK_DPE | BANKIPE);
 #endif
-#if !defined ERRATE_E2647_SOLVED && !defined KINETIS_FLEX && (SIZE_OF_FLASH > (256 * 1024))
+#if defined ERRATA_ID_2647 && !defined KINETIS_FLEX && (SIZE_OF_FLASH > (256 * 1024))
     FMC_PFB0CR &= ~(BANKDCE | BANKICE | BANKSEBE);                       // disable cache
     FMC_PFB1CR &= ~(BANKDCE | BANKICE | BANKSEBE);
 #endif
-    // Configure clock generator
-    // - initially the processor is in FEI (FLL Engaged Internal) - Kinetis K presently running from 20..25MHz internal clock (32.768kHz IRC x 640 FLL factor; 20.97MHz)
-    //
-#if defined KINETIS_KE                                                   // KE and KEA presently running at default IRC x FLL frequency
-    SIM_SOPT0 = SIM_SOPT_KE_DEFAULT;                                     // set required default - some fields are "write-only" and so can only be set once
-    #if !defined RUN_FROM_DEFAULT_CLOCK
-    OSC0_CR = (OSC_CR_OSCEN | OSC_CR_OSCSTEN | OSC_CR_OSCOS_SOURCE | _OSC_RANGE); // low gain mode, select crystal range and enable oscillator
-    while ((OSC0_CR & OSC_CR_OSCINIT) == 0) {                            // wait until the oscillator has been initialised
-        #if defined _WINDOWS
-        OSC0_CR |= OSC_CR_OSCINIT;
-        #endif
+#if defined ERRATA_ID_9005
+    CORTEX_ACTLR = CORTEX_ACTLR_DISDEFWBUF;                              // disable write buffer to avoid potential problem of a mismatch between the interrupt acknowledged by the interrupt controller and the vector fetched by the processor (only when MCU not used)
+#endif
+// Configure clock generator
+//
+#if defined HIGH_SPEED_RUN_MODE_AVAILABLE && !defined USE_HIGH_SPEED_RUN_MODE // {134}
+    if (SMC_PMSTAT == SMC_PMSTAT_HSRUN) {                                // if in high speed run mode we switch back to run mode
+        SMC_PMCTRL = (SMC_PMCTRL_STOPM_NORMAL | SMC_PMCTRL_RUNM_NORMAL);
     }
-        #if defined RUN_FROM_EXTERNAL_CLOCK
-    ICS_C1 = (ICS_C1_CLKS_EXTERNAL_REF | _FLL_VALUE);                    // divide value to obtain 31.25kHz..39.06525kHz range from input frequency and select external clock as clock source
-    while (ICS_S & ICS_S_IREFST) {                                       // wait for the clock source to become external clock
-            #if defined _WINDOWS
-        ICS_S &= ~(ICS_S_IREFST);
-            #endif
-    }
-        #else
-    ICS_C1 = (ICS_C1_CLKS_FLL | _FLL_VALUE);                             // divide value to obtain 31.25kHz..39.06525kHz range from input frequency and select FLL as clock source
-    while (ICS_S & ICS_S_IREFST) {                                       // wait for the clock source to become external clock
-            #if defined _WINDOWS
-        ICS_S &= ~(ICS_S_IREFST);
-            #endif
-    }
-    while ((ICS_S & ICS_S_LOCK) == 0) {                                  // wait for the FLL to lock
-            #if defined _WINDOWS
-        ICS_S |= ICS_S_LOCK;
-            #endif
-    }
-        #endif
-    #endif
-    #if (BUS_CLOCK_DIVIDE == 2)
-        #if defined SIM_CLKDIV
-    SIM_CLKDIV = (SIM_CLKDIV_OUTDIV2_2);                                 // bus clock half the system clock (ICSOUTCLK)
-        #else
-    SIM_BUSDIV = SIM_BUSDIVBUSDIV;                                       // bus clock half the system clock (ICSOUTCLK)
-        #endif
-    #else
-        #if defined KINETIS_KE04 || defined KINETIS_KE06
-    SIM_CLKDIV = 0;                                                      // bus clock is equal to the system clock (ICSOUTCLK)
-        #else
-    SIM_BUSDIV = 0;                                                      // bus clock is equal to the system clock (ICSOUTCLK)
-        #endif
-    #endif
-    ICS_C2 = _SYSCLK__DIV;                                               // set system clock frequency (ICSOUTCLK) once the bus/flash divider has been configured
-    #if !defined _WINDOWS
-    ICS_S |= ICS_S_LOLS;                                                 // clear loss of lock status
-    #endif
-#elif defined RUN_FROM_DEFAULT_CLOCK                                     // no configuration performed - remain in default clocked mode
-    #if defined KINETIS_KL
-    SIM_CLKDIV1 = (((SYSTEM_CLOCK_DIVIDE - 1) << 28) | ((FLASH_CLOCK_DIVIDE - 1) << 16)); // prepare system and flash clock divides (valid also as bus clock divider)
-        #if defined FLL_FACTOR
-    MCG_C4 = ((MCG_C4 & ~(MCG_C4_DMX32 | MCG_C4_HIGH_RANGE)) | (_FLL_VALUE)); // adjust FLL factor to obtain the required operating frequency
-        #endif
+#endif
+// Include clock configuration code
+//
+#if defined _WINDOWS || !defined NO_APPLICATION_CLOCK_CONFIGURATION
+    #if defined KINETIS_KE && !defined KINETIS_KE15 && !defined KINETIS_KE18
+        #include "kinetis_KE_CLOCK.h"                                    // KE and KEA clock configuration
+    #elif defined RUN_FROM_HIRC || defined RUN_FROM_HIRC_FLL || defined RUN_FROM_HIRC_PLL // 48MHz
+        #include "kinetis_HIRC.h"                                        // high speed internal clock
+    #elif defined KINETIS_WITH_MCG_LITE
+        #include "kinetis_MCG_LITE.h"                                    // MCG LITE clock configuration
+    #elif defined KINETIS_KL || defined KINETIS_KE15
+        #include "kinetis_KL_CLOCK.h"                                    // KL clock configuration
     #elif defined KINETIS_KV
-        #if defined ADC_CLOCK_ENABLED 
-    SIM_CLKDIV1 = (((SYSTEM_CLOCK_DIVIDE - 1) << 28) | ((BUS_CLOCK_DIVIDE - 1) << 16)  | ((ADC_CLOCK_DIVIDE - 1) << 12) | SIM_OUTDIV5EN); // prepare bus clock divides
-        #else
-    SIM_CLKDIV1 = (((SYSTEM_CLOCK_DIVIDE - 1) << 28) | ((BUS_CLOCK_DIVIDE - 1) << 16)  | SIM_CLKDIV5_ADC_8); // prepare bus clock divides
-        #endif
-        #if defined FLL_FACTOR
-    MCG_C4 = ((MCG_C4 & ~(MCG_C4_DMX32 | MCG_C4_HIGH_RANGE)) | (_FLL_VALUE)); // adjust FLL factor to obtain the required operating frequency
-        #endif
+        #include "kinetis_KV_CLOCK.h"                                    // KV clock configuration
+    #elif defined KINETIS_KW
+        #include "kinetis_KW_CLOCK.h"                                    // KW clock configuration
+    #elif defined KINETIS_KM
+        #include "kinetis_KM_CLOCK.h"                                    // KM clock configuration
     #else
-    SIM_CLKDIV1 = (((SYSTEM_CLOCK_DIVIDE - 1) << 28) | ((BUS_CLOCK_DIVIDE - 1) << 24) | ((FLEX_CLOCK_DIVIDE - 1) << 20) | ((FLASH_CLOCK_DIVIDE - 1) << 16)); // prepare bus clock divides
-        #if defined FLL_FACTOR
-    MCG_C4 = ((MCG_C4 & ~(MCG_C4_DMX32 | MCG_C4_HIGH_RANGE)) | (_FLL_VALUE)); // adjust FLL factor to obtain the required operating frequency
-        #endif
-    #endif
-#elif defined MCG_WITHOUT_PLL && defined RUN_FROM_LIRC
-    MCG_SC = MCG_SC_FCRDIV_1;                                            // no divide after fast clock (4MHz)
-    MCG_C2 |= MCG_C2_IRCS;                                               // select fast internal reference clock (rather than slow one) for MCGIRCLK
-    MCG_C1 = (MCG_C1_IREFSTEN | MCG_C1_IRCLKEN | MCG_C1_CLKS_INTERN_CLK);// enable and select 4MHz IRC clock source and allow it to continue operating in STOP mode
-    while ((MCG_S & MCG_S_CLKST_MASK) != MCG_S_CLKST_INTERN_CLK) {       // wait until the 4MHz IRC source is selected
-    #if defined _WINDOWS
-        MCG_S &= ~MCG_S_CLKST_MASK;
-        MCG_S |= MCG_S_CLKST_INTERN_CLK;
-    #endif
-    }
-    SIM_CLKDIV1 = (((SYSTEM_CLOCK_DIVIDE - 1) << 28) | ((BUS_CLOCK_DIVIDE - 1) << 16)); // set system and bus clock dividers
-#elif defined RUN_FROM_HIRC || defined RUN_FROM_HIRC_FLL || defined RUN_FROM_HIRC_PLL // 48MHz
-    #if !defined KINETIS_K64 && defined SUPPORT_RTC && !defined RTC_USES_RTC_CLKIN && !defined RTC_USES_LPO_1kHz
-    MCG_C2 = MCG_C2_EREFS;                                               // request oscillator
-    OSC0_CR |= (OSC_CR_ERCLKEN | OSC_CR_EREFSTEN);                       // enable the external reference clock and keep it enabled in stop mode
-    #endif
-  //MCG_MC = MCG_MC_HIRCEN;                                              // this is optional and would allow the HIRC to run even when the processor is not working in HIRC mode
-    #if defined MCG_C1_CLKS_HIRC
-    MCG_C1 = MCG_C1_CLKS_HIRC;                                           // select HIRC clock source
-    while ((MCG_S & MCG_S_CLKST_MASK) != MCG_S_CLKST_HICR) {             // wait until the source is selected
-        #if defined _WINDOWS
-        MCG_S &= ~MCG_S_CLKST_MASK;
-        MCG_S |= MCG_S_CLKST_HICR;
-        #endif
-    }
-    SIM_CLKDIV1 = (((SYSTEM_CLOCK_DIVIDE - 1) << 28) | ((BUS_CLOCK_DIVIDE - 1) << 16)); // prepare bus clock divides
-    #else
-    MCG_C7 = MCG_C7_OSCSEL_IRC48MCLK;                                    // route the IRC48M clock to the external reference clock input (this enables IRC48M)
-    SIM_CLKDIV1 = (((SYSTEM_CLOCK_DIVIDE - 1) << 28) | ((BUS_CLOCK_DIVIDE - 1) << 24) | ((FLEX_CLOCK_DIVIDE - 1) << 20) | ((FLASH_CLOCK_DIVIDE - 1) << 16)); // prepare bus clock divides
-    MCG_C1 = (MCG_C1_IREFS | MCG_C1_CLKS_EXTERN_CLK);                    // switch IRC48M reference to MCGOUTCLK
-    while ((MCG_S & MCG_S_CLKST_MASK) != MCG_S_CLKST_EXTERN_CLK) {       // wait until the new source is valid (move to FBI using IRC48M external source is complete)
-        #if defined _WINDOWS
-        MCG_S &= ~MCG_S_CLKST_MASK;
-        MCG_S |= MCG_S_CLKST_EXTERN_CLK;
-        #endif
-        #if defined KINETIS_K64                                          // older K64 devices require the IRC48M to be switched on by the USB module
-        if (++iIRC48M_USB_control >= IRC48M_TIMEOUT) {                   // if the switch-over is taking too long it means that the clock needs to be enabled in the USB controller
-            POWER_UP(4, SIM_SCGC4_USBOTG);                               // power up the USB controller module
-            USB_CLK_RECOVER_IRC_EN = (USB_CLK_RECOVER_IRC_EN_REG_EN | USB_CLK_RECOVER_IRC_EN_IRC_EN); // the IRC48M is only useable when enabled via the USB module
-        }
-        #endif
-    }
-        #if defined RUN_FROM_HIRC_FLL
-    MCG_C2 = (MCG_C2_IRCS | MCG_C2_RANGE_8M_32M);                        // select a high frquency range values so that the FLL input divide range is increased
-    MCG_C1 = (MCG_C1_CLKS_PLL_FLL | MCG_C1_FRDIV_1280);                  // switch FLL input to the external clock source with correct divide value, and select the FLL output for MCGOUTCLK
-    while ((MCG_S & MCG_S_CLKST_MASK) != MCG_S_CLKST_FLL) {              // wait for the output to be set
-        #if defined _WINDOWS
-        MCG_S &= ~MCG_S_CLKST_MASK;
-        MCG_S |= MCG_S_CLKST_FLL;
-        #endif
-    }
-    MCG_C4 = ((MCG_C4 & ~(MCG_C4_DMX32 | MCG_C4_HIGH_RANGE)) | (_FLL_VALUE)); // adjust FLL factor to obtain the required operating frequency
-        #elif defined RUN_FROM_HIRC_PLL                                  // we are presently running directly from the IRC48MCLK and have also determined whether a K64 is an older or newer device (with IRC48M independent from the USB module)
-    MCG_C1 = (MCG_C1_CLKS_EXTERN_CLK | MCG_C1_FRDIV_1280);               // switch the external clock source also to the FLL to satisfy the PBE state requirement
-    MCG_C5 = ((CLOCK_DIV - 1) | MCG_C5_PLLSTEN0);                        // PLL remains enabled in normal stop modes
-    MCG_C6 = ((CLOCK_MUL - MCG_C6_VDIV0_LOWEST) | MCG_C6_PLLS);          // complete PLL configuration and move to PBE
-    while ((MCG_S & MCG_S_PLLST) == 0) {                                 // loop until the PLLS clock source becomes valid
-            #if defined _WINDOWS
-        MCG_S |= MCG_S_PLLST;
-            #endif
-    }
-    while ((MCG_S & MCG_S_LOCK) == 0) {                                  // loop until PLL locks
-            #if defined _WINDOWS
-        MCG_S |= MCG_S_LOCK;
-            #endif
-    }
-    MCG_C1 = (MCG_C1_CLKS_PLL_FLL | MCG_C1_FRDIV_1024);                  // finally move from PBE to PEE mode - switch to PLL clock
-    while ((MCG_S & MCG_S_CLKST_MASK) != MCG_S_CLKST_PLL) {              // loop until the PLL clock is selected
-            #if defined _WINDOWS
-        MCG_S &= ~MCG_S_CLKST_MASK;
-        MCG_S |= MCG_S_CLKST_PLL;
-            #endif
-    }
-        #else
-    MCG_C2 |= MCG_C2_LP;                                                 // set bypass to disable FLL and complete move to BLPE (in which PLL is also always disabled)
-        #endif
-    #endif
-#elif defined KINETIS_WITH_MCG_LITE && defined RUN_FROM_LIRC             // 8MHz default
-    // The IRC8 defaults to 8MHz with no FCRDIV divide
-    //
-    #if defined RUN_FROM_LIRC_2M                                         // select 2MHz ICR rather than 8MHz
-    MCG_C2 = 0;
-    #endif
-    #if defined SLOW_CLOCK_DIVIDE                                        // if a slow clock output divider is specified
-    MCG_SC = SLOW_CLOCK_DIVIDE_VALUE;                                    // select the output divider ratio
-    #endif
-    SIM_CLKDIV1 = (((SYSTEM_CLOCK_DIVIDE - 1) << 28) | ((BUS_CLOCK_DIVIDE - 1) << 16)); // set bus clock divides
-#else
-    #if defined KINETIS_WITH_MCG_LITE                                    // EXT mode (run directly from the oscillator input)
-    MCG_C2 = (MCG_C2_EREFS | MCG_C2_IRCS);                               // select oscillator as external clock source
-    OSC0_CR = (OSC_CR_ERCLKEN | OSC_CR_EREFSTEN);                        // enable the oscillator and allow it to continue oscillating in stop mode
-    SIM_CLKDIV1 = (((SYSTEM_CLOCK_DIVIDE - 1) << 28) | ((BUS_CLOCK_DIVIDE - 1) << 16)); // prepare bus clock divides
-    while ((MCG_S & MCG_S_OSCINIT0) == 0) {                              // wait for the oscillator to start
-        #if defined _WINDOWS
-        MCG_S |= MCG_S_OSCINIT0;
-        #endif
-    }
-    MCG_C1 = MCG_C1_CLKS_EXTERN_CLK;                                     // select external clock source
-    while ((MCG_S & MCG_S_CLKST_MASK) != MCG_S_CLKST_EXT) {              // wait until the source is selected
-    #if defined _WINDOWS
-        MCG_S &= ~MCG_S_CLKST_MASK;
-        MCG_S |= MCG_S_CLKST_EXT;
-    #endif
-    }
-    #elif defined EXTERNAL_CLOCK                                         // first move from state FEI to state FBE
-        #if defined RUN_FROM_HIRC_PLL
-    MCG_C7 = MCG_C7_OSCSEL_IRC48MCLK;                                    // route the IRC48M clock to the external reference clock input (this enables IRC48M)
-        #endif
-        #if defined RUN_FROM_RTC_FLL
-    POWER_UP(6, SIM_SCGC6_RTC);                                          // enable access to the RTC
-    MCG_C7 = MCG_C7_OSCSEL_32K;                                          // select the RTC clock as external clock input to the FLL
-    RTC_CR = (RTC_CR_OSCE);                                              // enable RTC oscillator and output the 32.768kHz output clock so that it can be used by the MCG (the first time that it starts it can have a startup/stabilisation time but this is not critical for the FLL usage)
-    MCG_C1 = ((MCG_C1_CLKS_PLL_FLL | MCG_C1_FRDIV_RANGE0_1) & ~MCG_C1_IREFS); // switch the FLL input to the undivided external clock source (RTC)
-    SIM_CLKDIV1 = (((SYSTEM_CLOCK_DIVIDE - 1) << 28) | ((BUS_CLOCK_DIVIDE - 1) << 24) | ((FLEX_CLOCK_DIVIDE - 1) << 20) | ((FLASH_CLOCK_DIVIDE - 1) << 16)); // prepare bus clock divides
-    while ((MCG_S & MCG_S_IREFST) != 0) {                                // wait until the switch to the external clock source has completed
-            #if defined _WINDOWS
-        MCG_S &= ~(MCG_S_IREFST);
-            #endif
-    }
-    MCG_C4 = ((MCG_C4 & ~(MCG_C4_DMX32 | MCG_C4_HIGH_RANGE)) | (_FLL_VALUE)); // adjust FLL factor to obtain the required operating frequency
-        #elif defined RUN_FROM_RTC_FLL
-    MCG_C4 = ((MCG_C4 & ~(MCG_C4_DMX32 | MCG_C4_HIGH_RANGE)) | (_FLL_VALUE)); // adjust FLL factor to obtain the required operating frequency
-        #else                                                            // external oscillator
-            #if defined KINETIS_KW2X && defined RUN_FROM_MODEM_CLK_OUT
-    // Single crystal with CLK_OUT used by MCU
-    //
-    _CONFIG_DRIVE_PORT_OUTPUT_VALUE_FAST_LOW(C, GPIO5, 0, (PORT_SRE_FAST | PORT_DSE_LOW)); // set the output to select 4MHz CLK_OUT frequency
-    _SETBITS(B, RST_B);                                                  // release the modem reset
-    _CONFIG_PORT_INPUT_FAST_LOW(B, IRQ_B, (PORT_PS_UP_ENABLE));          // enable input to monitor the modem's interrupt line
-                #if !defined _WINDOWS
-    while (_READ_PORT_MASK(B, IRQ_B) != 0) {}                            // wait for modem start-up interrupt request (approx. 25ms)
-                #endif
-            #endif
-            #if EXTERNAL_CLOCK >= 8000000
-    MCG_C2 = (MCG_C2_RANGE_8M_32M | MCG_C2_LOCRE0);                      // select external clock source (with reset on clock loss)
-    MCG_C1 = (MCG_C1_CLKS_EXTERN_CLK | MCG_C1_FRDIV_1024);               // switch to external input clock (the FLL input clock is set to as close to its input range as possible, although this is not absolutely necessary since the FLL will not be used)
-            #else
-    MCG_C2 = (MCG_C2_RANGE_1M_8M | MCG_C2_LOCRE0);                       // select external clock source (with reset on clock loss)
-    MCG_C1 = (MCG_C1_CLKS_EXTERN_CLK | MCG_C1_FRDIV_128);                // switch to external input clock (the FLL input clock is set to as close to its input range as possible, although this is not absolutely necessary since the FLL will not be used)
-            #endif
-        #endif
-    #else                                                                // crystal clock
-        #if defined OSC_LOW_GAIN_MODE                                    // {66} if using low frequency low power mode no external resistor or load capacitors are used
-            #define MCG_C2_GAIN_MODE 0                                   // don't select high gain mode since the oscillator will not start
-        #else
-            #define MCG_C2_GAIN_MODE MCG_C2_HGO                          // select high gain mode
-        #endif
-        #if defined FLL_FACTOR || defined RUN_FROM_EXTERNAL_CLOCK
-    OSC0_CR = (OSC_CR_ERCLKEN | OSC_CR_EREFSTEN);                        // enable the oscillator and allow it to continue oscillating in stop mode
-        #endif
-        #if CRYSTAL_FREQUENCY > 8000000
-    MCG_C2 = (MCG_C2_RANGE_8M_32M | MCG_C2_GAIN_MODE | MCG_C2_EREFS | MCG_C2_LOCRE0); // select crystal oscillator and select a suitable range
-        #elif CRYSTAL_FREQUENCY >= 1000000
-    MCG_C2 = (MCG_C2_RANGE_1M_8M | MCG_C2_GAIN_MODE | MCG_C2_EREFS | MCG_C2_LOCRE0); // select crystal oscillator and select a suitable range
-        #else                                                            // assumed to be 32kHz crystal
-    MCG_C2 = (MCG_C2_RANGE_32K_40K | MCG_C2_GAIN_MODE | MCG_C2_EREFS | MCG_C2_LOCRE0); // select crystal oscillator and select a suitable range
-        #endif
-        #if CRYSTAL_FREQUENCY == 8000000
-    MCG_C1 = (MCG_C1_CLKS_EXTERN_CLK | MCG_C1_FRDIV_256);                // switch to external source (the FLL input clock is set to as close to its input range as possible, although this is not absolutely necessary if the FLL will not be used)
-        #elif CRYSTAL_FREQUENCY == 16000000
-    MCG_C1 = (MCG_C1_CLKS_EXTERN_CLK | MCG_C1_FRDIV_512);                // switch to external source (the FLL input clock is set to as close to its input range as possible, although this is not absolutely necessary if the FLL will not be used)
-        #elif CRYSTAL_FREQUENCY >= 24000000
-    MCG_C1 = (MCG_C1_CLKS_EXTERN_CLK | MCG_C1_FRDIV_1024);               // switch to external source (the FLL input clock is set to as close to its input range as possible, although this is not absolutely necessary if the FLL will not be used)
-        #elif CRYSTAL_FREQUENCY >= 10000000 && CRYSTAL_FREQUENCY <= 12000000
-    MCG_C1 = (MCG_C1_CLKS_EXTERN_CLK | MCG_C1_FRDIV_256);                // switch to external source (the FLL input clock is set to as close to its input range as possible, although this is not absolutely necessary if the FLL will not be used)
-        #elif CRYSTAL_FREQUENCY == 4000000
-    MCG_C1 = (MCG_C1_CLKS_EXTERN_CLK | MCG_C1_FRDIV_128);                // switch to external source (the FLL input clock is set to as close to its input range as possible, although this is not absolutely necessary if the FLL will not be used)
-        #elif CRYSTAL_FREQUENCY == 32768
-            #if !defined FLL_FACTOR
-    MCG_C1 = (MCG_C1_CLKS_EXTERN_CLK | MCG_C1_FRDIV_RANGE0_1);           // switch to external source (the FLL input clock is set to as close to its input range as possible, although this is not absolutely necessary if the FLL will not be used)
-            #endif
-        #else
-            #error crystal speed support needs to be added!
-        #endif
-    while ((MCG_S & MCG_S_OSCINIT) == 0) {                               // loop until the crystal source has been selected
-        #if defined _WINDOWS
-        MCG_S |= MCG_S_OSCINIT;                                          // set the flag indicating that the ocsillator initialisation has completed
-        #endif
-    }
-        #if defined FLL_FACTOR
-            #if defined KINETIS_KL
-    SIM_CLKDIV1 = (((SYSTEM_CLOCK_DIVIDE - 1) << 28) | ((BUS_CLOCK_DIVIDE - 1) << 16)); // prepare bus clock divides
-            #elif defined KINETIS_KV
-                #if defined ADC_CLOCK_ENABLED 
-    SIM_CLKDIV1 = (((SYSTEM_CLOCK_DIVIDE - 1) << 28) | ((BUS_CLOCK_DIVIDE - 1) << 16)  | ((ADC_CLOCK_DIVIDE - 1) << 12) | SIM_OUTDIV5EN); // prepare bus clock divides
-                #else
-    SIM_CLKDIV1 = (((SYSTEM_CLOCK_DIVIDE - 1) << 28) | ((BUS_CLOCK_DIVIDE - 1) << 16)  | ((SIM_CLKDIV5_ADC_8 - 1) << 12)); // prepare bus clock divides
-                #endif
-            #else
-    SIM_CLKDIV1 = (((SYSTEM_CLOCK_DIVIDE - 1) << 28) | ((BUS_CLOCK_DIVIDE - 1) << 24) | ((FLEX_CLOCK_DIVIDE - 1) << 20) | ((FLASH_CLOCK_DIVIDE - 1) << 16)); // prepare bus clock divides
-            #endif
-    MCG_C4 = ((MCG_C4 & ~(MCG_C4_DMX32 | MCG_C4_HIGH_RANGE)) | (_FLL_VALUE)); // adjust FLL factor to obtain the required operating frequency
-    MCG_C1 &= ~(MCG_C1_CLKS_INTERN_CLK | MCG_C1_CLKS_EXTERN_CLK | MCG_C1_IREFS); // move to FEE (MCGOUTCLK is derived from the FLL clock), selecting the external clock as source (rather than slow internal clock)
-    while ((MCG_S & (MCG_S_CLKST_EXTERN_CLK | MCG_S_CLKST_INTERN_CLK)) != MCG_S_CLKST_FLL) { // loop until the FLL clock source becomes valid
-            #if defined _WINDOWS
-        MCG_S &= ~(MCG_S_CLKST_EXTERN_CLK | MCG_S_CLKST_INTERN_CLK);
-            #endif
-    }
-        #endif
-    #endif                                                               // endif not EXTERNAL_CLOCK
-    #if !defined KINETIS_WITH_MCG_LITE && !defined RUN_FROM_RTC_FLL
-    while ((MCG_S & MCG_S_IREFST) != 0) {                                // loop until the FLL source is no longer the internal reference clock
-        #if defined _WINDOWS
-        MCG_S &= ~MCG_S_IREFST;
-        #endif
-    }
-        #if !defined FLL_FACTOR
-    while ((MCG_S & MCG_S_CLKST_MASK) != MCG_S_CLKST_EXTERN_CLK) {       // loop until the external reference clock source is valid
-            #if defined _WINDOWS
-        MCG_S &= ~MCG_S_CLKST_MASK;
-        MCG_S |= MCG_S_CLKST_EXTERN_CLK;
-            #endif
-    }
-            #if defined RUN_FROM_EXTERNAL_CLOCK                          // {101}
-                #if defined KINETIS_KL
-    SIM_CLKDIV1 = (((SYSTEM_CLOCK_DIVIDE - 1) << 28) | ((BUS_CLOCK_DIVIDE - 1) << 16)); // prepare bus clock divides
-                #else
-    SIM_CLKDIV1 = (((SYSTEM_CLOCK_DIVIDE - 1) << 28) | ((BUS_CLOCK_DIVIDE - 1) << 24) | ((FLEX_CLOCK_DIVIDE - 1) << 20) | ((FLASH_CLOCK_DIVIDE - 1) << 16)); // prepare bus clock divides
-                #endif
-            #endif
-        #endif
-        #if defined CLOCK_DIV_1                                          // {90} PLL1 is to be configured and enabled 
-    MCG_C11 = (MCG_C11_PLLREFSEL1_OSC0 | MCG_C11_PLLCLKEN1 | (CLOCK_DIV_1 - 1)); // use OSCO clock source for PLL1 with input divide set
-    MCG_C12 = (CLOCK_MUL_1 - MCG_C12_VDIV1_LOWEST);                      // set multiplier - we don't wait for PLL1 to lock until after PLL0 setup has completed (allow them to lock in parallel)
-        #endif
-        #if !defined FLL_FACTOR && !defined RUN_FROM_EXTERNAL_CLOCK      // {95}
-    MCG_C5 = ((CLOCK_DIV - 1) | MCG_C5_PLLSTEN0);                        // now move from state FEE to state PBE (or FBE) PLL remains enabled in normal stop modes
-    MCG_C6 = ((CLOCK_MUL - MCG_C6_VDIV0_LOWEST) | MCG_C6_PLLS);
-    while ((MCG_S & MCG_S_PLLST) == 0) {                                 // loop until the PLLS clock source becomes valid
-            #if defined _WINDOWS
-        MCG_S |= MCG_S_PLLST;
-            #endif
-    }
-    while ((MCG_S & MCG_S_LOCK) == 0) {                                  // loop until PLL locks
-            #if defined _WINDOWS
-        MCG_S |= MCG_S_LOCK;
-            #endif
-    }
-            #if defined KINETIS_KL
-    SIM_CLKDIV1 = (((SYSTEM_CLOCK_DIVIDE - 1) << 28) | ((BUS_CLOCK_DIVIDE - 1) << 16)); // prepare bus clock divides
-            #else
-    SIM_CLKDIV1 = (((SYSTEM_CLOCK_DIVIDE - 1) << 28) | ((BUS_CLOCK_DIVIDE - 1) << 24) | ((FLEX_CLOCK_DIVIDE - 1) << 20) | ((FLASH_CLOCK_DIVIDE - 1) << 16)); // prepare bus clock divides
-            #endif
-            #if defined HIGH_SPEED_RUN_MODE_AVAILABLE && defined HIGH_SPEED_RUN_MODE_REQUIRED
-    SMC_PMCTRL = SMC_PMCTRL_RUNM_HSRUN;                                  // {118} set high speed run mode (restrictions apply) so that the clock speeds can be obtained  
-            #endif
-    MCG_C1 = (MCG_C1_CLKS_PLL_FLL | MCG_C1_FRDIV_1024);                  // finally move from PBE to PEE mode - switch to PLL clock
-    while ((MCG_S & MCG_S_CLKST_MASK) != MCG_S_CLKST_PLL) {              // loop until the PLL clock is selected
-            #if defined _WINDOWS
-        MCG_S &= ~MCG_S_CLKST_MASK;
-        MCG_S |= MCG_S_CLKST_PLL;
-            #endif
-    }
-        #endif
-        #if defined CLOCK_DIV_1                                          // {90} PLL1 used by FS USB or SDRAM
-    while ((MCG_S2 & MCG_S2_LOCK1) == 0) {                               // loop until PLL1 locks
-            #if defined _WINDOWS
-        MCG_S2 |= MCG_S2_LOCK1;
-            #endif
-    }
-        #endif
+        #include "kinetis_K_CLOCK.h"                                     // K clock configuration
     #endif
 #endif
-#if defined CLKOUT_AVAILABLE && !defined KINETIS_WITH_PCC                // select the clock signal to be driven on CLKOUT pin
-    #if defined KINETIS_K64
-      //fnClkout(FLEXBUS_CLOCK_OUT);                                     // select the clock to monitor on CLKOUT
-    #endif
-    #if defined LOW_POWER_OSCILLATOR_CLOCK_OUT
-      //fnClkout(LOW_POWER_OSCILLATOR_CLOCK_OUT);
-    #endif
+
+#if defined CLKOUT_AVAILABLE                                             // select the clock signal to be driven on CLKOUT pin
+    #if defined KINETIS_WITH_PCC
+    fnClkout(RTC_CLOCK_OUT);
+    #else
+        #if defined KINETIS_K64
+  //fnClkout(FLEXBUS_CLOCK_OUT);                                         // select the clock to monitor on CLKOUT
+        #endif
+        #if defined LOW_POWER_OSCILLATOR_CLOCK_OUT
+  //fnClkout(LOW_POWER_OSCILLATOR_CLOCK_OUT);
+        #endif
+  //fnClkout(BUS_CLOCK_OUT);
   //fnClkout(INTERNAL_IRC48M_CLOCK_OUT);
   //fnClkout(INTERNAL_LIRC_CLOCK_OUT);                                   // equivalent to INTERNAL_MCGIRCLK_CLOCK_OUT
   //fnClkout(EXTERNAL_OSCILLATOR_CLOCK_OUT);
   //fnClkout(RTC_CLOCK_OUT);
+    #endif
+#endif
+#if defined KINETIS_KL && defined ROM_BOOTLOADER && defined BOOTLOADER_ERRATA // {125}
+    if ((RCM_MR & (RCM_MR_BOOTROM_BOOT_FROM_ROM_BOOTCFG0 | RCM_MR_BOOTROM_BOOT_FROM_ROM_FOPT7)) != 0) { // if the reset was via the ROM loader
+        // PORT clock gate, pin mux and peripheral registers are not reset to default values on ROM exit
+        //
+    #if defined KINETIS_KL03
+        if (IS_POWERED_UP(5, PORTA) != 0) {
+            PORTA_PCR5 = PORT_PS_UP_ENABLE;                              // set SPI0 ports back to defaults
+            PORTA_PCR6 = PORT_PS_UP_ENABLE;
+            PORTA_PCR7 = PORT_PS_UP_ENABLE;
+        }
+        if (IS_POWERED_UP(5, PORTB) != 0) {
+            PORTB_PCR0 = PORT_PS_UP_ENABLE;                              // set SPI0 ports back to defaults
+            PORTB_PCR1 = PORT_PS_UP_ENABLE;                              // set LPUART0 ports back to defaults
+            PORTB_PCR2 = PORT_PS_UP_ENABLE;
+            PORTB_PCR3 = PORT_PS_UP_ENABLE;                              // set I2C0 ports back to defaults
+            PORTB_PCR4 = PORT_PS_UP_ENABLE;
+        }
+        SIM_SOPT2 = 0;
+        POWER_DOWN(5, (SIM_SCGC5_PORTA | SIM_SCGC5_PORTB | SIM_SCGC5_LPUART0)); // power down ports and LPUART0
+        POWER_DOWN(4, (SIM_SCGC4_I2C0 | SIM_SCGC4_SPI0));                // power down I2C0 and SPI0
+    #else
+        if (IS_POWERED_UP(5, PORTA) != 0) {
+            PORTA_PCR1 = PORT_PS_UP_ENABLE;                              // set LPUART0, I2C0 and SPI0 ports back to defaults
+            PORTA_PCR2 = PORT_PS_UP_ENABLE;
+        }
+        if (IS_POWERED_UP(5, PORTB) != 0) {
+            PORTB_PCR0 = PORT_PS_UP_ENABLE;
+            PORTB_PCR1 = PORT_PS_UP_ENABLE;
+        }
+        #if PORTS_AVAILABLE > 2
+        if (IS_POWERED_UP(5, PORTC) != 0) {
+            PORTC_PCR4 = PORT_PS_UP_ENABLE;
+            PORTC_PCR5 = PORT_PS_UP_ENABLE;
+            PORTC_PCR6 = PORT_PS_UP_ENABLE;
+            PORTC_PCR7 = PORT_PS_UP_ENABLE;
+        }
+        #endif
+        POWER_DOWN(5, (SIM_SCGC5_PORTA | SIM_SCGC5_PORTB | SIM_SCGC5_PORTC | SIM_SCGC5_PORTD | SIM_SCGC5_PORTE | SIM_SCGC5_LPUART0)); // power down ports and LPUART0
+        POWER_DOWN(4, (SIM_SCGC4_I2C0 | SIM_SCGC4_SPI0));                // power down I2C0 and SPI0
+    #endif
+    #if !defined KINETIS_WITH_PCC
+        SIM_SOPT2 = 0;                                                   // set default LPUART0 clock source 
+    #endif
+        IRQ0_31_CER = 0xffffffff;                                        // disable and clear all possible pending interrupts
+        IRQ32_63_CER = 0xffffffff;
+        IRQ64_95_CER = 0xffffffff;
+        IRQ0_31_CPR = 0xffffffff;
+        IRQ32_63_CPR = 0xffffffff;
+        IRQ64_95_CPR = 0xffffffff;
+        INIT_WATCHDOG_DISABLE();                                         // reinitialise ports that may have been disabled
+        INIT_WATCHDOG_LED();
+        // UART cannot work at 57600 baudrate with default core clock (not worked around)
+        //
+        // COP is disabled in ROM and it cannot be re-enabled by an application that is jumped to from ROM
+        // - cannot be worked around; advise to use FTFL_FOPT_BOOTSRC_SEL_FLASH together with FTFL_FOPT_BOOTPIN_OPT_ENABLE
+        //
+    }
 #endif
 #if defined INTERRUPT_VECTORS_IN_FLASH                                   // {111}
     VECTOR_TABLE_OFFSET_REG = ((unsigned long)&__vector_table);
@@ -2139,15 +2677,18 @@ static void _LowLevelInit(void)
     #else
     ptrVect = (VECTOR_TABLE *)(RAM_START_ADDRESS);
     #endif
-    VECTOR_TABLE_OFFSET_REG   = (unsigned long)ptrVect;                  // position the vector table at the bottom of RAM
     #if !defined _MINIMUM_IRQ_INITIALISATION
-    ptrVect->ptrHardFault     = irq_hard_fault;
+        #if defined NMI_IN_FLASH
+    ptrVect->reset_vect.ptrNMI = irq_NMI;
+        #else
+    ptrVect->ptrNMI           = irq_NMI;
+        #endif
+    ptrVect->ptrHardFault     = irq_hard_fault;                          // enter interrupt handlers for faults
     ptrVect->ptrMemManagement = irq_memory_man;
     ptrVect->ptrBusFault      = irq_bus_fault;
     ptrVect->ptrUsageFault    = irq_usage_fault;
     ptrVect->ptrDebugMonitor  = irq_debug_monitor;
-    ptrVect->ptrSysTick = irq_default;
-    ptrVect->ptrNMI           = irq_NMI;
+    ptrVect->ptrSysTick       = irq_default;
         #if defined RUN_IN_FREE_RTOS
     ptrVect->ptrPendSV        = xPortPendSVHandler;                      // FreeRTOS's PendSV handler
     ptrVect->ptrSVCall        = vPortSVCHandler;                         // FreeRTOS's SCV handler
@@ -2163,17 +2704,22 @@ static void _LowLevelInit(void)
             break;
         }
         processor_ints++;
-    } while (1);
+    } FOREVER_LOOP();
     #else
+        #if defined NMI_IN_FLASH                                         // {123}
+    ptrVect->ptrNMI           = irq_NMI;
+        #else
+    ptrVect->ptrNMI           = irq_default;
+        #endif
     ptrVect->ptrHardFault     = irq_default;
     ptrVect->ptrMemManagement = irq_default;
     ptrVect->ptrBusFault      = irq_default;
     ptrVect->ptrUsageFault    = irq_default;
     ptrVect->ptrDebugMonitor  = irq_default;
-    ptrVect->ptrNMI           = irq_default;
     ptrVect->ptrPendSV        = irq_default;
     ptrVect->ptrSVCall        = irq_default;
     #endif
+    VECTOR_TABLE_OFFSET_REG   = (unsigned long)ptrVect;                  // position the vector table at the bottom of RAM
 #endif
 #if defined (_GNU) || defined _CODE_WARRIOR                              // {110}
     __init_gnu_data();                                                   // initialise variables
@@ -2183,6 +2729,8 @@ static void _LowLevelInit(void)
 #endif
 #if defined _WINDOWS && !defined INTERRUPT_VECTORS_IN_FLASH              // check that the size of the interrupt vectors has not grown beyond that what is expected (increase its space in the script file if necessary!!)
     if (VECTOR_SIZE > CHECK_VECTOR_SIZE) {
+        unsigned long ulVectorSize = VECTOR_SIZE;
+        unsigned long ulCheck = CHECK_VECTOR_SIZE;
         _EXCEPTION("Check the vector table size setting!!");
     }
     #if defined USE_SECTION_PROGRAMMING                                  // {105}
@@ -2193,25 +2741,18 @@ static void _LowLevelInit(void)
     CPACR |= (0xf << 20);                                                // enable access to FPU
 #endif
 #if defined SUPPORT_LOW_POWER
-    #if defined KINETIS_K_FPU || defined KINETIS_KL || defined KINETIS_REVISION_2 || (KINETIS_MAX_SPEED > 100000000)
-        #if !defined SMC_PMPROT_LOW_POWER_LEVEL
-            #if defined HIGH_SPEED_RUN_MODE_AVAILABLE
-                #define SMC_PMPROT_LOW_POWER_LEVEL (SMC_PMPROT_AVLLS | SMC_PMPROT_ALLS | SMC_PMPROT_AVLP | SMC_PMPROT_AHSRUN) // allow all low power modes if nothing else defined
-            #else
-                #define SMC_PMPROT_LOW_POWER_LEVEL (SMC_PMPROT_AVLLS | SMC_PMPROT_ALLS | SMC_PMPROT_AVLP) // allow all low power modes if nothing else defined
-            #endif
-        #endif
-    SMC_PMPROT = SMC_PMPROT_LOW_POWER_LEVEL;                             // {117}
+    #if defined KINETIS_K_FPU || defined KINETIS_KL || defined KINETIS_KM || defined KINETIS_REVISION_2 || (KINETIS_MAX_SPEED > 100000000)
+    SMC_PMPROT = SMC_PMPROT_LOW_POWER_LEVEL;                             // {117} - this may already have been written (with the same value) already during clock initialisation when HSRUN mode is used
     #elif !defined KINETIS_KE && !defined KINETIS_KEA
         #if !defined MC_PMPROT_LOW_POWER_LEVEL
             #define MC_PMPROT_LOW_POWER_LEVEL (MC_PMPROT_AVLP | MC_PMPROT_ALLS | MC_PMPROT_AVLLS1 | MC_PMPROT_AVLLS2 | MC_PMPROT_AVLLS3) // allow all low power modes if nothing else defined
         #endif
     MC_PMPROT = MC_PMPROT_LOW_POWER_LEVEL;                               // {117}
     #endif
-    #if defined ERRATA_ID_8068 && !defined SUPPORT_RTC                   // if low power mode is to be used but the RTC will not be initialsed clear the RTC invalid flag to avoid the low power mode being blocked when e8068 is present
-    POWER_UP(6, SIM_SCGC6_RTC);                                          // temporarily enable the RTC module
+    #if defined ERRATA_ID_8068 && !defined SUPPORT_RTC                   // if low power mode is to be used but the RTC will not be initialised clear the RTC invalid flag to avoid the low power mode being blocked when e8068 is present
+    POWER_UP_ATOMIC(6, RTC);                                             // temporarily enable the RTC module
     RTC_TSR = 0;                                                         // clear the RTC invalid flag with a write of any value to RTC_TSR
-    POWER_DOWN(6, SIM_SCGC6_RTC);                                        // power down the RTC again
+    POWER_DOWN_ATOMIC(6, RTC);                                           // power down the RTC again
     #endif
 #endif
 #if defined _WINDOWS
@@ -2219,6 +2760,23 @@ static void _LowLevelInit(void)
 #endif
 #if defined SET_POWER_MODE
     SET_POWER_MODE();                                                    // {93}
+#endif
+ #if defined WDOG_STCTRLL || defined WDOG_CS1                            // {129}
+    #if defined irq_WDOG_EWM_ID
+    fnEnterInterrupt(irq_WDOG_EWM_ID, 0, wdog_irq);                      // test WDOG interrupt (highest priority)
+    #elif !defined irq_WDOG_ID && defined INTMUX0_AVAILABLE
+    fnEnterInterrupt((irq_INTMUX0_0_ID + INTMUX_WDOG0), INTMUX0_PERIPHERAL_WDOG0_EWM, wdog_irq);// test WDOG interrupt - based on INTMUX
+    #else
+    fnEnterInterrupt(irq_WDOG_ID, 0, wdog_irq);                          // test WDOG interrupt (highest priority)
+    #endif
+#endif
+#if defined DWT_CYCCNT && defined USE_CORTEX_CYCLE_COUNTER
+    DEMCR |= DHCSR_TRCENA;                                               // enable trace for DWT features
+    #if defined ARM_MATH_CM7
+    DWT_LAR = DWT_LAR_UNLOCK;                                            // unlock access to DWT registers
+    #endif
+    DWT_CYCCNT = 0;                                                      // reset the cycle count value
+    DWT_CTRL |= DWT_CTRL_CYCCNTENA;                                      // enable the cycle counter
 #endif
 }
 
@@ -2228,15 +2786,17 @@ static void _LowLevelInit(void)
 //
 extern void start_application(unsigned long app_link_location)
 {
-    #if defined KINETIS_KL || defined KINETIS_KE || defined KINETIS_KV   // {67} cortex-M0+ assembler code
-        #if !defined _WINDOWS
+    #if !defined _WINDOWS
+        #if defined KINETIS_K_FPU
+    asm(" mov r1, #0");
+    asm(" msr control, r1");                                             // {142} disable potential FPU access flag so that subsequent exceptions do not save FPU registers
+        #endif
+        #if defined ARM_MATH_CM0PLUS                                     // {67} cortex-M0+ assembler code
     asm(" ldr r1, [r0,#0]");                                             // get the stack pointer value from the program's reset vector
     asm(" mov sp, r1");                                                  // copy the value to the stack pointer
     asm(" ldr r0, [r0,#4]");                                             // get the program counter value from the program's reset vector
     asm(" blx r0");                                                      // jump to the start address
-        #endif
-    #else                                                                // cortex-M3/M4 assembler code
-        #if !defined _WINDOWS
+        #else                                                            // cortex-M3/M4/M7 assembler code
     asm(" ldr sp, [r0,#0]");                                             // load the stack pointer value from the program's reset vector
     asm(" ldr pc, [r0,#4]");                                             // load the program counter value from the program's reset vector to cause operation to continue from there
         #endif
@@ -2291,7 +2851,6 @@ extern void prvSetupHardware(void)
 }
 #endif
 
-
 // The initial stack pointer and PC value - this is usually linked at address 0x00000000 (or to application start location when working with a boot loader)
 //
 #if defined _COMPILE_IAR
@@ -2317,6 +2876,9 @@ const _RESET_VECTOR __vector_table
 #endif
     (void *)(RAM_START_ADDRESS + (SIZE_OF_RAM - NON_INITIALISED_RAM_SIZE)), // stack pointer to top of RAM
     (void (*)(void))START_CODE,                                          // start address
+#if defined NMI_IN_FLASH                                                 // {123}
+    irq_NMI                                                              // if the NMI is not disabled and the input is 0 out of reset this will be immediately taken
+#endif
 #if defined INTERRUPT_VECTORS_IN_FLASH
     },
 #endif
@@ -2365,9 +2927,13 @@ const _RESET_VECTOR __vector_table
         KINETIS_FLASH_CONFIGURATION_DATAFLASH_PROT
     }
     #endif
-#elif defined INTERRUPT_VECTORS_IN_FLASH                                 // {111} presently used only by the KE04, KEA8 and KL03 (vectors in flash to save space when little flash resources available)
+#elif defined INTERRUPT_VECTORS_IN_FLASH                                 // {111} presently used only by the KE04, KEA8 and KL03 (vectors in flash to save space when little SRAM resources available)
     #if defined _MINIMUM_IRQ_INITIALISATION
+        #if defined NMI_IN_FLASH                                         // {123}
+    irq_NMI,                                                             // if the NMI is not disabled and the input is 0 out of reset this will be immediately taken
+        #else
     irq_default,
+        #endif
     irq_default,
     irq_default,
     irq_default,
@@ -2399,7 +2965,11 @@ const _RESET_VECTOR __vector_table
     0,
     irq_pend_sv,
     #endif
+    #if defined APPLICATION_WITHOUT_TICK
+    irq_default,
+    #else
     _RealTimeInterrupt,                                                  // systick
+    #endif
     {                                                                    // processor specific interrupts
     irq_default,                                                         // 0
     irq_default,                                                         // 1
@@ -2494,7 +3064,7 @@ const _RESET_VECTOR __vector_table
     #if defined TICK_USES_LPTMR
     _RealTimeInterrupt,                                                  // 28
     #elif defined SUPPORT_LPTMR && !defined TICK_USES_LPTMR && !defined KINETIS_KE
-    _LPTMR_periodic,                                                     // 28 warning that only periodic interrupt is supported (not single-shot)
+    _LPTMR0_handler,                                                     // 28
     #else
     irq_default,                                                         // 28
     #endif
@@ -2512,11 +3082,34 @@ const _RESET_VECTOR __vector_table
         #endif
     #endif
     }
-
 #endif
 };
 
 #if !defined _BM_BUILD && !(defined _APPLICATION_VALIDATION && defined _GNU)
+    #if defined USE_BOOT_ROM_CONFIGURATION
+        #if defined _GNU
+const BOOT_ROM_CONFIGURATION __attribute__((section(".f_BCA"))) __Boot_ROM_config
+        #else
+const BOOT_ROM_CONFIGURATION __Boot_ROM_config
+        #endif
+= {
+    { 0xff, 0xff, 0xff, 0xff },
+    { 0xff, 0xff, 0xff, 0xff },
+    { 0xff, 0xff, 0xff, 0xff },
+    { 0xff, 0xff, 0xff, 0xff },
+    0,
+    0,
+    { 0xff, 0xff },
+    { 0xff, 0xff },
+    { 0xff, 0xff },
+    { 0xff, 0xff, 0xff, 0xff },
+    0,
+    0,
+    0,
+    { 0xff, 0xff, 0xff, 0xff },
+};
+    #endif
+
 // Flash configuration - this is linked at address 0x00000400 (when working with standalone-build)
 //
 #if defined _COMPILE_IAR
@@ -2539,11 +3132,19 @@ const KINETIS_FLASH_CONFIGURATION __flash_config
 #endif
 = {
     KINETIS_FLASH_CONFIGURATION_BACKDOOR_KEY,
+    #if defined KINETIS_KE && !defined KINETIS_KE15 && !defined KINETIS_KE18 // {122}
+    0xffffffff,                                                          // reserved - must be 0xffffffff
+    KINETIS_FLASH_CONFIGURATION_EEPROM_PROT,
+    KINETIS_FLASH_CONFIGURATION_PROGRAM_PROTECTION,
+    KINETIS_FLASH_CONFIGURATION_SECURITY,
+    KINETIS_FLASH_CONFIGURATION_NONVOL_OPTION
+    #else
     KINETIS_FLASH_CONFIGURATION_PROGRAM_PROTECTION,
     KINETIS_FLASH_CONFIGURATION_SECURITY,
     KINETIS_FLASH_CONFIGURATION_NONVOL_OPTION,
     KINETIS_FLASH_CONFIGURATION_EEPROM_PROT,
     KINETIS_FLASH_CONFIGURATION_DATAFLASH_PROT
+    #endif
 };
 #if defined _COMPILE_GHS                                                 // {110}
     #pragma ghs section rodata=default

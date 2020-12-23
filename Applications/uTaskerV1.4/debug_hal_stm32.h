@@ -12,7 +12,7 @@
     Project:   uTasker Demonstration project
                - hardware application layer for STM32
     ---------------------------------------------------------------------
-    Copyright (C) M.J.Butcher Consulting 2004..2018
+    Copyright (C) M.J.Butcher Consulting 2004..2020
     *********************************************************************
     This file includes a number of hardware specific routines that are
     included in debug.c. This include file allows the main content of debug.c
@@ -63,7 +63,7 @@ extern int fnPortState(CHAR cPortBit)
     case '4':
         return (_READ_PORT_MASK(E, LED4) != 0);
     }
-    #elif defined NUCLEO_F401RE
+    #elif defined NUCLEO_F401RE || defined NUCLEO_F411RE || defined DISCOVERY_32F411E
     switch (cPortBit) {
     case '1':
         return (_READ_PORT_MASK(A, LED1) != 0);
@@ -74,7 +74,7 @@ extern int fnPortState(CHAR cPortBit)
     case '4':
         return (_READ_PORT_MASK(A, LED4) != 0);
     }
-    #elif defined STM3210C_EVAL
+    #elif defined STM3210C_EVAL || defined MCB32_ARM_KIT
     switch (cPortBit) {
     case '1':
         return (_READ_PORT_MASK(D, LED4) != 0);
@@ -95,6 +95,17 @@ extern int fnPortState(CHAR cPortBit)
         return (_READ_PORT_MASK(F, LED3) != 0);
     case '4':
         return (_READ_PORT_MASK(F, LED4) != 0);
+    }
+    #elif defined STM32_E407 || defined ST_IDP004
+    switch (cPortBit) {
+    case '1':
+        return (_READ_PORT_MASK(C, LED1) != 0);
+    case '2':
+        return (_READ_PORT_MASK(C, LED2) != 0);
+    case '3':
+        return (_READ_PORT_MASK(C, LED3) != 0);
+    case '4':
+        return (_READ_PORT_MASK(C, LED4) != 0);
     }
     #else                                                                // used when LEDs are all on the same port
     switch (cPortBit) {
@@ -138,7 +149,7 @@ extern int fnPortState(CHAR cPortBit)
 //
 extern int fnPortInputConfig(CHAR cPortBit)
 {
-#if defined STM3210C_EVAL                                                // this device doesn't have a conventional DDR register
+#if defined STM3210C_EVAL | defined MCB32_ARM_KIT                        // this device doesn't have a conventional DDR register
     switch (cPortBit) {
     case '1':
         if (GPIOD_CRL & 0x00030000) {                                    // PORTD_BIT4 [(1 << (4 * 4)) | (1 << ((4 * 4) + 1))]
@@ -188,7 +199,7 @@ extern int fnPortInputConfig(CHAR cPortBit)
     default:
         break;
     }
-#elif defined NUCLEO_F401RE
+#elif defined NUCLEO_F401RE || defined NUCLEO_F411RE || defined DISCOVERY_32F411E
     switch (cPortBit) {
     case '1':
         if ((GPIOA_MODER & 0x00000c00) == 0x00000400) {                  // PORTA_BIT5 [(1 << (5 * 4)) | (1 << ((5 * 4) + 1))]
@@ -259,7 +270,7 @@ extern int fnPortInputConfig(CHAR cPortBit)
         }
         break;
     }
-#elif defined NUCLEO_F429ZI || defined NUCLEO_F746ZG
+#elif defined NUCLEO_F429ZI || defined NUCLEO_F767ZI || defined NUCLEO_H743ZI || defined NUCLEO_F746ZG
     switch (cPortBit) {
     case '1':
     #define _PORTBIT_IS_INPUT(ref, bit_number)  ((GPIO##ref##_MODER & ((1 << (bit_number * 2)) | ((1 << ((bit_number * 2) + 1))))) == (1 << (bit_number * 2)))
@@ -305,7 +316,32 @@ extern int fnPortInputConfig(CHAR cPortBit)
     default:
         break;
     }
-#elif defined NUCLEO_F429ZI || defined NUCLEO_L432KC || defined NUCLEO_L031K6 || defined NUCLEO_L011K4 || defined NUCLEO_F031K6 || defined NUCLEO_L496RG || defined NUCLEO_F746ZG
+#elif defined STM32_E407 || defined ST_IDP004
+    switch (cPortBit) {
+    case '1':
+        if ((GPIOC_MODER & 0x0c000000) == 0x04000000) {                  // PORTC_BIT13 [(1 << (13 * 2)) | (1 << ((13 * 2) + 1))]
+            return 0;                                                    // configured as output
+        }
+        break;
+    case '2':
+        if ((GPIOC_MODER & 0x00000003) == 0x00000001) {                  // PORTC_BIT0
+            return 0;
+        }
+        break;
+    case '3':
+        if ((GPIOC_MODER & 0x00000030) == 0x00000010) {                  // PORTC_BIT2
+            return 0;
+        }
+        break;
+    case '4':
+        if ((GPIOC_MODER & 0x000000c0) == 0x00000040) {                  // PORTC_BIT3
+            return 0;
+        }
+        break;
+    default:
+        break;
+    }
+#elif defined NUCLEO_F429ZI || defined NUCLEO_F746ZG || defined NUCLEO_F767ZI || defined NUCLEO_L432KC || defined NUCLEO_L031K6 || defined NUCLEO_L011K4 || defined NUCLEO_F031K6 || defined NUCLEO_L496RG || defined NUCLEO_H743ZI
     switch (cPortBit) {
     case '1':
         if ((GPIOB_MODER & 0x00000030) == 0x00000010) {                  // PORTB_BIT3 [(1 << (3 * 2)) | (1 << ((3 * 2) + 1))]
@@ -392,7 +428,7 @@ extern int fnConfigPort(CHAR cPortBit, CHAR cType)
             _CONFIG_PORT_INPUT(E, (LED4), (INPUT_PULL_UP));              // configure as input with pull-up
             temp_pars->temp_parameters.ucUserOutputs &= ~DEMO_LED_4;     // set present bit as input
             break;
-#elif defined NUCLEO_F401RE
+#elif defined NUCLEO_F401RE || defined NUCLEO_F411RE || defined DISCOVERY_32F411E
         case 0:
             _CONFIG_PORT_INPUT(A, (LED1), (INPUT_PULL_UP));              // configure as input with pull-up
             temp_pars->temp_parameters.ucUserOutputs &= ~DEMO_LED_1;     // set present bit as input
@@ -418,7 +454,7 @@ extern int fnConfigPort(CHAR cPortBit, CHAR cType)
             _CONFIG_PORT_INPUT(C, (DEMO_LED_1 << PORT_SHIFT), (INPUT_PULL_UP)); // configure as input with pull-up
             temp_pars->temp_parameters.ucUserOutputs &= ~DEMO_LED_1;     // set present bit as input
             break;
-#elif defined NUCLEO_F429ZI || defined NUCLEO_L432KC || defined NUCLEO_L031K6 || defined NUCLEO_L011K4 || defined NUCLEO_F031K6 || defined NUCLEO_L496RG || defined NUCLEO_F746ZG
+#elif defined NUCLEO_F429ZI || defined NUCLEO_F746ZG || defined NUCLEO_F767ZI || defined NUCLEO_L432KC || defined NUCLEO_L031K6 || defined NUCLEO_L011K4 || defined NUCLEO_F031K6 || defined NUCLEO_L496RG || defined NUCLEO_H743ZI
         case 0:
             _CONFIG_PORT_INPUT(B, (LED1), (INPUT_PULL_UP));              // configure as input with pull-up
             temp_pars->temp_parameters.ucUserOutputs &= ~0x01;           // set present bit as input
@@ -465,7 +501,24 @@ extern int fnConfigPort(CHAR cPortBit, CHAR cType)
             _CONFIG_PORT_INPUT(F, LED4, (INPUT_PULL_UP));                // configure as input with pull-up
             temp_pars->temp_parameters.ucUserOutputs &= ~DEMO_LED_4;     // set present bit as input
             break;
-#else                                                                    // STM3210C_EVAL
+#elif defined STM32_E407 || defined ST_IDP004
+        case 0:
+            _CONFIG_PORT_INPUT(C, LED1, (INPUT_PULL_UP));                // configure as input with pull-up
+            temp_pars->temp_parameters.ucUserOutputs &= ~DEMO_LED_1;     // set present bit as input
+            break;
+        case 1:
+            _CONFIG_PORT_INPUT(C, LED2, (INPUT_PULL_UP));                // configure as input with pull-up
+            temp_pars->temp_parameters.ucUserOutputs &= ~DEMO_LED_2;     // set present bit as input
+            break;
+        case 2:
+            _CONFIG_PORT_INPUT(C, LED3, (INPUT_PULL_UP));                // configure as input with pull-up
+            temp_pars->temp_parameters.ucUserOutputs &= ~DEMO_LED_3;     // set present bit as input
+            break;
+        case 3:
+            _CONFIG_PORT_INPUT(C, LED4, (INPUT_PULL_UP));                // configure as input with pull-up
+            temp_pars->temp_parameters.ucUserOutputs &= ~DEMO_LED_4;     // set present bit as input
+            break;
+#else                                                                    // STM3210C_EVAL / MCB32_ARM_KIT
         case 0:
             _CONFIG_PORT_INPUT(D, LED4, (INPUT_PULL_UP));                // configure as input with pull-up
             temp_pars->temp_parameters.ucUserOutputs &= ~DEMO_LED_1;     // set present bit as input
@@ -541,7 +594,7 @@ extern int fnConfigPort(CHAR cPortBit, CHAR cType)
             _CONFIG_PORT_OUTPUT(E, (LED4), (OUTPUT_PUSH_PULL | OUTPUT_MEDIUM)); // configure as medium speed output with push-pull output
             temp_pars->temp_parameters.ucUserOutputs |= DEMO_LED_4;     // set present bit as output
             break;
-#elif defined NUCLEO_F401RE
+#elif defined NUCLEO_F401RE || defined NUCLEO_F411RE || defined DISCOVERY_32F411E
         case 0:
             _CONFIG_PORT_OUTPUT(A, (LED1), (OUTPUT_PUSH_PULL | OUTPUT_MEDIUM)); // configure as medium speed output with push-pull output
             temp_pars->temp_parameters.ucUserOutputs |= DEMO_LED_1;      // set present bit as output
@@ -568,7 +621,7 @@ extern int fnConfigPort(CHAR cPortBit, CHAR cType)
             _CONFIG_PORT_OUTPUT(C, (DEMO_LED_1 << PORT_SHIFT), (OUTPUT_PUSH_PULL | OUTPUT_MEDIUM)); // configure as medium speed output with push-pull output
             temp_pars->temp_parameters.ucUserOutputs |= DEMO_LED_1;      // set present bit as output
             break;
-#elif defined NUCLEO_F429ZI || defined NUCLEO_L432KC || defined NUCLEO_L031K6 || defined NUCLEO_L011K4 || defined NUCLEO_F031K6 || defined NUCLEO_L496RG || defined NUCLEO_F746ZG
+#elif defined NUCLEO_F429ZI || defined NUCLEO_F746ZG || defined NUCLEO_F767ZI || defined NUCLEO_L432KC || defined NUCLEO_L031K6 || defined NUCLEO_L011K4 || defined NUCLEO_F031K6 || defined NUCLEO_L496RG || defined NUCLEO_H743ZI
         case 0:
             _CONFIG_PORT_OUTPUT(B, (LED1), (OUTPUT_PUSH_PULL | OUTPUT_MEDIUM)); // configure as medium speed output with push-pull output
             temp_pars->temp_parameters.ucUserOutputs |= 0x01;            // set present bit as output
@@ -615,7 +668,24 @@ extern int fnConfigPort(CHAR cPortBit, CHAR cType)
             _CONFIG_PORT_OUTPUT(F, (DEMO_LED_4 << PORT_SHIFT), (OUTPUT_PUSH_PULL | OUTPUT_MEDIUM)); // configure as medium speed output with push-pull output
             temp_pars->temp_parameters.ucUserOutputs |= DEMO_LED_4;      // set present bit as output
             break;
-#else                                                                    // STM3210C_EVAL
+#elif defined STM32_E407 || defined ST_IDP004
+        case 0:
+            _CONFIG_PORT_OUTPUT(C, (LED1), (OUTPUT_PUSH_PULL | OUTPUT_MEDIUM)); // configure as medium speed output with push-pull output
+            temp_pars->temp_parameters.ucUserOutputs |= DEMO_LED_1;      // set present bit as output
+            break;
+        case 1:
+            _CONFIG_PORT_OUTPUT(C, (LED2), (OUTPUT_PUSH_PULL | OUTPUT_MEDIUM)); // configure as medium speed output with push-pull output
+            temp_pars->temp_parameters.ucUserOutputs |= DEMO_LED_2;      // set present bit as output
+            break;
+        case 2:
+            _CONFIG_PORT_OUTPUT(C, (LED3), (OUTPUT_PUSH_PULL | OUTPUT_MEDIUM)); // configure as medium speed output with push-pull output
+            temp_pars->temp_parameters.ucUserOutputs |= DEMO_LED_3;      // set present bit as output
+            break;
+        case 3:
+            _CONFIG_PORT_OUTPUT(C, (LED4), (OUTPUT_PUSH_PULL | OUTPUT_MEDIUM)); // configure as medium speed output with push-pull output
+            temp_pars->temp_parameters.ucUserOutputs |= DEMO_LED_4;      // set present bit as output
+            break;
+#else                                                                    // STM3210C_EVAL / MCB32_ARM_KIT
         case 0:
             _CONFIG_PORT_OUTPUT(D, LED4, (OUTPUT_PUSH_PULL | OUTPUT_MEDIUM)); // configure as medium speed output with push-pull output
             temp_pars->temp_parameters.ucUserOutputs |= DEMO_LED_1;      // set present bit as output
@@ -652,8 +722,8 @@ extern int fnConfigPort(CHAR cPortBit, CHAR cType)
 //
 static void fnSetPortBit(unsigned short usBit, int iSetClr)
 {
-    #if !defined STM32_P207 && !defined STM32F407ZG_SK && !defined NUCLEO_F429ZI && !defined NUCLEO_L432KC && !defined NUCLEO_L031K6 && !defined NUCLEO_L011K4 && !defined NUCLEO_F031K6 && !defined NUCLEO_L496RG && !defined NUCLEO_F746ZG
-        #if defined STM3241G_EVAL || defined WISDOM_STM32F407 || defined NUCLEO_F401RE || defined STM32F746G_DISCO
+    #if !defined STM32_P207 && !defined STM32F407ZG_SK && !defined NUCLEO_F429ZI && !defined NUCLEO_F767ZI && !defined NUCLEO_F746ZG && !defined NUCLEO_L432KC && !defined NUCLEO_L031K6 && !defined NUCLEO_L011K4 && !defined NUCLEO_F031K6 && !defined NUCLEO_L496RG && !defined STM32_E407 && !defined ST_IDP004 && !defined NUCLEO_H743ZI
+        #if defined STM3241G_EVAL || defined WISDOM_STM32F407 || defined NUCLEO_F401RE || defined NUCLEO_F411RE || defined STM32F746G_DISCO || defined DISCOVERY_32F411E
     POWER_UP_USER_PORTS();                                               // ensure that the used ports are powered up before used
         #endif
     if (iSetClr != 0) {
@@ -768,7 +838,7 @@ static void fnSetPortBit(unsigned short usBit, int iSetClr)
 //
 extern int fnUserPortState(CHAR cPortBit)
 {
-    #if !defined STM32_P207 && !defined STM32F407ZG_SK && !defined NUCLEO_F429ZI && !defined NUCLEO_L432KC && !defined NUCLEO_L031K6 && !defined NUCLEO_L011K4 && !defined NUCLEO_F031K6 && !defined NUCLEO_L496RG && !defined NUCLEO_F746ZG
+    #if !defined STM32_P207 && !defined STM32F407ZG_SK && !defined NUCLEO_F429ZI && !defined NUCLEO_F767ZI && !defined NUCLEO_F746ZG && !defined NUCLEO_L432KC && !defined NUCLEO_L031K6 && !defined NUCLEO_L011K4 && !defined NUCLEO_F031K6 && !defined NUCLEO_L496RG && !defined STM32_E407 && !defined ST_IDP004 && !defined NUCLEO_H743ZI
     switch (cPortBit) {
     case 'a':
         return ((USER_PORT_1 & USER_PORT_1_BIT) != 0);
@@ -813,7 +883,7 @@ extern int fnUserPortState(CHAR cPortBit)
 //
 static int fnConfigOutputPort(CHAR cPortBit)
 {
-    #if !defined STM32_P207 && !defined STM32F407ZG_SK && !defined NUCLEO_F429ZI && !defined NUCLEO_L432KC && !defined NUCLEO_L031K6 && !defined NUCLEO_L011K4 && !defined NUCLEO_F031K6 && !defined NUCLEO_L496RG && !defined NUCLEO_F746ZG
+    #if !defined STM32_P207 && !defined STM32F407ZG_SK && !defined NUCLEO_F429ZI && !defined NUCLEO_F767ZI && !defined NUCLEO_F746ZG && !defined NUCLEO_L432KC && !defined NUCLEO_L031K6 && !defined NUCLEO_L011K4 && !defined NUCLEO_F031K6 && !defined NUCLEO_L496RG && !defined STM32_E407 && !defined ST_IDP004 && !defined NUCLEO_H743ZI
     switch (cPortBit) {
     case 'a':
         CONFIG_USER_PORT_1();
@@ -875,7 +945,7 @@ static int fnConfigOutputPort(CHAR cPortBit)
 //
 extern int fnTogglePortOut(CHAR cPortBit)
 {
-    #if !defined STM32_P207 && !defined STM32F407ZG_SK && !defined NUCLEO_F429ZI && !defined NUCLEO_L432KC && !defined NUCLEO_L031K6 && !defined NUCLEO_L011K4 && !defined NUCLEO_F031K6 && !defined NUCLEO_L496RG && !defined NUCLEO_F746ZG
+    #if !defined STM32_P207 && !defined STM32F407ZG_SK && !defined NUCLEO_F429ZI && !defined NUCLEO_F767ZI && !defined NUCLEO_F746ZG && !defined NUCLEO_L432KC && !defined NUCLEO_L031K6 && !defined NUCLEO_L011K4 && !defined NUCLEO_F031K6 && !defined NUCLEO_L496RG && !defined STM32_E407 && !defined ST_IDP004 && !defined NUCLEO_H743ZI
     switch (cPortBit) {
     case 'a':
         USER_PORT_1 ^= USER_PORT_1_BIT;
@@ -939,7 +1009,7 @@ extern int fnTogglePortOut(CHAR cPortBit)
 //
 extern void fnSetPortOut(unsigned char ucPortOutputs, int iInitialisation)
 {
-    #if defined STM3241G_EVAL || defined WISDOM_STM32F407 || defined NUCLEO_F401RE || defined STM32F746G_DISCO
+    #if defined STM3241G_EVAL || defined WISDOM_STM32F407 || defined NUCLEO_F401RE || defined NUCLEO_F411RE || defined STM32F746G_DISCO || defined DISCOVERY_32F411E
     unsigned char ucBit = 0x01;
     while (ucBit != 0) {                                                 // for each possible output
         if (DEMO_USER_PORTS & ucBit) {                                   // if the port bit is to be an output
@@ -992,7 +1062,7 @@ extern void fnSetPortOut(unsigned char ucPortOutputs, int iInitialisation)
         }
         ucBit <<= 1;
     }
-    #elif defined NUCLEO_F429ZI || defined NUCLEO_L432KC || defined NUCLEO_L031K6 || defined NUCLEO_L011K4 || defined NUCLEO_F031K6 || defined NUCLEO_L496RG || defined NUCLEO_F746ZG
+    #elif defined NUCLEO_F429ZI || defined NUCLEO_F746ZG || defined NUCLEO_F767ZI || defined NUCLEO_L432KC || defined NUCLEO_L031K6 || defined NUCLEO_L011K4 || defined NUCLEO_F031K6 || defined NUCLEO_L496RG || defined NUCLEO_H743ZI
     unsigned char ucBit = 0x01;
     while (ucBit != 0) {                                                 // for each possible output
         if ((0x07 & ucBit) != 0) {                                       // if the port bit is to be an output
@@ -1034,10 +1104,10 @@ extern void fnSetPortOut(unsigned char ucPortOutputs, int iInitialisation)
         }
         ucBit <<= 1;
     }
-    #elif defined STM3210C_EVAL
+    #elif defined STM3210C_EVAL || defined MCB32_ARM_KIT
     unsigned char ucBit = 0x01;
     while (ucBit != 0) {                                                 // for each possible output
-        if (DEMO_USER_PORTS & ucBit) {                                   // if the port bit is to be an output
+        if ((DEMO_USER_PORTS & ucBit) != 0) {                            // if the port bit is to be an output
             switch (ucBit) {
             case DEMO_LED_1:
                 if (iInitialisation != 0) {
@@ -1139,6 +1209,59 @@ extern void fnSetPortOut(unsigned char ucPortOutputs, int iInitialisation)
             }
         }
         ucBit <<= 1;
+    }
+    #elif defined STM32_E407 || defined ST_IDP004
+unsigned char ucBit = 0x01;
+while (ucBit != 0) {                                                 // for each possible output
+    if (DEMO_USER_PORTS & ucBit) {                                   // if the port bit is to be an output
+        switch (ucBit) {
+        case DEMO_LED_1:
+            if (iInitialisation != 0) {
+                POWER_UP(AHB1, RCC_AHB1ENR_GPIOCEN);                 // ensure port is powered up
+            }
+            if (ucPortOutputs & DEMO_LED_1) {
+                _SETBITS(C, LED1);
+            }
+            else {
+                _CLEARBITS(C, LED1);
+            }
+            break;
+        case DEMO_LED_2:
+            if (iInitialisation != 0) {
+                POWER_UP(AHB1, RCC_AHB1ENR_GPIOCEN);                 // ensure port is powered up
+            }
+            if (ucPortOutputs & DEMO_LED_2) {
+                _SETBITS(C, LED2);
+            }
+            else {
+                _CLEARBITS(C, LED2);
+            }
+            break;
+        case DEMO_LED_3:
+            if (iInitialisation != 0) {
+                POWER_UP(AHB1, RCC_AHB1ENR_GPIOCEN);                 // ensure port is powered up
+            }
+            if (ucPortOutputs & DEMO_LED_3) {
+                _SETBITS(C, LED3);
+            }
+            else {
+                _CLEARBITS(C, LED3);
+            }
+            break;
+        case DEMO_LED_4:
+            if (iInitialisation != 0) {
+                POWER_UP(AHB1, RCC_AHB1ENR_GPIOCEN);                 // ensure port is powered up
+            }
+            if (ucPortOutputs & DEMO_LED_4) {
+                _SETBITS(C, LED4);
+            }
+            else {
+                _CLEARBITS(C, LED4);
+            }
+            break;
+            }
+        }
+    ucBit <<= 1;
     }
     #else
     ENABLE_LED_PORT();                                                   // ensure port is clocked and not in reset
@@ -1316,8 +1439,16 @@ extern unsigned char fnAddResetCause(CHAR *ptrBuffer)
     static const CHAR cWindowWD[]      = "W-WDOG";
     static const CHAR cPowerOn[]       = "Power-on";
     static const CHAR cSoftware[]      = "Software";
-    static const CHAR cLowPower[]      = "Low power";
     static const CHAR cPinReset[]      = "Reset pin";
+    #if defined _STM32H7XX
+    static const CHAR cD1Reset[]       = "D1";
+    static const CHAR cD2Reset[]       = "D2";
+    static const CHAR cBrownout[]      = "BOR";
+    static const CHAR cError[]         = "Error";
+    static const CHAR cCPU[]           = "CPU";
+    #else
+    static const CHAR cLowPower[] = "Low power";
+    #endif
     #if defined RCC_CSR_FWRSTF
     static const CHAR cFirwallReset[]  = "Firewall";
     #endif
@@ -1330,13 +1461,47 @@ extern unsigned char fnAddResetCause(CHAR *ptrBuffer)
     static const CHAR cUnknown[]       = "???";
     const CHAR *ptrStr;
     if (ulRCC_CSR == 0xffffffff) {
+    #if defined _STM32H7XX
+        ulRCC_CSR = RCC_RSR;                                             // store the value for following requests
+        WRITE_ONE_TO_CLEAR(RCC_RSR, RCC_RSR_RMVF);                       // clear flags ready for next reset
+    #else
         ulRCC_CSR = RCC_CSR;                                             // store the value for following requests
-        RCC_CSR |= (RCC_CSR_RMVF);                                       // clear flags ready for next reset
-    #if defined _WINDOWS
-        RCC_CSR &= ~(RESET_CAUSE_FLAGS);
+        WRITE_ONE_TO_CLEAR(RCC_CSR, RCC_CSR_RMVF);                       // clear flags ready for next reset
     #endif
     }
 
+    #if defined _STM32H7XX
+    if ((ulRCC_CSR & RCC_RSR_PORRSTF) != 0) {                            // power-on reset
+        ptrStr = cPowerOn;
+    }
+    else if ((ulRCC_CSR & RCC_RSR_BORRSTF) != 0) {                       // brownout
+        ptrStr = cBrownout;
+    }
+    else if ((ulRCC_CSR & RCC_RSR_PINRSTF) != 0) {                       // reset pin
+        ptrStr = cPinReset;
+    }
+    else if ((ulRCC_CSR & RCC_RSR_SFTRSTF) != 0) {                       // system reset generated by CPU
+        ptrStr = cSoftware;
+    }
+    else if ((ulRCC_CSR & RCC_RSR_WWDG1RSTF) != 0) {                     // window watchdog
+        ptrStr = cWindowWD;
+    }
+    else if ((ulRCC_CSR & RCC_RSR_IWDG1RSTF) != 0) {                     // independent watchdog
+        ptrStr = cIndependentWD;
+    }
+    else if ((ulRCC_CSR & RCC_RSR_D1RSTF) != 0) {                        // D1 exists DStandby mode
+        ptrStr = cD1Reset;
+    }
+    else if ((ulRCC_CSR & RCC_RSR_D2RSTF) != 0) {                        // D2 exists DStandby mode
+        ptrStr = cD2Reset;
+    }
+    else if ((ulRCC_CSR & RCC_RSR_LPWRRSTF) != 0) {                      // D1 erroneously enters DStandby mode or CPU erroneously enters CStop mode
+        ptrStr = cError;
+    }
+    else if (ulRCC_CSR == RCC_RSR_CPURSTF) {                             // CPU reset
+        ptrStr = cCPU;
+    }
+    #else
     if ((ulRCC_CSR & RCC_CSR_PORRSTF) != 0) {                            // power-on reset
         ptrStr = cPowerOn;
     }
@@ -1373,6 +1538,7 @@ extern unsigned char fnAddResetCause(CHAR *ptrBuffer)
     else {                                                               // unexpected
         ptrStr = cUnknown;
     }
+    #endif
     if (ptrBuffer == 0) {
         fnDebugMsg((CHAR *)ptrStr);
         return 0;

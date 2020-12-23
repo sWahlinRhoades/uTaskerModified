@@ -11,7 +11,7 @@
     File:      FTP.c
     Project:   Single Chip Embedded Internet
     ---------------------------------------------------------------------
-    Copyright (C) M.J.Butcher Consulting 2004..2016
+    Copyright (C) M.J.Butcher Consulting 2004..2020
     *********************************************************************
     08.05.2007 Change a routine array initialisation to avoid library memcpy {1}
     22.05.2007 Add sub-file write support for devices with large FLASH segments {2}
@@ -20,7 +20,7 @@
     03.06.2007 Activate passive mode (see define FTP_PASV_SUPPORT)
     03.06.2007 Pass FTP timeout when starting FTP server plus operating mode {5}
     03.06.2007 Added clean QUIT handling                                 {6}
-    06.06.2007 Changed empty directory display file to include -r at beginning - without this FireFTP can not work correctly (it doesn't display anthing though) {7}
+    06.06.2007 Changed empty directory display file to include -r at beginning - without this FireFTP cannot work correctly (it doesn't display anthing though) {7}
     03.09.2007 Add optional retrigger of control socket idle timer on data port activity (DATA_PORT_TRIGGERS_CONTROL) {8}
     17.11.2007 Correct dependency FTP_SUPPORTS_DELETE rather than FTP_SUPPORTS_NAME_DISPLAY {9}
     17.11.2007 Add define FILE_NAMES_PER_FTP_FRAME to correct operation without file names and adapt for compatibility {10}
@@ -54,7 +54,8 @@
     21.11.2014 Correct passive mode from utFAT which could try to handle file transfer actively {38}
     22.11.2014 Allow multiple control connections                        {39}
     23.11.2014 Correct data connection's use of the data tcp control object on first frame transmission when using passive mode {40}
-    23.01.2015 Return 500 if an unknown commnd is received before or during authentication {41}
+    23.01.2015 Return 500 if an unknown command is received before or during authentication {41}
+    05.06.2018 Add NO_FTP_UFILE_WRITE option to not allow writes to uFileSystem when SD card is removed {42}
 
 */
 
@@ -155,7 +156,7 @@
 
 #if defined FTP_SUPPORTS_NAME_DISPLAY
     static const CHAR cFileType[]    = {' ', '1', ' ', '5', '0', '2', ' ', '5', '0', '2', ' '};
-    static const CHAR cFileDate[]    = {' ', 'A', 'p', 'r', ' ', '5', ' ', '2', '0', '1', '5', ' '}; // {13} fixed date time stamp
+    static const CHAR cFileDate[]    = {' ', 'F', 'e', 'b', ' ', '9', ' ', '2', '0', '2', '0', ' '}; // {13} fixed date time stamp
     static const CHAR cFileRights[]  = {'-', 'r', 'w', 'x', 'r', 'w', 'x', 'r', 'w', 'x'};
     #define LENGTH_OF_FILE_TYPE       sizeof(cFileType)
     #define LENGTH_OF_FILE_LENGTH     8                                  // {36} 99 Meg is max possible file size (uFileSystem or internal file)
@@ -407,9 +408,9 @@ static void fnDelete_terminated(int iHandle, int iResult)
 static int fnPreparePassive(int iIPv6, FTP_INSTANCE *ptrFtp)
 {
 #if defined FTP_PASV_SUPPORT
-    if (MODE_PASV & ptrFtp->ucMode) {
+    if ((MODE_PASV & ptrFtp->ucMode) != 0) {
         fnTCP_close(ptrFtp->FTP_TCP_socket);
-        if (DATA_CONNECTED & ptrFtp->ucMode) {
+        if ((DATA_CONNECTED & ptrFtp->ucMode) != 0) {
             fnTCP_close(ptrFtp->FTP_TCP_Data_socket);
         }
         ptrFtp->ucMode = 0;
@@ -468,7 +469,7 @@ static int fnFTPListener(USOCKET Socket, unsigned char ucEvent, unsigned char *u
 {
     FTP_INSTANCE *ptrFtp = ftp_instance;
     unsigned short usNextData;
-    while (1) {
+    FOREVER_LOOP() {
         if (_TCP_SOCKET_MASK(Socket) == _TCP_SOCKET_MASK(ptrFtp->FTP_TCP_socket)) { // {29}
             break;                                                       // handling connection matched
         }
@@ -493,7 +494,7 @@ static int fnFTPListener(USOCKET Socket, unsigned char ucEvent, unsigned char *u
         ptrFtp->ucLastControl = MSG_DO_NOTHING;
         if (ptrFtp->ucFTP_action != DO_LIST) {
 //#if defined _CLOSE_ERROR && defined FTP_USER_LOGIN                     // {27}
-            if (FTP_STATE_PREPARE_CLOSE == ptrFtp->ucFTP_state) {        // {16}
+            if ((FTP_STATE_PREPARE_CLOSE == ptrFtp->ucFTP_state) != 0) { // {16}
                 fnTCP_close(Socket);
                 ptrFtp->ucFTP_state = FTP_STATE_CONNECTED;
                 return APP_REQUEST_CLOSE;
@@ -517,7 +518,7 @@ static int fnFTPListener(USOCKET Socket, unsigned char ucEvent, unsigned char *u
             usPortLen -= usNextData;
             ucIp_Data += usNextData;
 #if defined FTP_USER_LOGIN
-            if (ucFTP_mode & FTP_AUTHENTICATE) {                         // if authentication is required
+            if ((ucFTP_mode & FTP_AUTHENTICATE) != 0) {                  // if authentication is required
                 ptrFtp->ucPasswordAccess = (unsigned char)fnVerifyUser((CHAR *)ucIp_Data, (DO_CHECK_USER_NAME | FTP_PASS_CHECK)); // {3}
             }
 #endif
@@ -599,11 +600,11 @@ static int fnFTPListener(USOCKET Socket, unsigned char ucEvent, unsigned char *u
                 }
 #endif
 #if defined FTP_PASV_SUPPORT
-                if (MODE_PASV & ptrFtp->ucMode) {
-                    int iRtn = (fnSendFTP(MSG_FTP_DATA, ptrFtp) > 0);
+                if ((MODE_PASV & ptrFtp->ucMode) != 0) {                 // in passive mode
+                    int iRtn = (fnSendFTP(MSG_FTP_DATA, ptrFtp) > 0);    // send 150 data
                     ptrFtp->usLastFrameFileCount = 0;                    // {23}
                     ptrFtp->usFilesSent = 0;
-                    if (DATA_CONNECTED & ptrFtp->ucMode) {
+                    if ((DATA_CONNECTED & ptrFtp->ucMode) != 0) {
                         fnSendFTP(MSG_DIR, ptrFtp);                      // return the data response [FTP-Data] 
                     }
                     ptrFtp->ucFTP_action = DO_LIST;
@@ -627,21 +628,21 @@ static int fnFTPListener(USOCKET Socket, unsigned char ucEvent, unsigned char *u
                 _TCP_SOCKET_MASK_ASSIGN(ptrFtp->FTP_TCP_Data_socket);    // {29}
                 ptrFtp->FTP_TCP_Data_socket |= (ptrFtp->FTP_TCP_socket & ~(SOCKET_NUMBER_MASK)); // allow the data socket to inherit the network, interface and VLAN properties if the command socket
 #if defined FTP_PASV_SUPPORT
-                if ((MODE_PASV & ptrFtp->ucMode) || (fnTCP_Connect(ptrFtp->FTP_TCP_Data_socket, ptrFtp->ipFTP_data, ptrFtp->usFTP_DataPort, FTP_DATA_PORT, _ulIPv6_flags) >= 0))
+                if (((MODE_PASV & ptrFtp->ucMode) != 0) || (fnTCP_Connect(ptrFtp->FTP_TCP_Data_socket, ptrFtp->ipFTP_data, ptrFtp->usFTP_DataPort, FTP_DATA_PORT, _ulIPv6_flags) >= 0))
 #else
                 if (fnTCP_Connect(ptrFtp->FTP_TCP_Data_socket, ptrFtp->ipFTP_data, ptrFtp->usFTP_DataPort, FTP_DATA_PORT, _ulIPv6_flags) >= 0) 
 #endif
                 {
 #if defined FTP_UTFAT                                                    // {17}
-                    if (ptr_utDirectory->usDirectoryFlags & UTDIR_VALID) {
+                    if ((ptr_utDirectory->usDirectoryFlags & UTDIR_VALID) != 0) {
                       //utFile.ptr_utDirObject = ptr_utDirectory;
                         if (utOpenFile(fnStringTerminate(ucIp_Data + 5), &utFile, ptr_utDirectory, (UTFAT_OPEN_FOR_WRITE | UTFAT_CREATE | UTFAT_TRUNCATE)) != UTFAT_PATH_IS_FILE) { // {31}{34} open a file referenced to the directory object
-                            return (fnSendFTP(MSG_FTP_DENIED, ptrFtp));  // file can not be created, overwritten
+                            return (fnSendFTP(MSG_FTP_DENIED, ptrFtp));  // file cannot be created or overwritten
                         }
                     }
                     else {
 #endif
-#if defined ACTIVE_FILE_SYSTEM
+#if defined ACTIVE_FILE_SYSTEM && !defined NO_FTP_UFILE_WRITE
                         ptrFtp->ptrFile = uOpenFile((CHAR *)(ucIp_Data + 5)); // get file pointer (to new file or file to overwrite)
     #if defined SUPPORT_MIME_IDENTIFIER
                         ptrFtp->ucMimeType = fnGetMimeType((CHAR *)(ucIp_Data + 5)); // get the type of file being saved
@@ -649,14 +650,16 @@ static int fnFTPListener(USOCKET Socket, unsigned char ucEvent, unsigned char *u
     #if defined SUB_FILE_SIZE
                         ptrFtp->ucSubFileInProgress = fnGetFileType((CHAR *)(ucIp_Data + 5)); // get file characteristics so that it is later handled correctly
     #endif
+#else
+                        return (fnSendFTP(MSG_FTP_DENIED, ptrFtp));      // {42} if writes are not allowed to uFileSystem deny access
 #endif
 #if defined FTP_UTFAT                                                    // {17}
                     }
 #endif
 #if defined FTP_PASV_SUPPORT
-                    if (MODE_PASV & ptrFtp->ucMode)  { 
+                    if ((MODE_PASV & ptrFtp->ucMode) != 0)  { 
                         ptrFtp->ucFTP_action = DOING_SAVE;
-                        return (fnSendFTP(MSG_FTP_DATA, ptrFtp));
+                        return (fnSendFTP(MSG_FTP_DATA, ptrFtp));        // send 150 data
                     }
 #endif
                     ptrFtp->ucFTP_action = DO_SAVE;                      // mark that we are doing save
@@ -775,19 +778,19 @@ static int fnFTPListener(USOCKET Socket, unsigned char ucEvent, unsigned char *u
     #endif
                 return (fnSendFTP(MSG_FILE_LENGTH, ptrFtp));             // return the size of the requested data
             }
-            else if (uStrEquiv((const CHAR *)ucIp_Data, "RETR ")) {
+            else if (uStrEquiv((const CHAR *)ucIp_Data, "RETR ") != 0) { // client wants to retrieve data
     #if defined USE_IPV6
                 unsigned long _ulIPv6_flags = ptrFtp->ulIPv6_flags;
     #endif
                 _TCP_SOCKET_MASK_ASSIGN(ptrFtp->FTP_TCP_Data_socket);    // {29}
                 ptrFtp->FTP_TCP_Data_socket |= (ptrFtp->FTP_TCP_socket & ~(SOCKET_NUMBER_MASK)); // allow the data socket to inherit the network, interface and VLAN properties if the command socket
     #if defined FTP_UTFAT                                                // {17}
-                if (ptr_utDirectory->usDirectoryFlags & UTDIR_VALID) {
+                if ((ptr_utDirectory->usDirectoryFlags & UTDIR_VALID) != 0) {
                   //utFile.ptr_utDirObject = ptr_utDirectory;
                     if (utOpenFile(fnStringTerminate(ucIp_Data + 5), &utFile, ptr_utDirectory, UTFAT_OPEN_FOR_READ) != UTFAT_PATH_IS_FILE) { // {31}{34} open a file referenced to the directory opbject
         #if defined FTP_PASV_SUPPORT
-                        if (DATA_CONNECTED & ptrFtp->ucMode) {           // if we have a data connection waiting to transfer, close it
-                            fnTCP_close(ptrFtp->FTP_TCP_Data_socket);
+                        if ((DATA_CONNECTED & ptrFtp->ucMode) != 0) {    // if we have a data connection waiting to transfer, close it
+                            fnTCP_close(ptrFtp->FTP_TCP_Data_socket);    // close the data connection
                         }
                         ptrFtp->ucMode = 0;
         #endif
@@ -795,18 +798,18 @@ static int fnFTPListener(USOCKET Socket, unsigned char ucEvent, unsigned char *u
                     }
                     ptrFtp->FileOffset = 0;                              // start at beginning of file
         #if defined FTP_PASV_SUPPORT                                     // {38}
-                    if (MODE_PASV & ptrFtp->ucMode) {                    // if in passive mode (rather than active)
-                        if (DATA_CONNECTED & ptrFtp->ucMode) {           // if the data connection already exists
+                    if ((MODE_PASV & ptrFtp->ucMode) != 0) {             // if in passive mode (rather than active)
+                        if ((DATA_CONNECTED & ptrFtp->ucMode) != 0) {    // if the data connection already exists
                             fnSendNextDataBlock(ptrFtp);                 // {37} immediately return the data [FTP-Data] - data connection already established
                         }
                         else {
-                            ptrFtp->ucFTP_action = DO_UPLOAD;            // start upload on next data connection
+                            ptrFtp->ucFTP_action = DO_UPLOAD;            // start upload on subsequent data connection
                         }
                         break;
                     }
         #endif
                     if (fnTCP_Connect(ptrFtp->FTP_TCP_Data_socket, ptrFtp->ipFTP_data, ptrFtp->usFTP_DataPort, FTP_DATA_PORT, _ulIPv6_flags) >= 0) { // in active mode we innitiate a data connection
-                        ptrFtp->ucFTP_action = DO_UPLOAD;
+                        ptrFtp->ucFTP_action = DO_UPLOAD;                // mark that we are using the connection for a file transfer
                     }
                     else {
                         return (fnSendFTP(MSG_FTP_DENIED, ptrFtp));      // presently not possible to open data connection...
@@ -816,7 +819,7 @@ static int fnFTPListener(USOCKET Socket, unsigned char ucEvent, unsigned char *u
     #endif
     #if defined FTP_PASV_SUPPORT
                 if (*(ucIp_Data + 5) == '/') {                           // if no file given, return length of first file
-                    if (DATA_CONNECTED & ptrFtp->ucMode) {               // if we have a data connection waiting to transfer, close it
+                    if ((DATA_CONNECTED & ptrFtp->ucMode) != 0) {        // if we have a data connection waiting to transfer, close it
                         fnTCP_close(ptrFtp->FTP_TCP_Data_socket);
                     }
                     ptrFtp->ucMode = 0;
@@ -832,7 +835,7 @@ static int fnFTPListener(USOCKET Socket, unsigned char ucEvent, unsigned char *u
                 else {
     #endif
     #if defined FTP_PASV_SUPPORT
-                    if (MODE_PASV & ptrFtp->ucMode) { 
+                    if ((MODE_PASV & ptrFtp->ucMode) != 0) { 
                         ptrFtp->FileOffset = 0;                          // start at beginning of file
                         fnSendFTP(MSG_UPLOAD, ptrFtp);                   // immediately return the data [FTP-Data] - data connection alread established
                         ptrFtp->ucFTP_action = DOING_UPLOAD;
@@ -846,7 +849,7 @@ static int fnFTPListener(USOCKET Socket, unsigned char ucEvent, unsigned char *u
             }
 #endif
 #if defined FTP_UTFAT                                                    // {17}
-            else if ((ptr_utDirectory->usDirectoryFlags & UTDIR_VALID) && (uStrEquiv((const CHAR *)ucIp_Data, "RNFR "))) {
+            else if (((ptr_utDirectory->usDirectoryFlags & UTDIR_VALID) != 0) && (uStrEquiv((const CHAR *)ucIp_Data, "RNFR "))) {
               //utFile.ptr_utDirObject = ptr_utDirectory;
                 if (utOpenFile(fnStringTerminate(ucIp_Data + 5), &utFile, ptr_utDirectory, UTFAT_OPEN_FOR_RENAME) < UTFAT_SUCCESS) { // {19}{31}{34}
                    return (fnSendFTP(MSG_FTP_DENIED, ptrFtp));
@@ -855,7 +858,7 @@ static int fnFTPListener(USOCKET Socket, unsigned char ucEvent, unsigned char *u
                    return (fnSendFTP(MSG_FTP_READY_FOR_RENAME, ptrFtp));
                 }
             }
-            else if ((ptr_utDirectory->usDirectoryFlags & UTDIR_VALID) && (uStrEquiv((const CHAR *)ucIp_Data, "RNTO "))) {
+            else if (((ptr_utDirectory->usDirectoryFlags & UTDIR_VALID) != 0) && (uStrEquiv((const CHAR *)ucIp_Data, "RNTO ") != 0)) {
                 if (utRenameFile(fnStringTerminate(ucIp_Data + 5), &utFile) != UTFAT_SUCCESS) { // {31}
                    return (fnSendFTP(MSG_FTP_DENIED, ptrFtp));
                 }
@@ -863,14 +866,14 @@ static int fnFTPListener(USOCKET Socket, unsigned char ucEvent, unsigned char *u
                    return (fnSendFTP(MSG_FTP_RENAME_SUCCESSFUL, ptrFtp));
                 }
             }
-            else if ((ptr_utDirectory->usDirectoryFlags & UTDIR_VALID) && (((iCmpLen = uStrEquiv((const CHAR *)ucIp_Data, "XMKD ")) != 0) || ((iCmpLen = uStrEquiv((const CHAR *)ucIp_Data, "MKD ")) != 0))) { // {28}
+            else if (((ptr_utDirectory->usDirectoryFlags & UTDIR_VALID) != 0) && (((iCmpLen = uStrEquiv((const CHAR *)ucIp_Data, "XMKD ")) != 0) || ((iCmpLen = uStrEquiv((const CHAR *)ucIp_Data, "MKD ")) != 0))) { // {28}
                 if (utMakeDirectory(fnStringTerminate(ucIp_Data + iCmpLen), ptr_utDirectory) == UTFAT_SUCCESS) { // {28}{31}
                     return (fnSendFTP(MSG_FTP_DIR, ptrFtp));
                 }
                 return (fnSendFTP(MSG_FTP_DENIED, ptrFtp));
             }
 #endif
-            else if (uStrEquiv((const CHAR *)ucIp_Data, "QUIT")) {
+            else if (uStrEquiv((const CHAR *)ucIp_Data, "QUIT") != 0) {
                 return (fnSendFTP(MSG_FTP_QUITTING, ptrFtp));            // signal that we are terminating {26} add return
             }
             else {
@@ -907,7 +910,7 @@ static int fnFTPListener(USOCKET Socket, unsigned char ucEvent, unsigned char *u
 static int fnFTP_Data_Listener(USOCKET Socket, unsigned char ucEvent, unsigned char *ucIp_Data, unsigned short usPortLen)
 {
     FTP_INSTANCE *ptrFtp = ftp_instance;
-    while (1) {
+    FOREVER_LOOP() {
         if (_TCP_SOCKET_MASK(Socket) == _TCP_SOCKET_MASK(ptrFtp->FTP_TCP_Data_socket)) {
             break;                                                       // handling connection matched
         }
@@ -924,14 +927,14 @@ static int fnFTP_Data_Listener(USOCKET Socket, unsigned char ucEvent, unsigned c
     case TCP_EVENT_CONNECTED:
         ptrFtp->ucMode &= ~(DATA_UNKNOWN);                               // {33} reset DATA_UNKNOWN flag on a new data connection
 #if defined FTP_PASV_SUPPORT
-        if (MODE_PASV & ptrFtp->ucMode) {
+        if ((MODE_PASV & ptrFtp->ucMode) != 0) {
             ptrFtp->ucMode |= DATA_CONNECTED;                            // mark that we are connected (passive mode)
         }
         else {
-            fnQueueSendFTP(MSG_FTP_DATA, ptrFtp);                        // acknowledge command since data connection has been established
+            fnQueueSendFTP(MSG_FTP_DATA, ptrFtp);                        // acknowledge command since data connection has been established (150 data)
         }
 #else
-        fnQueueSendFTP(MSG_FTP_DATA, ptrFtp);                            // acknowledge command since data connection has been established
+        fnQueueSendFTP(MSG_FTP_DATA, ptrFtp);                            // acknowledge command since data connection has been established (150 data)
 #endif
         if (DO_LIST == ptrFtp->ucFTP_action) {                           // we must send a directory listing
             ptrFtp->usLastFrameFileCount = 0;                            // {23}
@@ -948,7 +951,7 @@ static int fnFTP_Data_Listener(USOCKET Socket, unsigned char ucEvent, unsigned c
         }
 #if defined FTP_SUPPORTS_DOWNLOAD
         else if (DO_UPLOAD == ptrFtp->ucFTP_action) {                    // waiting for connection in order to start the data transfer
-            int iRtn = (fnSendFTP(MSG_FTP_DATA, ptrFtp) > 0);
+            int iRtn = (fnSendFTP(MSG_FTP_DATA, ptrFtp) > 0);            // send 150 data
             fnSendNextDataBlock(ptrFtp);                                 // {37} send the first block of file data (or terminate if the file is empty)
             return iRtn;
         }
@@ -981,7 +984,7 @@ static int fnFTP_Data_Listener(USOCKET Socket, unsigned char ucEvent, unsigned c
     case TCP_EVENT_CLOSED:
         if (DOING_SAVE == ptrFtp->ucFTP_action) {
 #if defined FTP_UTFAT                                                    // {17}
-            if (ptr_utDirectory->usDirectoryFlags & UTDIR_VALID) {
+            if ((ptr_utDirectory->usDirectoryFlags & UTDIR_VALID) != 0) {
                 utCloseFile(&utFile);
             }
             else {
@@ -1282,10 +1285,10 @@ static unsigned short fnDoDir(CHAR *cMessage, FTP_INSTANCE *ptrFtp)
             if (ptrFiles != 0) {                                         // {36} internal file - this has a variable file length so we much be sure that we protect the buffer and quit if there will be no room to accept it
         #if defined _WINDOWS
                 if (user_files_not_in_code != 0) {
-                    sCompensation -= uStrlen(fnGetFlashAdd((unsigned char *)ptrFiles->fileName));
+                    sCompensation -= (unsigned short)uStrlen(fnGetFlashAdd((unsigned char *)ptrFiles->fileName));
                 }
                 else {
-                    sCompensation -= uStrlen(ptrFiles->fileName);
+                    sCompensation -= (unsigned short)uStrlen(ptrFiles->fileName);
                 }
         #else
                 sCompensation -= uStrlen(ptrFiles->fileName);
@@ -1486,7 +1489,7 @@ static signed short fnSendFTP(unsigned char ucMsg, FTP_INSTANCE *ptrFtp)
         ptrMsg = cFTPBadPass;
         break;
 
-    case MSG_FTP_DATA:
+    case MSG_FTP_DATA:                                                   // send 150 data
         usSize = (sizeof(cFTP_Data) - 1);
         ptrMsg = cFTP_Data;
         break;
@@ -1505,7 +1508,7 @@ static signed short fnSendFTP(unsigned char ucMsg, FTP_INSTANCE *ptrFtp)
 #if defined FTP_UTFAT && UT_FTP_PATH_LENGTH > 0                          // {30}
         if (ptr_utDirectory->usDirectoryFlags & UTDIR_VALID) {
             uMemcpy(FTP_Data_Tx.ucTCP_Message, cFTPDir, 5);              // 257 "
-            usSize = uStrlen(ptr_utDirectory->ptrDirectoryPath);
+            usSize = (unsigned short)uStrlen(ptr_utDirectory->ptrDirectoryPath);
             if (usSize > 2) {
                 usSize -= 2;                                             // remove "D:" from front
             }

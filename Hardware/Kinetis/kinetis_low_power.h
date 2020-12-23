@@ -11,7 +11,7 @@
     File:      kinetis_low_power.h
     Project:   Single Chip Embedded Internet
     ---------------------------------------------------------------------
-    Copyright (C) M.J.Butcher Consulting 2004..2017
+    Copyright (C) M.J.Butcher Consulting 2004..2019
     *********************************************************************
     22.07.2014 Add fnGetLowPowerMode() and fnSetLowPowerMode()           {1}
     02.07.2015 Always re-synchronise the RTC counters after waking from a low leakage state {2}
@@ -40,83 +40,83 @@ extern void fnDoLowPower(void)
         else {                                                           // there is no active transmission so we check that there is no reception starting and enable reception wakeup interrupts
     #if defined SERIAL_INTERFACE 
         #if UARTS_AVAILABLE > 0 && LPUARTS_AVAILABLE < 1
-            if (IS_POWERED_UP(4, SIM_SCGC4_UART0)) {                     // if UART0 is enabled
+            if (IS_POWERED_UP(4, UART0)) {                               // if UART0 is enabled
                 UART0_S2 |= UART_S2_RXEDGIF;                             // clear edge flag
                 UART0_BDH |= UART_BDH_RXEDGIE;                           // enable wakeup on RxD falling edge
-                if (UART0_S2 & UART_S2_RAF) {                            // if the receiver active flag is set it means that reception has already started so we don't enter stop mode
+                if ((UART0_S2 & UART_S2_RAF) != 0) {                     // if the receiver active flag is set it means that reception has already started so we don't enter stop mode
                     SYSTEM_CONTROL_REGISTER &= ~SLEEPDEEP;               // use wait mode until the reception has completed
                 }
             }
         #elif LPUARTS_AVAILABLE > 0
             #if defined KINETIS_KL
-            if (IS_POWERED_UP(5, SIM_SCGC5_LPUART0))                     // if LPUART0 is enabled
-            #elif defined KINETIS_K80
-            if (IS_POWERED_UP(2, SIM_SCGC2_LPUART0))                     // if LPUART0 is enabled
+            if (IS_POWERED_UP(5, LPUART0))                               // if LPUART0 is enabled
+            #elif defined KINETIS_K80 || defined KINETIS_K27 || defined KINETIS_K28
+            if (IS_POWERED_UP(2, LPUART0))                               // if LPUART0 is enabled
             #else
-            if (IS_POWERED_UP(6, SIM_SCGC6_LPUART0))                     // if LPUART0 is enabled
+            if (IS_POWERED_UP(6, LPUART0))                               // if LPUART0 is enabled
             #endif
             {
                 LPUART0_STAT |= LPUART_STAT_RXEDGIF;                     // clear edge flag
                 LPUART0_BAUD |= LPUART_BAUD_RXEDGIE;                     // enable wakeup on RxD falling edge
-                if (LPUART0_STAT & LPUART_STAT_RAF) {                    // if the receiver active flag is set it means that reception has already started so we don't enter stop mode
+                if ((LPUART0_STAT & LPUART_STAT_RAF) != 0) {             // if the receiver active flag is set it means that reception has already started so we don't enter stop mode
                     SYSTEM_CONTROL_REGISTER &= ~SLEEPDEEP;               // use wait mode until the reception has completed
                 }
             }
         #endif
         #if UARTS_AVAILABLE > 1 && LPUARTS_AVAILABLE < 2
-            if (IS_POWERED_UP(4, SIM_SCGC4_UART1)) {                     // if UART1 is enabled
+            if (IS_POWERED_UP(4, UART1)) {                               // if UART1 is enabled
                 UART1_S2 |= UART_S2_RXEDGIF;                             // clear edge flag
                 UART1_BDH |= UART_BDH_RXEDGIE;                           // enable wakeup on RxD falling edge
-                if (UART1_S2 & UART_S2_RAF) {                            // if the receiver active flag is set it means that reception has already started so we don't enter stop mode
+                if ((UART1_S2 & UART_S2_RAF) != 0) {                     // if the receiver active flag is set it means that reception has already started so we don't enter stop mode
                     SYSTEM_CONTROL_REGISTER &= ~SLEEPDEEP;               // use wait mode until the reception has completed
                 }
             }
         #elif LPUARTS_AVAILABLE > 1
             #if defined KINETIS_KL
-            if (IS_POWERED_UP(5, SIM_SCGC5_LPUART1))                     // if LPUART1 is enabled
+            if (IS_POWERED_UP(5, LPUART1))                               // if LPUART1 is enabled
             #else
-            if (IS_POWERED_UP(2, SIM_SCGC2_LPUART1))                     // if LPUART1 is enabled
+            if (IS_POWERED_UP(2, LPUART1))                               // if LPUART1 is enabled
             #endif
             {
                 LPUART1_STAT |= LPUART_STAT_RXEDGIF;                     // clear edge flag
                 LPUART1_BAUD |= LPUART_BAUD_RXEDGIE;                     // enable wakeup on RxD falling edge
-                if (LPUART1_STAT & LPUART_STAT_RAF) {                    // if the receiver active flag is set it means that reception has already started so we don't enter stop mode
+                if ((LPUART1_STAT & LPUART_STAT_RAF) != 0) {             // if the receiver active flag is set it means that reception has already started so we don't enter stop mode
                     SYSTEM_CONTROL_REGISTER &= ~SLEEPDEEP;               // use wait mode until the reception has completed
                 }
             }
         #endif
         #if (UARTS_AVAILABLE > 2 && LPUARTS_AVAILABLE < 3) || (UARTS_AVAILABLE == 1 && LPUARTS_AVAILABLE == 2)
-            if (IS_POWERED_UP(4, SIM_SCGC4_UART2)) {                     // if UART2 is enabled
+            if (IS_POWERED_UP(4, UART2)) {                               // if UART2 is enabled
                 UART2_S2 |= UART_S2_RXEDGIF;                             // clear edge flag
                 UART2_BDH |= UART_BDH_RXEDGIE;                           // enable wakeup on RxD falling edge
-                if (UART2_S2 & UART_S2_RAF) {                            // if the receiver active flag is set it means that reception has already started so we don't enter stop mode
+                if ((UART2_S2 & UART_S2_RAF) != 0) {                     // if the receiver active flag is set it means that reception has already started so we don't enter stop mode
                     SYSTEM_CONTROL_REGISTER &= ~SLEEPDEEP;               // use wait mode until the reception has completed
                 }
             }
         #endif
         #if UARTS_AVAILABLE > 3
-            if (IS_POWERED_UP(4, SIM_SCGC4_UART3)) {                     // if UART3 is enabled
+            if (IS_POWERED_UP(4, UART3)) {                               // if UART3 is enabled
                 UART3_S2 |= UART_S2_RXEDGIF;                             // clear edge flag
                 UART3_BDH |= UART_BDH_RXEDGIE;                           // enable wakeup on RxD falling edge
-                if (UART3_S2 & UART_S2_RAF) {                            // if the receiver active flag is set it means that reception has already started so we don't enter stop mode
+                if ((UART3_S2 & UART_S2_RAF) != 0) {                     // if the receiver active flag is set it means that reception has already started so we don't enter stop mode
                     SYSTEM_CONTROL_REGISTER &= ~SLEEPDEEP;               // use wait mode until the reception has completed
                 }
             }
         #endif
         #if UARTS_AVAILABLE > 4
-            if (IS_POWERED_UP(1, SIM_SCGC1_UART4)) {                     // if UART4 is enabled
+            if (IS_POWERED_UP(1, UART4)) {                               // if UART4 is enabled
                 UART4_S2 |= UART_S2_RXEDGIF;                             // clear edge flag
                 UART4_BDH |= UART_BDH_RXEDGIE;                           // enable wakeup on RxD falling edge
-                if (UART4_S2 & UART_S2_RAF) {                            // if the receiver active flag is set it means that reception has already started so we don't enter stop mode
+                if ((UART4_S2 & UART_S2_RAF) != 0) {                     // if the receiver active flag is set it means that reception has already started so we don't enter stop mode
                     SYSTEM_CONTROL_REGISTER &= ~SLEEPDEEP;               // use wait mode until the reception has completed
                 }
             }
         #endif
         #if UARTS_AVAILABLE > 5
-            if (IS_POWERED_UP(1, SIM_SCGC1_UART5)) {                     // if UART5 is enabled
+            if (IS_POWERED_UP(1, UART5)) {                               // if UART5 is enabled
                 UART5_S2 |= UART_S2_RXEDGIF;                             // clear edge flag
                 UART5_BDH |= UART_BDH_RXEDGIE;                           // enable wakeup on RxD falling edge
-                if (UART5_S2 & UART_S2_RAF) {                            // if the receiver active flag is set it means that reception has already started so we don't enter stop mode
+                if ((UART5_S2 & UART_S2_RAF) != 0) {                     // if the receiver active flag is set it means that reception has already started so we don't enter stop mode
                     SYSTEM_CONTROL_REGISTER &= ~SLEEPDEEP;               // use wait mode until the reception has completed
                 }
             }
@@ -146,11 +146,11 @@ extern void fnDoLowPower(void)
     // The processor will continue after being woken by any pending interrupt (also when the global interrupt mask is still set)
     // - this mean that the processor has woken again when the code execution reaches this location
     //
-    #if !defined FLL_FACTOR && !defined RUN_FROM_EXTERNAL_CLOCK && !defined RUN_FROM_LIRC && !defined RUN_FROM_DEFAULT_CLOCK && !defined KINETIS_KE && !defined RUN_FROM_HIRC && !defined RUN_FROM_LIRC && !defined KINETIS_WITH_MCG_LITE
+    #if !defined FLL_FACTOR && !defined RUN_FROM_EXTERNAL_CLOCK && !defined RUN_FROM_LIRC && !defined RUN_FROM_DEFAULT_CLOCK && !defined KINETIS_KE && !defined RUN_FROM_HIRC && !defined RUN_FROM_LIRC && !defined KINETIS_WITH_MCG_LITE && !defined CLOCK_FROM_RTC_OSCILLATOR
         #if defined KINETIS_K_FPU || defined KINETIS_KL || defined KINETIS_REVISION_2 || (KINETIS_MAX_SPEED > 100000000)
-    if ((SYSTEM_CONTROL_REGISTER & SLEEPDEEP) && (SMC_PMPROT & (SMC_PMPROT_AVLP | SMC_PMPROT_ALLS)))
+    if (((SYSTEM_CONTROL_REGISTER & SLEEPDEEP) != 0) && ((SMC_PMPROT & (SMC_PMPROT_AVLP | SMC_PMPROT_ALLS)) != 0))
         #else
-    if ((SYSTEM_CONTROL_REGISTER & SLEEPDEEP) && (MC_PMPROT & MC_PMPROT_AVLP))
+    if (((SYSTEM_CONTROL_REGISTER & SLEEPDEEP) != 0) && ((MC_PMPROT & MC_PMPROT_AVLP) != 0))
         #endif
     {                                                                    // LLS/VLPS sleep mode exit requires the PLL to be reconfigured
         MCG_C5 = ((CLOCK_DIV - 1) | MCG_C5_PLLSTEN0);                    // move from state FEE to state PBE (or FBE) PLL remains enabled in normal stop modes
@@ -179,52 +179,52 @@ extern void fnDoLowPower(void)
     SYSTEM_CONTROL_REGISTER = ulDeepSleepMode;                           // ensure present stop mode has been returned (we may have used wait mode instead due to present peripheral activity)
     #if defined SERIAL_INTERFACE
         #if UARTS_AVAILABLE > 0 && LPUARTS_AVAILABLE < 1
-    if (IS_POWERED_UP(4, SIM_SCGC4_UART0)) {                             // if UART0 is enabled
+    if (IS_POWERED_UP(4, UART0) != 0) {                                  // if UART0 is enabled
         UART0_BDH &= ~(UART_BDH_RXEDGIE);                                // disable edge interrupt on RxD since we never want to handle the actual interrupt (used just for waking)
     }
         #elif LPUARTS_AVAILABLE > 0
             #if defined KINETIS_KL
-    if (IS_POWERED_UP(5, SIM_SCGC5_LPUART0))                             // if LPUART0 is enabled
-        #elif defined KINETIS_K80
-    if (IS_POWERED_UP(2, SIM_SCGC2_LPUART0))                             // if LPUART0 is enabled
+    if (IS_POWERED_UP(5, LPUART0) != 0)                                  // if LPUART0 is enabled
+        #elif defined KINETIS_K80 || defined KINETIS_K27 || defined KINETIS_K28
+    if (IS_POWERED_UP(2, LPUART0) != 0)                                  // if LPUART0 is enabled
         #else
-    if (IS_POWERED_UP(6, SIM_SCGC6_LPUART0))                             // if LPUART0 is enabled
+    if (IS_POWERED_UP(6, LPUART0) != 0)                                  // if LPUART0 is enabled
             #endif
     {
         LPUART0_BAUD &= ~LPUART_BAUD_RXEDGIE;                            // disable edge interrupt on RxD since we never want to handle the actual interrupt (used just for waking)
     }
         #endif
         #if UARTS_AVAILABLE > 1 && LPUARTS_AVAILABLE < 2
-    if (IS_POWERED_UP(4, SIM_SCGC4_UART1)) {                             // if UART1 is enabled
+    if (IS_POWERED_UP(4, UART1) != 0) {                                  // if UART1 is enabled
         UART1_BDH &= ~(UART_BDH_RXEDGIE);                                // disable edge interrupt on RxD since we never want to handle the actual interrupt (used just for waking)
     }
         #elif LPUARTS_AVAILABLE > 1
             #if defined KINETIS_KL
-    if (IS_POWERED_UP(5, SIM_SCGC5_LPUART1))                             // if LPUART1 is enabled
+    if (IS_POWERED_UP(5, LPUART1) != 0)                                  // if LPUART1 is enabled
             #else
-    if (IS_POWERED_UP(2, SIM_SCGC2_LPUART1))                             // if LPUART1 is enabled
+    if (IS_POWERED_UP(2, LPUART1) != 0)                                  // if LPUART1 is enabled
             #endif
     {
         LPUART1_BAUD &= ~LPUART_BAUD_RXEDGIE;                            // disable edge interrupt on RxD since we never want to handle the actual interrupt (used just for waking)
     }
         #endif
         #if (UARTS_AVAILABLE > 2 && LPUARTS_AVAILABLE < 3) || (UARTS_AVAILABLE == 1 && LPUARTS_AVAILABLE == 2)
-    if (IS_POWERED_UP(4, SIM_SCGC4_UART2)) {                             // if UART2 is enabled
+    if (IS_POWERED_UP(4, UART2) != 0) {                                  // if UART2 is enabled
         UART2_BDH &= ~(UART_BDH_RXEDGIE);                                // disable edge interrupt on RxD since we never want to handle the actual interrupt (used just for waking)
     }
         #endif
         #if UARTS_AVAILABLE > 3
-    if (IS_POWERED_UP(4, SIM_SCGC4_UART3)) {                             // if UART3 is enabled
+    if (IS_POWERED_UP(4, UART3) != 0) {                                  // if UART3 is enabled
         UART3_BDH &= ~(UART_BDH_RXEDGIE);                                // disable edge interrupt on RxD since we never want to handle the actual interrupt (used just for waking)
     }
         #endif
         #if UARTS_AVAILABLE > 4
-    if (IS_POWERED_UP(1, SIM_SCGC1_UART4)) {                             // if UART4 is enabled
+    if (IS_POWERED_UP(1, UART4) != 0) {                                  // if UART4 is enabled
         UART4_BDH &= ~(UART_BDH_RXEDGIE);                                // disable edge interrupt on RxD since we never want to handle the actual interrupt (used just for waking)
     }
         #endif
         #if UARTS_AVAILABLE > 5
-    if (IS_POWERED_UP(1, SIM_SCGC1_UART5)) {                             // if UART5 is enabled
+    if (IS_POWERED_UP(1, UART5) != 0) {                                  // if UART5 is enabled
         UART5_BDH &= ~(UART_BDH_RXEDGIE);                                // disable edge interrupt on RxD since we never want to handle the actual interrupt (used just for waking)
     }
         #endif
@@ -237,11 +237,11 @@ extern void fnDoLowPower(void)
 static int fnPresentLP_mode(void)
 {
     #if defined KINETIS_KE                                               // KE devices
-    if (SYSTEM_CONTROL_REGISTER & SLEEPDEEP) {                           // if the sleep deep flag is set the stop mode is active
+    if ((SYSTEM_CONTROL_REGISTER & SLEEPDEEP) != 0) {                    // if the sleep deep flag is set the stop mode is active
         return STOP_MODE;
     }
     #else
-        #if defined KINETIS_K_FPU || defined KINETIS_KL || defined KINETIS_REVISION_2 || (KINETIS_MAX_SPEED > 100000000)
+        #if defined KINETIS_K_FPU || defined KINETIS_KL || defined KINETIS_KM || defined KINETIS_REVISION_2 || (KINETIS_MAX_SPEED > 100000000)
     if (((SMC_PMPROT & SMC_PMPROT_AVLP) != 0) && ((SMC_PMCTRL & SMC_PMCTRL_RUNM_VLPR) != 0)) {
         return VLPR_MODE;
     }
@@ -268,7 +268,7 @@ static int fnPresentLP_mode(void)
         }
         #endif
         else if (((SMC_PMPROT & SMC_PMPROT_AVLLS) != 0) && ((SMC_PMCTRL & (SMC_PMCTRL_STOPM_VLLSx | SMC_PMCTRL_STOPM_LLS)) == SMC_PMCTRL_STOPM_VLLSx)) {
-            #if defined KINETIS_KL || defined KINETIS_K22                // KL devices
+            #if defined KINETIS_KL || defined KINETIS_K22 || defined KINETIS_K65 || defined KINETIS_K66 // KL and select K devices
             switch (SMC_STOPCTRL & SMC_STOPCTRL_VLLSM_VLLS3) {
             case SMC_STOPCTRL_VLLSM_VLLS0:
                 return VLLS0_MODE;
@@ -282,7 +282,7 @@ static int fnPresentLP_mode(void)
                 return VLLS3_MODE;
             }
             #else
-            switch (SMC_VLLSCTRL & SMC_VLLSCTRL_VLLSM_VLLS3) {           // K devices
+            switch (SMC_VLLSCTRL & SMC_VLLSCTRL_VLLSM_VLLS3) {           // general K devices
             case SMC_VLLSCTRL_VLLSM_VLLS0:
                 return VLLS0_MODE;
             case SMC_VLLSCTRL_VLLSM_VLLS1:
@@ -358,7 +358,7 @@ extern int fnGetLowPowerMode(void)                                       // {1}
 
 #if defined KINETIS_KE
     #define fnSetStopMode()    SYSTEM_CONTROL_REGISTER |= SLEEPDEEP
-#elif defined KINETIS_K_FPU || defined KINETIS_KL || defined KINETIS_REVISION_2 || (KINETIS_MAX_SPEED > 100000000)
+#elif defined KINETIS_K_FPU || defined KINETIS_KL || defined KINETIS_KM || defined KINETIS_REVISION_2 || (KINETIS_MAX_SPEED > 100000000)
     #define fnSetStopMode()    SMC_PMCTRL = (SMC_PMCTRL_STOPM_NORMAL | SMC_PMCTRL_RUNM_NORMAL); SYSTEM_CONTROL_REGISTER |= SLEEPDEEP
 #else
     #define fnSetStopMode()    MC_PMCTRL = (MC_PMCTRL_LPLLSM_NORMAL_STOP | MC_PMCTRL_RUNM_NORMAL_RUN); SYSTEM_CONTROL_REGISTER |= SLEEPDEEP
@@ -378,7 +378,7 @@ extern void fnSetLowPowerMode(int new_lp_mode)                           // {1}
         //
     case WAIT_MODE:                                                      // wait mode
     #if !defined KINETIS_KE
-        #if defined KINETIS_K_FPU || defined KINETIS_KL || defined KINETIS_REVISION_2 || (KINETIS_MAX_SPEED > 100000000)
+        #if defined KINETIS_K_FPU || defined KINETIS_KL || defined KINETIS_KM || defined KINETIS_REVISION_2 || (KINETIS_MAX_SPEED > 100000000)
         SMC_PMCTRL = (SMC_PMCTRL_STOPM_NORMAL | SMC_PMCTRL_RUNM_NORMAL);
         #else
         MC_PMCTRL = (MC_PMCTRL_LPLLSM_NORMAL_STOP | MC_PMCTRL_RUNM_NORMAL_RUN);
@@ -390,12 +390,12 @@ extern void fnSetLowPowerMode(int new_lp_mode)                           // {1}
         }
         break;
     case STOP_MODE:                                                      // stop mode
-        #if defined KINETIS_KL03
+        #if defined KINETIS_KL03 || defined KINETIS_KL26
         SMC_STOPCTRL = (SMC_STOPCTRL & ~(SMC_STOPCTRL_PSTOPO_PSTOP1 | SMC_STOPCTRL_PSTOPO_PSTOP2)); // ensure normal stop mode
         #endif
         fnSetStopMode();
         break;
-    #if defined KINETIS_KL03
+    #if defined KINETIS_KL03 || defined KINETIS_KL26
     case PSTOP1_MODE:                                                    // partical stop with both system and bus clocks stopped
         SMC_STOPCTRL = ((SMC_STOPCTRL & ~(SMC_STOPCTRL_PSTOPO_PSTOP1 | SMC_STOPCTRL_PSTOPO_PSTOP2)) | SMC_STOPCTRL_PSTOPO_PSTOP1);
         fnSetStopMode();
@@ -410,7 +410,7 @@ extern void fnSetLowPowerMode(int new_lp_mode)                           // {1}
     case VLPW_MODE:                                                      // VLPW
         #endif
     case VLPR_MODE:                                                      // VLPR
-        #if defined KINETIS_K_FPU || defined KINETIS_KL || defined KINETIS_REVISION_2 || (KINETIS_MAX_SPEED > 100000000)
+        #if defined KINETIS_K_FPU || defined KINETIS_KL || defined KINETIS_KM || defined KINETIS_REVISION_2 || (KINETIS_MAX_SPEED > 100000000)
       //SMC_PMPROT |= SMC_PMPROT_AVLP;                                   // {3} - set once in kinetis.c
         SMC_PMCTRL |= (SMC_PMCTRL_RUNM_VLPR | SMC_PMCTRL_LPWUI);         // VLPR is entered immediately and VLPW results if the sleep instruction is later executed
         #else
@@ -424,7 +424,7 @@ extern void fnSetLowPowerMode(int new_lp_mode)                           // {1}
         }
         break;
     case VLPS_MODE:                                                      // VLPS
-        #if defined KINETIS_K_FPU || defined KINETIS_KL || defined KINETIS_REVISION_2 || (KINETIS_MAX_SPEED > 100000000)
+        #if defined KINETIS_K_FPU || defined KINETIS_KL || defined KINETIS_KM || defined KINETIS_REVISION_2 || (KINETIS_MAX_SPEED > 100000000)
       //SMC_PMPROT |= SMC_PMPROT_AVLP;                                   // {3} - set once in kinetis.c
         SMC_PMCTRL = (SMC_PMCTRL_RUNM_NORMAL | SMC_PMCTRL_STOPM_VLPS | SMC_PMCTRL_LPWUI);
         #else
@@ -435,14 +435,18 @@ extern void fnSetLowPowerMode(int new_lp_mode)                           // {1}
         break;
         #if defined LLS_MODE
     case LLS_MODE:                                                       // LLS
-        #if defined KINETIS_K_FPU || defined KINETIS_KL || defined KINETIS_REVISION_2 || (KINETIS_MAX_SPEED > 100000000)
+        #if defined ERRATA_ID_7214
+        _EXCEPTION("LLS not functional with this chip mask");
+        #else
+            #if defined KINETIS_K_FPU || defined KINETIS_KL || defined KINETIS_KM || defined KINETIS_REVISION_2 || (KINETIS_MAX_SPEED > 100000000)
       //SMC_PMPROT |= SMC_PMPROT_ALLS;                                   // {3} - set once in kinetis.c
         SMC_PMCTRL = (SMC_PMCTRL_RUNM_NORMAL | SMC_PMCTRL_STOPM_LLS);
-        #else
+            #else
       //MC_PMPROT |= MC_PMPROT_ALLS;                                     // {3} - set once in kinetis.c
         MC_PMCTRL |= (MC_PMCTRL_RUNM_NORMAL_RUN | MC_PMCTRL_LPLLSM_LLS);
-        #endif
+            #endif
         SYSTEM_CONTROL_REGISTER |= SLEEPDEEP;
+        #endif
         break;
         #endif
         #if defined LLS3_MODE
@@ -468,9 +472,9 @@ extern void fnSetLowPowerMode(int new_lp_mode)                           // {1}
         break;
         #endif
     case VLLS0_MODE:                                                     // VLLS0
-        #if defined KINETIS_K_FPU || defined KINETIS_KL || defined KINETIS_REVISION_2 || (KINETIS_MAX_SPEED > 100000000)
+        #if defined KINETIS_K_FPU || defined KINETIS_KL || defined KINETIS_KM || defined KINETIS_REVISION_2 || (KINETIS_MAX_SPEED > 100000000)
       //SMC_PMPROT |= SMC_PMPROT_AVLLS;                                  // {3} - set once in kinetis.c
-            #if defined KINETIS_KL || defined KINETIS_K22
+            #if defined KINETIS_KL || defined KINETIS_K22 || defined KINETIS_K65 || defined KINETIS_K66 // KL and select K devices
         SMC_STOPCTRL = (unsigned char)(SMC_STOPCTRL_VLLSM_VLLS0 | (new_lp_mode & LOW_POWER_OPTIONS));
             #else
         SMC_VLLSCTRL = (unsigned char)(SMC_VLLSCTRL_VLLSM_VLLS0 | (new_lp_mode & LOW_POWER_OPTIONS));
@@ -483,9 +487,9 @@ extern void fnSetLowPowerMode(int new_lp_mode)                           // {1}
         SYSTEM_CONTROL_REGISTER |= SLEEPDEEP;
         break;
     case VLLS1_MODE:                                                     // VLLS1
-        #if defined KINETIS_K_FPU || defined KINETIS_KL || defined KINETIS_REVISION_2 || (KINETIS_MAX_SPEED > 100000000)
+        #if defined KINETIS_K_FPU || defined KINETIS_KL || defined KINETIS_KM || defined KINETIS_REVISION_2 || (KINETIS_MAX_SPEED > 100000000)
       //SMC_PMPROT |= SMC_PMPROT_AVLLS;                                  // {3} - set once in kinetis.c
-            #if defined KINETIS_KL || defined KINETIS_K22
+            #if defined KINETIS_KL || defined KINETIS_K22 || defined KINETIS_K65 || defined KINETIS_K66 // KL and select K devices
         SMC_STOPCTRL = (unsigned char)(SMC_STOPCTRL_VLLSM_VLLS1 | (new_lp_mode & LOW_POWER_OPTIONS));
             #else
         SMC_VLLSCTRL = (unsigned char)(SMC_VLLSCTRL_VLLSM_VLLS1 | (new_lp_mode & LOW_POWER_OPTIONS));
@@ -499,9 +503,9 @@ extern void fnSetLowPowerMode(int new_lp_mode)                           // {1}
         break;
         #if !defined KINETIS_KL
     case VLLS2_MODE:                                                     // VLLS2
-        #if defined KINETIS_K_FPU || defined KINETIS_KL || defined KINETIS_REVISION_2 || (KINETIS_MAX_SPEED > 100000000)
+        #if defined KINETIS_K_FPU || defined KINETIS_KL || defined KINETIS_KM || defined KINETIS_REVISION_2 || (KINETIS_MAX_SPEED > 100000000)
       //SMC_PMPROT |= SMC_PMPROT_AVLLS;                                   // {3} - set once in kinetis.c
-            #if defined KINETIS_KL || defined KINETIS_K22
+            #if defined KINETIS_KL || defined KINETIS_K22 || defined KINETIS_K65 || defined KINETIS_K66 // KL and select K devices
         SMC_STOPCTRL = (unsigned char)(SMC_STOPCTRL_VLLSM_VLLS2 | (new_lp_mode & LOW_POWER_OPTIONS));
             #else
         SMC_VLLSCTRL = (unsigned char)(SMC_VLLSCTRL_VLLSM_VLLS2 | (new_lp_mode & LOW_POWER_OPTIONS));
@@ -515,9 +519,9 @@ extern void fnSetLowPowerMode(int new_lp_mode)                           // {1}
         break;
         #endif
     case VLLS3_MODE:                                                     // VLLS3
-        #if defined KINETIS_K_FPU || defined KINETIS_KL || defined KINETIS_REVISION_2 || (KINETIS_MAX_SPEED > 100000000)
+        #if defined KINETIS_K_FPU || defined KINETIS_KL || defined KINETIS_KM || defined KINETIS_REVISION_2 || (KINETIS_MAX_SPEED > 100000000)
       //SMC_PMPROT |= SMC_PMPROT_AVLLS;                                  // {3} - set once in kinetis.c
-            #if defined KINETIS_KL || defined KINETIS_K22
+            #if defined KINETIS_KL || defined KINETIS_K22 || defined KINETIS_K65 || defined KINETIS_K66 // KL and select K devices
         SMC_STOPCTRL = (unsigned char)(SMC_STOPCTRL_VLLSM_VLLS3 | (new_lp_mode & LOW_POWER_OPTIONS));
             #else
         SMC_VLLSCTRL = (unsigned char)(SMC_VLLSCTRL_VLLSM_VLLS3 | (new_lp_mode & LOW_POWER_OPTIONS));

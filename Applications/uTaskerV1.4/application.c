@@ -2,7 +2,7 @@
     Mark Butcher    Bsc (Hons) MPhil MIET
     
     M.J.Butcher Consulting
-    Birchstrasse 20f,    CH-5406, Rütihof
+    Birchstrasse 20f,    CH-5406, RÃ¼tihof
     Switzerland
     
     www.uTasker.com    Skype: M_J_Butcher
@@ -11,7 +11,7 @@
     File:      application.c
     Project:   uTasker project
     ---------------------------------------------------------------------
-    Copyright (C) M.J.Butcher Consulting 2004..2019
+    Copyright (C) M.J.Butcher Consulting 2004..2020
     *********************************************************************
     16.02.2006 Add SMTP LOGIN support
     18.02.2006 Add SMTP parameter settings
@@ -126,6 +126,13 @@
     05.11.2017 Remove temporary RTC workaround due to pending alarm interrupt {105}
     05.11.2017 Add QUICK_DEV_TASKS                                       {106}
     06.11.2017 Add reset cause to start-up message                       {107}
+    04.05.2018 Change interface to fnSetNewSerialMode()                  {108}
+    04.05.2018 Add DMX512                                                {109}
+    02.06.2018 Zero optional user UART callback handlers                 {110}
+    05.07.2018 Add SPI tests                                             {111}
+    19.02.2019 Add uCANopen                                              {112}
+    17.05.2019 Correct emulated FAT start address for compatibility with devices that don't have flash starting at 0x00000000 {113}
+    22.10.2020 Start the mass storge task when emulated FAT is used together with a memory stick so that it configures the emulted FAT's drive before USB use {114}
 
 */
 
@@ -136,21 +143,25 @@
 
 #include "config.h"
 
-
 #define OWN_TASK                  TASK_APPLICATION
+
 
 #include "application_lcd.h"                                             // {46} LCD tests
 #if !defined NO_PERIPHERAL_DEMONSTRATIONS
     #include "ADC_Timers.h"                                              // {46} ADC and timer tests
     #if !defined BLAZE_K22
-        #include "iic_tests.h"                                           // {46} i2c tests
+        #include "i2c_tests.h"                                           // {46} i2c tests
     #endif
     #include "Port_Interrupts.h"                                         // {46} port interrupt tests
     #include "can_tests.h"                                               // {46} CAN tests
+    #include "spi_tests.h"                                               // {111} SPI tests
 #endif
 #if defined SERIAL_INTERFACE && defined USE_J1708
     #define KINETIS_USES_FLEX_TIMER
     #include "../../J1708/j1708c.h"                                      // the driver code is included here
+#endif
+#if defined EXTERNAL_TEST
+    extern void fnExternalTest(void);
 #endif
 
 /* =================================================================== */
@@ -161,10 +172,10 @@
 // The project includes a variety of quick tests which can be activated here
 /*****************************************************************************/
 
-#define FREE_RUNNING_RX_DMA_RECEPTION                                    // {102} use the UART receiver in free-running DMA mode (requires SERIAL_SUPPORT_DMA_RX and SERIAL_SUPPORT_DMA_RX_FREERUN) - see videos https://youtu.be/dNZvvouiqis and https://youtu.be/GaoWE-tMRq4
 //#define RAM_TEST                                                       // {61} perform a RAM test on startup - if error found, stop
 //#define TEST_MSG_MODE                                                  // test UART in message mode
 //#define TEST_MSG_CNT_MODE                                              // test UART in message counter mode
+//#define DELAY_MASS_STORAGE_START                                       // optionally delay the mass storage task (SD card) starting
 #if defined SUPPORT_DISTRIBUTED_NODES
   //#define TEST_DISTRIBUTED_TX                                          // test some uNetwork messages
 #endif
@@ -214,7 +225,9 @@
 /*                 local function prototype declarations               */
 /* =================================================================== */
 
-static void fnValidatedInit(void);
+#if !defined BLINKY && !defined HELLO_WORLD
+    static void fnValidatedInit(void);
+#endif
 #if defined DEMO_UDP
     static void fnConfigUDP(void);
     static int  fnUDPListner(USOCKET c, unsigned char uc, unsigned char *ucIP, unsigned short us, unsigned char *data, unsigned short us2);
@@ -223,7 +236,7 @@ static void fnValidatedInit(void);
     static void fnStartGlobalTimers(void);
     static void fnHandleGlobalTimers(unsigned char ucTimerEvent);
 #endif
-#if defined USE_DHCP_CLIENT || defined USE_DHCP_SERVER || defined USE_ZERO_CONFIG
+#if (defined USE_DHCP_CLIENT && !defined USB_RNDIS_HOST) || defined USE_DHCP_SERVER || defined USE_ZERO_CONFIG
     static void fnConfigureDHCP_ZERO(void);
 #endif
 #if defined TEST_DISTRIBUTED_TX
@@ -242,7 +255,7 @@ static void fnValidatedInit(void);
 #if defined RTC_TEST
     static void fnTestRTC(void);
 #endif
-#if (defined SUPPORT_SLCD || defined BLAZE_DIGITAL_WATCH) && defined SUPPORT_RTC
+#if (defined SUPPORT_SLCD || defined BLAZE_DIGITAL_WATCH || defined TFT_CLOCK_DEMO) && defined SUPPORT_RTC
     static void _rtc_second_interrupt(void);
 #endif
 #if defined SUPPORT_GLCD && (defined MB785_GLCD_MODE || defined AVR32_EVK1105 || defined AVR32_AT32UC3C_EK || defined IDM_L35_B || defined M52259_TOWER || defined TWR_K60N512 || defined TWR_K60D100M || defined TWR_K70F120M || defined OLIMEX_LPC2478_STK || defined K70F150M_12M || (defined OLIMEX_LPC1766_STK && defined NOKIA_GLCD_MODE)) && defined SDCARD_SUPPORT // {58}{68}
@@ -259,14 +272,25 @@ static void fnValidatedInit(void);
 #if defined SERIAL_INTERFACE && defined USE_J1708
     static void fnInitJ1708(void);
 #endif
+#if defined TFT_CLOCK_DEMO
+    static void fnDrawTime(int iInc);
+    static void fnDrawSlider(int iNewPosition, unsigned short usNewValue);
+    #if defined SUPPORT_TOUCH_SCREEN
+    static void fnHandleTouchEvents(unsigned char ucTouchEvent);
+    #endif
+#endif
 
 /* =================================================================== */
 /*                             constants                               */
 /* =================================================================== */
 
+#if defined USE_MAINTENANCE || defined USE_HTTP
+    const CHAR  cSoftwareVersion[] = SOFTWARE_VERSION;                   // software version for general purpose display use
+#endif
+
 // The application is responsible for defining the IP configuration - here are the default settings
 //
-#if defined ETH_INTERFACE || defined USB_CDC_RNDIS || defined USE_PPP
+#if defined ETH_INTERFACE || defined WIFI_INTERFACE || defined USB_CDC_RNDIS || defined USB_RNDIS_HOST || defined USE_PPP
 static const NETWORK_PARAMETERS network_default[IP_NETWORK_COUNT] = {
     {
     #if defined LAN_REPORT_ACTIVITY
@@ -274,8 +298,8 @@ static const NETWORK_PARAMETERS network_default[IP_NETWORK_COUNT] = {
     #else
         (AUTO_NEGOTIATE /*| FULL_DUPLEX*/ | RX_FLOW_CONTROL | LAN_LEDS), // {42} usNetworkOptions - see driver.h for other possibilities
     #endif
-        {0x00, 0x00, 0x00, 0x00, 0x00, 0x00},                            // ucOurMAC - when no other value can be read from parameters this will be used
-        { 192, 168, 0, 5 },                                              // ucOurIP - our default IP address
+        { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 },                          // ucOurMAC - when no other value can be read from parameters this will be used
+        { 192, 168, 0, 3 },                                              // ucOurIP - our default IP address
         { 255, 255, 255, 0 },                                            // ucNetMask - Our default network mask
         { 192, 168, 0, 1 },                                              // ucDefGW - Our default gateway
         { 192, 168, 0, 1 },                                              // ucDNS_server - Our default DNS server
@@ -309,130 +333,130 @@ static const NETWORK_PARAMETERS network_default[IP_NETWORK_COUNT] = {
 };
 #endif
 
+#if !defined BLINKY && !defined HELLO_WORLD
 // The default user settings (factory settings)
 //
 const PARS cParameters = {
     PARAMETER_BLOCK_VERSION,                                             // version number for parameter validity control
     (unsigned short)(2 * 60),                                            // default telnet_timeout - 2 minutes
-    (CHAR_8 + NO_PARITY + ONE_STOP + USE_XON_OFF + CHAR_MODE),           // {43} serial interface settings
+    (CHAR_8 | NO_PARITY | ONE_STOP | USE_XON_OFF | CHAR_MODE),           // {43} serial interface settings
     23,                                                                  // TELNET port number
     {
-        (/*ACTIVE_DHCP + */ACTIVE_LOGIN + ACTIVE_FTP_SERVER /*+ ACTIVE_FTP_LOGIN*/ + ACTIVE_SNTP + ACTIVE_TIME_SERVER + ACTIVE_WEB_SERVER + ACTIVE_TELNET_SERVER + SMTP_LOGIN), // active servers (ACTIVE_DHCP and ACTIVE_FTP_LOGIN disabled)
-#if (IP_NETWORK_COUNT > 1)
-        (/*ACTIVE_DHCP + */ACTIVE_LOGIN + ACTIVE_FTP_SERVER /*+ ACTIVE_FTP_LOGIN*/ + ACTIVE_SNTP + ACTIVE_TIME_SERVER + ACTIVE_WEB_SERVER + ACTIVE_TELNET_SERVER + SMTP_LOGIN), // active servers (ACTIVE_DHCP and ACTIVE_FTP_LOGIN disabled)
-#endif
+        (/*ACTIVE_DHCP | */ACTIVE_LOGIN | ACTIVE_FTP_SERVER /*| ACTIVE_FTP_LOGIN*/ | ACTIVE_SNTP | ACTIVE_TIME_SERVER | ACTIVE_WEB_SERVER | ACTIVE_TELNET_SERVER | SMTP_LOGIN), // active servers (ACTIVE_DHCP and ACTIVE_FTP_LOGIN disabled)
+    #if (IP_NETWORK_COUNT > 1)
+        (/*ACTIVE_DHCP | */ACTIVE_LOGIN | ACTIVE_FTP_SERVER /*| ACTIVE_FTP_LOGIN*/ | ACTIVE_SNTP | ACTIVE_TIME_SERVER | ACTIVE_WEB_SERVER | ACTIVE_TELNET_SERVER | SMTP_LOGIN), // active servers (ACTIVE_DHCP and ACTIVE_FTP_LOGIN disabled)
+    #endif
     },
-#if defined FRDM_KL03Z                                                   // this board has a capacitor connected to the LPUART0_RX pin so cannot use fast speeds
-  //SERIAL_BAUD_115200,
+    #if defined FRDM_KL03Z                                               // this board has a capacitor connected to the LPUART0_RX pin so cannot use fast speeds
     SERIAL_BAUD_19200,                                                   // baud rate of serial interface
-#else
+    #else
     SERIAL_BAUD_115200,                                                  // baud rate of serial interface
-#endif
+    #endif
     {0, 0, 0, 0},                                                        // trusted dial out IP address (null IP means no checking)
     {'A', 'D', 'M', 'I', 'N', 0, ' ', ' '},                              // default user name - & or null terminator closes sequence
     {'u', 'T', 'a', 's', 'k', 'e', 'r', '&'},                            // default user password - & or null terminator closes sequence
-#if defined _M5225X
+    #if defined _M5225X
     {'K', 'I', 'R', 'I', 'N', '3', 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
-#elif defined _KINETIS
+    #elif defined _KINETIS
     {'K', 'I', 'N', 'E', 'T', 'I', 'S', 0,0,0,0,0,0,0,0,0,0,0,0,0,0},
-#elif defined _STM32
+    #elif defined _STM32
     {'S', 'T', 'M', '3', '2', 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
-#else
+    #else
     {'u', 'T', 'a', 's', 'k', 'e', 'r', ' ', 'N', 'u', 'm', 'b', 'e', 'r', ' ', '1',0,0,0,0,0},
-#endif
+    #endif
     80,                                                                  // flow control at 80% high water
     20,                                                                  // flow control at 20% low water
-#if defined _KINETIS || defined AVR32_AT32UC3C_EK || defined AVR32_UC3_C2_XPLAINED // {80}
+    #if defined _KINETIS || defined AVR32_AT32UC3C_EK || defined AVR32_UC3_C2_XPLAINED || defined _iMX // {80}
     (MAPPED_DEMO_LED_1 | MAPPED_DEMO_LED_2),                             // user port DDR value
     (MAPPED_DEMO_LED_1 | MAPPED_DEMO_LED_2),                             // user port value of outputs
-#else
-    #if defined _LM3SXXXX
-    (BLINK_LED),                                                         // user port DDR value
     #else
+        #if defined _LM3SXXXX
+    (BLINK_LED),                                                         // user port DDR value
+        #else
     (DEMO_LED_1 | DEMO_LED_2),                                           // user port DDR value
-    #endif
+        #endif
     (DEMO_LED_1 | DEMO_LED_2),                                           // user port value of outputs
-#endif
+    #endif
     0,                                                                   // second set of user defined outputs
-#if !defined ETH_INTERFACE
+    #if !defined ETH_INTERFACE
     0,                                                                   // serial number (when Ethernet is enabled it is derived from the MAC address instead)
-#endif
-#if defined USE_SNTP || defined USE_TIME_SERVER
+    #endif
+    #if defined USE_SNTP || defined USE_TIME_SERVER
     (TIME_ZONE_UTC_PLUS_1 | DAYLIGHT_SAVING_WINTER),                     // time zone and daylight saving (UTC + 1)
-#endif
-#if defined USE_SNTP
+    #endif
+    #if defined USE_SNTP
     {                                                                    // SNTP server list
         {194, 0, 229, 89},                                               // stratum 1 - ntpstm.netbone-digital.com St. Moritz
         {131, 188, 3, 220},                                              // stratum 1 - ntp0.fau.de University Erlangen-Nuernberg, D-91058 Erlangen, FRG
         {217, 147, 223, 78},                                             // stratum 2 - clock.tix.ch CH-8005 Zurich, Switzerland
         {129, 6, 15, 29},                                                // time-b.nist.gov
     },
-#endif
-#if defined USE_TIME_SERVER
+    #endif
+    #if defined USE_TIME_SERVER
     {                                                                    // time server list
         {129, 6, 15, 28},                                                // time-a.nist.gov 129.6.15.28 NIST, Gaithersburg, Maryland
         {132, 163, 4, 101},                                              // time-a.timefreq.bldrdoc.gov 132.163.4.101 NIST, Boulder, Colorado
         {216, 200, 93, 8},                                               // nist1-dc.glassey.com 216.200.93.8 Abovenet, Virginia
     },
-#endif
-#if defined SMTP_PARAMETERS
+    #endif
+    #if defined SMTP_PARAMETERS
     {'U', 's', 'e', 'r', ' ', 'n', 'a', 'm', 'e', 0,0,0,0,0,0,0,0,0,0,0,0,0,0},
     {'P', 'a', 's', 's', ' ', 'w', 'o', 'r', 'd', 0,0},
     {'M', 'y', 'A', 'd', 'd', 'r', 'e', 's', 's', '@', 'u', 'T', 'a', 's', 'k', 'e', 'r', '.', 'c', 'o', 'm', 0,0,0,0,0,0,0,0,0,0},
     {'m', 'a', 'i', 'l', '.', 'p', 'r', 'o', 'v', 'i', 'd', 'e', 'r', '.', 'c', 'o', 'm', 0,0,0,0,0,0,0,0,0,0,0,0,0,0},
-    #if defined USE_DNS
+        #if defined USE_DNS
     {0, 0, 0, 0},
-    #else
+        #else
     SMTP_PROVIDER_IP_ADDRESS,
+        #endif
     #endif
-#endif
-#if defined LCD_CONTRAST_CONTROL
+    #if defined LCD_CONTRAST_CONTROL
     50,                                                                  // default LCD contrast PWM value (%)
-#endif
-#if defined GLCD_BACKLIGHT_CONTROL
+    #endif
+    #if defined GLCD_BACKLIGHT_CONTROL
     95,                                                                  // default LCD backlight PWM intensity (%)
-#endif
-#if defined SUPPORT_TOUCH_SCREEN
+    #endif
+    #if defined SUPPORT_TOUCH_SCREEN
     0, 0, 0, 0,                                                          // default touch screen calibration parameters
-#endif
-#if defined USE_FTP_CLIENT                                               // {67}
+    #endif
+    #if defined USE_FTP_CLIENT                                           // {67}
     {"FTP-USER-NAME"},                                                   // default FTP server user name
     {"FTP-PASSWORD"},                                                    // default FTP server user name
     21,                                                                  // FTP port number
     (2 * 60),                                                            // default idle timeout in seconds
     {192, 168, 0, 1},                                                    // default FTP server IPv4 address
-    #if defined USE_IPV6                                                 // {78}
+        #if defined USE_IPV6                                             // {78}
     {_IP6_ADD_DIGIT(0xfe80), _IP6_ADD_DIGIT(0x0000), _IP6_ADD_DIGIT(0x0000), _IP6_ADD_DIGIT(0x0000), _IP6_ADD_DIGIT(0x0200), _IP6_ADD_DIGIT(0x00ff), _IP6_ADD_DIGIT(0xfe00), _IP6_ADD_DIGIT(0x0000)}, // default FTP server IPv6 address
   //{_IP6_ADD_DIGIT(0x2001), _IP6_ADD_DIGIT(0x0470), _IP6_ADD_DIGIT(0x0026), _IP6_ADD_DIGIT(0x0105), _IP6_ADD_DIGIT(0), _IP6_ADD_DIGIT(0), _IP6_ADD_DIGIT(0), _IP6_ADD_DIGIT(0x0010)}, // default FTP server IPv6 address
+        #endif
     #endif
-#endif
-#if defined USE_IPV6INV4 && (defined USE_IPV6INV4_RELAY_DESTINATIONS && (USE_IPV6INV4_RELAY_DESTINATIONS != 0)) // {74} single IPv6in4 relay destination
+    #if defined USE_IPV6INV4 && (defined USE_IPV6INV4_RELAY_DESTINATIONS && (USE_IPV6INV4_RELAY_DESTINATIONS != 0)) // {74} single IPv6in4 relay destination
     {
         {
             {_IP6_ADD_DIGIT(0x2001), _IP6_ADD_DIGIT(0x0470), _IP6_ADD_DIGIT(0x0025), _IP6_ADD_DIGIT(0x0105), _IP6_ADD_DIGIT(0), _IP6_ADD_DIGIT(0), _IP6_ADD_DIGIT(0), _IP6_ADD_DIGIT(0x0002)}, // global IPv6 address of destination
             {192, 168, 0, 99},                                           // ipv4 address of destination
-            {0xf0, 0x4d, 0xa2, 0x9d, 0x94, 0xdc}                         // MAC address of distination
+            {0xf0, 0x4d, 0xa2, 0x9d, 0x94, 0xdc}                         // MAC address of destination
         },
-    #if USE_IPV6INV4_RELAY_DESTINATIONS > 1
+        #if USE_IPV6INV4_RELAY_DESTINATIONS > 1
         {
             {_IP6_ADD_DIGIT(0x2001), _IP6_ADD_DIGIT(0x0470), _IP6_ADD_DIGIT(0x0026), _IP6_ADD_DIGIT(0x0105), _IP6_ADD_DIGIT(0), _IP6_ADD_DIGIT(0), _IP6_ADD_DIGIT(0), _IP6_ADD_DIGIT(0x0011)}, // global IPv6 address of destination
             {192, 168, 0, 4},                                            // ipv4 address of destination
-            {0x00, 0x00, 0x00, 0x00, 0x00, 0x04}                         // MAC address of distination
+            {0x00, 0x00, 0x00, 0x00, 0x00, 0x04}                         // MAC address of destination
         },
-    #endif
+        #endif
     },
-#endif
-#if defined DUSK_AND_DAWN
+    #endif
+    #if defined DUSK_AND_DAWN
     {
         {0,0,0},                                                         // our geographical coordinates
         {0,0,0}
     },
-#endif
-#if defined USE_USB_HID_KEYBOARD && defined USB_KEYBOARD_DELAY
+    #endif
+    #if defined USE_USB_HID_KEYBOARD && defined USB_KEYBOARD_DELAY
     (100 - 1),                                                           // minimum inter-character delay between keyboard inputs (ms)
-#endif
+    #endif
 };
-
+#endif
 #if defined SUPPORT_KEY_SCAN                                             // support up to 4 x 4 for test purposes
     static const char *cKey[] = {
       "Key 1 pressed\r\n",                                               // First column, Row 1 press
@@ -480,7 +504,6 @@ const PARS cParameters = {
     #endif
     };
 #endif
-
 #if defined USE_SMTP
     static const CHAR cUserDomain[]   = OUR_USER_DOMAIN;
     static const CHAR cSubject[]      = EMAIL_SUBJECT;
@@ -503,11 +526,13 @@ const PARS cParameters = {
 /*                     global variable definitions                     */
 /* =================================================================== */
 
-TEMPPARS *temp_pars = 0;                                                 // working parameters
+#if !defined HELLO_WORLD
+    TEMPPARS *temp_pars = 0;                                             // working parameters
+#endif
 #if defined USE_PARAMETER_BLOCK
     PARS *parameters = 0;                                                // back up of original parameters so that they can be restored after unwanted changes
 #endif
-#if defined ETH_INTERFACE || defined USB_CDC_RNDIS || defined USE_PPP
+#if defined ETH_INTERFACE || defined WIFI_INTERFACE || defined USB_CDC_RNDIS || defined USB_RNDIS_HOST || defined USE_PPP
     NETWORK_PARAMETERS network[IP_NETWORK_COUNT] = {{0}};                // used network values
     NETWORK_PARAMETERS network_flash[IP_NETWORK_COUNT] = {{0}};          // these are the values really in FLASH
 #endif
@@ -557,7 +582,7 @@ TEMPPARS *temp_pars = 0;                                                 // work
         unsigned char ucSMTP_server[] = SMTP_PROVIDER_IP_ADDRESS;
     #endif
 #endif
-#if defined BLAZE_DIGITAL_WATCH || (defined USE_USB_AUDIO && defined AUDIO_FFT)
+#if defined BLAZE_DIGITAL_WATCH || defined TFT_CLOCK_DEMO || (defined USE_USB_AUDIO && defined AUDIO_FFT)
     static int iNotBlocked = 0;
 #endif
 #if defined SUPPORT_GLCD && (defined MB785_GLCD_MODE || defined AVR32_EVK1105 || defined AVR32_AT32UC3C_EK || defined IDM_L35_B || defined M52259_TOWER || defined TWR_K60N512 || defined TWR_K60D100M || defined TWR_K70F120M || defined OLIMEX_LPC2478_STK || defined K70F150M_12M || (defined OLIMEX_LPC1766_STK && defined NOKIA_GLCD_MODE)) && defined SDCARD_SUPPORT // {58}{68}
@@ -572,7 +597,9 @@ TEMPPARS *temp_pars = 0;                                                 // work
 #if defined SERIAL_INTERFACE && defined USE_TELNET && defined TELNET_RFC2217_SUPPORT // {101}
     static QUEUE_HANDLE SerialPortID_RFC2217 = NO_ID_ALLOCATED;
 #endif
+#if !defined BLINKY && !defined HELLO_WORLD
 static QUEUE_HANDLE save_handle = NETWORK_HANDLE;                        // temporary debug handle backup
+#endif
 static int iAppState = STATE_INIT;                                       // task state
 
 
@@ -580,13 +607,15 @@ static int iAppState = STATE_INIT;                                       // task
 //
 extern void fnApplication(TTASKTABLE *ptrTaskTable)
 {
+    #if !defined HELLO_WORLD
     QUEUE_HANDLE        PortIDInternal = ptrTaskTable->TaskID;           // queue ID for task input
+    #endif
     #if RX_BUFFER_SIZE >= 64
     unsigned char       ucInputMessage[RX_BUFFER_SIZE];                  // reserve space for receiving messages
     #else
     unsigned char       ucInputMessage[64];                              // reserve space for receiving messages (if the UART rx debug size if set less than 64 we use a 64 byte input otherwise it may be too small (and cause buffer overflow when used))
     #endif
-    #if (defined SERIAL_INTERFACE && defined DEMO_UART) || (defined CAN_INTERFACE && defined TEST_CAN) || defined TEST_I2C // {32}{39}
+    #if (defined SERIAL_INTERFACE && defined DEMO_UART) || (defined CAN_INTERFACE && defined TEST_CAN) || defined TEST_I2C_EEPROM || defined TEST_FM24CL16B || (defined SPI_INTERFACE && defined TEST_SPI && defined TEST_SPI_SLAVE_MODE) // {32}{39}
     QUEUE_TRANSFER Length = 0;
     #endif
 
@@ -600,7 +629,7 @@ extern void fnApplication(TTASKTABLE *ptrTaskTable)
         MAX_FILE_LENGTH size = (sizeof(temp) - 1);
         MEMORY_RANGE_POINTER fileSystemStart = uOpenFile("0.bin");       // verify upload location - modify to suit
         MEMORY_RANGE_POINTER upload_location = uOpenFile("g.bin");       // verify upload location - modify to suit
-        uMemcpy(temp, fnGetFlashAdd(FLASH_START_ADDRESS), sizeof(temp)); // copy the code at the start of flash to temp RAM buffer [put the upload file to test into the simulation folder with the name FLASH_xxx.ini, where xxx is the name of the target processor]
+        uMemcpy(temp, fnGetFlashAdd((unsigned char *)FLASH_START_ADDRESS), sizeof(temp)); // copy the code at the start of flash to temp RAM buffer [put the upload file to test into the simulation folder with the name FLASH_xxx.ini, where xxx is the name of the target processor]
         while (temp[size] == 0xff) {                                     // 0xff assumed to be beyond program content
             if (size == 0) {
                 break;
@@ -610,9 +639,13 @@ extern void fnApplication(TTASKTABLE *ptrTaskTable)
         if (size != 0) {                                                 // if not blank
             unsigned char ucMimeType = MIME_BINARY;
             fnEraseFlashSector(upload_location, (MAX_FILE_LENGTH)(MAX_SIZE_OF_BM_APPLICATION)); // ensure that the upload area is erased
-            uFileWrite(upload_location, temp, (size + 1));               // write the code to the upload file (thsi saves it in the correct file format)
+            uFileWrite(upload_location, temp, (size + 1));               // write the code to the upload file (this saves it in the correct file format)
             uFileCloseMime(upload_location, &ucMimeType);                // close file as binary type
         }
+#endif
+#if defined SUPPORT_LOW_POWER && defined _iMX && (defined iMX_RT105X || defined iMX_RT106X)
+        fnSetLowPowerMode(RUN_MODE);
+      //fnSetLowPowerMode(WAIT_MODE);                                    // set wait mode as default mode of operation here since these processors don't wake from the mode if set immediately
 #endif
 #if defined ETH_INTERFACE && /*defined USE_MQTT_CLIENT && defined SECURE_MQTT &&*/ defined _WINDOWS   // temporary for secure MQTT simulation tests
         {
@@ -634,11 +667,20 @@ extern void fnApplication(TTASKTABLE *ptrTaskTable)
             fnAddARP(gatewayIP, gatewayMAC, &arp_details);               // temp for development
         }
 #endif
+      //extern void arm_abs_f32(float *pSrc,float * pDst, unsigned long blockSize);
+      //float fOutput;
+      //float fInput = (float)-1.2;
+      //arm_abs_f32(&fInput, &fOutput, 1);                               // test CMSIS fabs()
       //float fTest = fnFloatStrFloat("1235.0123");                      // test floating point input
       //fTest = fnFloatStrFloat("-0.000123");
       //fTest = fnFloatStrFloat("-456.123");
-#if defined SUPPORT_SLCD                                                 // {60}
+#if defined _STORAGE_I2C_FRAM_ENABLED
+        InitI2C_FRAM_Interface(0);                                       // initialise FRAM I2C interface and enter it into the storage space
+#endif
+#if defined SUPPORT_SLCD || defined TFT_CLOCK_DEMO                       // {60}
+    #if defined CONFIGURE_SLCD
         CONFIGURE_SLCD();                                                // configure ports and start SLCD with blank screen
+    #endif
     #if defined SUPPORT_RTC
         fnStartRTC(_rtc_second_interrupt);                               // start the RTC if it isn't yet operating and enter a seconds callback
     #endif
@@ -647,69 +689,104 @@ extern void fnApplication(TTASKTABLE *ptrTaskTable)
         #if defined BLAZE_DIGITAL_WATCH
         fnStartRTC(_rtc_second_interrupt);                               // start the RTC if it isn't yet operating and register the 1s callback
         #else
+            #if defined FRDM_K66F                                        // example of checking the RTC access (VBAT not cnnected would cause a hard fault) via DMA to determine whether the RTC can be used or not
+        {
+            unsigned long ulRegCopy;
+            POWER_UP_ATOMIC(6, RTC);                                     // ensure the RTC is powered
+            if (DMA_ERROR_OCCURRED == fnConfigDMA_buffer(4, 0, sizeof(ulRegCopy), (void *)RTC_BLOCK, &ulRegCopy, (DMA_DIRECTION_INPUT | DMA_LONG_WORDS | DMA_SINGLE_CYCLE | DMA_FIXED_ADDRESSES | DMA_SW_TRIGGER_WAIT_TERMINATION), 0, 0)) { // configure the transfer, start and wait for termination
+                // RTC cannot be accessed - probably due to missing VBAT voltage
+                // - avoid RTC access
+            }
+            else {
+                // ulRegCopy has the present RTC_TSR content, meaning that the RTC could be accessed
+                //
+                fnStartRTC(0);                                           // start the RTC if it isn't yet operating
+            }
+        }
+            #else
         fnStartRTC(0);                                                   // start the RTC if it isn't yet operating
-        #endif
-        #if defined KINETIS_KL && !defined _WINDOWS                      // {105} removed since solved in the RTC driver
-      //if ((RCM_SRS0 & (RCM_SRS0_POR | RCM_SRS0_LVD)) != 0) {           // power on reset/low voltage detector
-      //    fnResetBoard();                                              // temp fix for first alarm that otherwise immediately fires
-      //}
+            #endif
         #endif
     #endif
 #endif
-#if !defined NO_MODIFIABLE_PARAMETERS
-        temp_pars  = (TEMPPARS *)uMalloc(sizeof(TEMPPARS));              // get space for a working set of all modifiable parameters
-#endif
-#if defined USE_PARAMETER_BLOCK
+#if defined BLINKY || defined HELLO_WORLD
+        iAppState = STATE_ACTIVE;                                        // go to working state
+#else
+    #if !defined NO_MODIFIABLE_PARAMETERS
+        temp_pars = (TEMPPARS *)uMalloc(sizeof(TEMPPARS));               // get space for a working set of all modifiable parameters
+    #endif
+    #if defined USE_PARAMETER_BLOCK
         parameters = (PARS *)uMalloc(sizeof(PARS));                      // get RAM for a local copy of device parameters
-#endif
+    #endif
         if (fnGetOurParameters(0) == TEMPORARY_PARAM_SET) {
-#if defined USE_PARAMETER_BLOCK && defined USE_PAR_SWAP_BLOCK && (defined ETH_INTERFACE || defined USB_CDC_RNDIS || defined USE_PPP)
+    #if defined USE_PARAMETER_BLOCK && defined USE_PAR_SWAP_BLOCK && (defined ETH_INTERFACE || defined USB_CDC_RNDIS || defined USB_RNDIS_HOST || defined USE_PPP)
             uTaskerMonoTimer(OWN_TASK, (DELAY_LIMIT)(2 * 60 * SEC), E_TIMER_VALIDATE); // we have test parameters and wait for them to be validated else reset
             iAppState = STATE_VALIDATING;                                // critical parameter values have been changed so we start a period of validation
-#endif
+    #endif
         }
         else {
             iAppState = STATE_ACTIVE;                                    // not validating, so start work
             fnValidatedInit();
         }
-#if defined QUICK_DEV_TASKS
+    #if defined QUICK_DEV_TASKS
         uTaskerStateChange(TASK_DEV_1, UTASKER_ACTIVATE);                // {106}
-#endif
-#if defined FAT_EMULATION                                                // {98}
+    #endif
+    #if defined FAT_EMULATION                                            // {98}
         fnPrepareEmulatedFAT();
-#endif
-#if defined _MAGIC_RESET_FRAME && defined ETH_INTERFACE && defined ETHERNET_AVAILABLE && !defined NO_INTERNAL_ETHERNET // {80}
+    #endif
+    #if defined _MAGIC_RESET_FRAME && defined ETH_INTERFACE && defined ETHERNET_AVAILABLE && !defined NO_INTERNAL_ETHERNET // {80}
         fnEnableMagicFrames(1);                                          // {86} enable magic frame checking so that the board can be reset
-#endif
-#if defined USE_IPV6 && defined USE_IPV6INV4 && (defined USE_IPV6INV4_RELAY_DESTINATIONS && (USE_IPV6INV4_RELAY_DESTINATIONS != 0)) // {74}
+    #endif
+    #if defined USE_IPV6 && defined USE_IPV6INV4 && (defined USE_IPV6INV4_RELAY_DESTINATIONS && (USE_IPV6INV4_RELAY_DESTINATIONS != 0)) // {74}
         fnSetIPv6in4Destinations(&temp_pars->temp_parameters.relay_destination[0]); // enter ipv6 in ipv4 table for relaying use
-#endif
-#if defined INTERNAL_USER_FILES                                          // {37}{55}
-    #if defined EMBEDDED_USER_FILES
+    #endif
+    #if defined INTERNAL_USER_FILES                                      // {37}{55}
+        #if defined EMBEDDED_USER_FILES
         if (fnActivateEmbeddedUserFiles("1", USER_FILE_IN_INTERNAL_FLASH) == 0) { // if valid embedded user file space is found activate it, else use code embedded version
             fnEnterUserFiles((USER_FILE *)user_files);                   // user_files defined in app_user_files.h
         }
-    #else
+        #else
         fnEnterUserFiles((USER_FILE *)user_files);                       // user_files defined in app_user_files.h
+        #endif
     #endif
-#endif
-#if defined USE_MAINTENANCE && !defined REMOVE_PORT_INITIALISATIONS && (!(defined KWIKSTIK && defined SUPPORT_SLCD))
+    #if defined USE_MAINTENANCE && !defined REMOVE_PORT_INITIALISATIONS && (!(defined KWIKSTIK && defined SUPPORT_SLCD))
         fnInitialisePorts();                                             // set up ports as required by the user
-#endif
-#if defined USE_TELNET || defined USE_TELNET_CLIENT
+    #endif
+    #if defined USE_TELNET || defined USE_TELNET_CLIENT
         uTaskerStateChange(TASK_DEBUG, UTASKER_ACTIVATE);                // schedule the debug task so that it can configure telnet use
+    #endif
+    #if defined CAN_INTERFACE && defined SUPPORT_CANopen                 // {112}
+        uTaskerStateChange(TASK_CANOPEN, UTASKER_ACTIVATE);              // schedule the CANopen task so that it can start its operation 
+    #endif  
 #endif
 #if defined SERIAL_INTERFACE && defined DEMO_UART                        // {32} this serial interface is used for debug output and menu based control
-        if (NO_ID_ALLOCATED == fnSetNewSerialMode(FOR_I_O)) {            // open serial port for I/O
+        if (NO_ID_ALLOCATED == (SerialPortID = fnSetNewSerialMode(0, FOR_I_O))) { // open serial port for I/O
             return;                                                      // if the serial port could not be opened we quit
         }
         else {
+    #if defined _iMX && defined iMX_BOOT
+            unsigned char ucInstructionBanks;
+            unsigned char ucDataBanks;
+    #endif
+    #if defined ACTIVE_FILE_SYSTEM && defined UFILE_SYSTEM_INTEGRITY_CHECK && !defined _NO_FILE_INTERFACE
+            int iRogueFiles;
+    #endif
             STACK_REQUIREMENTS stackUsed;
             DebugHandle = SerialPortID;                                  // assign our serial interface as debug port
             fnDebugMsg("\r\n\nHello, world... ");
             fnDebugMsg(TARGET_HW);                                       // {103}
             fnDebugMsg(" [");
             fnAddResetCause(0);                                          // {107}
+    #if defined _iMX && defined iMX_BOOT
+            if (*BOOT_RESET_COUNTER != 0) {
+                fnDebugDec(*BOOT_RESET_COUNTER, WITH_SPACE);             // display the number of resets
+            }
+            if (*BOOT_WDOG_COUNTER != 0) {
+                fnDebugMsg(" (");
+                fnDebugDec(*BOOT_WDOG_COUNTER, 0);                       // display the number of watchdog resets
+                fnDebugMsg(")");
+            }
+    #endif
             fnDebugMsg("]\r\n");
             fnDebugMsg("Static memory = ");
     #if defined _WINDOWS
@@ -723,6 +800,36 @@ extern void fnApplication(TTASKTABLE *ptrTaskTable)
             fnDebugHex(fnHeapAvailable(), (WITH_LEADIN | sizeof(HEAP_REQUIREMENTS) | WITH_CR_LF));
             fnDebugMsg("Initial stack margin ");
             fnDebugHex(fnStackFree(&stackUsed), (sizeof(unsigned long) | WITH_LEADIN | WITH_CR_LF));
+    #if defined _iMX && defined iMX_BOOT
+            // Display details of FlexRAM configuration
+            //
+            fnGetFlexRAM_banks(&ucInstructionBanks, &ucDataBanks);       // request the FlexRAM layout
+            fnDebugMsg("FlexRAM:\n\r");
+            fnDebugDec(ucInstructionBanks, 0);
+            fnDebugMsg(" Code banks [0x00000000..");
+            fnDebugHex(((ucInstructionBanks * FLEX_RAM_GRANULARITY) - 1), (WITH_LEADIN | sizeof(unsigned long)));
+            fnDebugMsg("]\r\n");
+            fnDebugDec(ucDataBanks, 0);
+            fnDebugMsg(" Data banks [0x20000000..");
+            fnDebugHex((((ucDataBanks * FLEX_RAM_GRANULARITY) - 1) + RAM_START_ADDRESS_DTC), (WITH_LEADIN | sizeof(unsigned long)));
+            fnDebugMsg("]\r\n");
+        #if !defined HELLO_WORLD && !defined BLINKY
+            fnDisplaySPI();
+        #endif
+            *BOOT_MAIL_BOX = DO_FULL_RESET;                              // commanded resets from the application will default to a full reset sequence (so that "Bare-Mimimum" updating can operate)
+    #endif
+    #if defined ACTIVE_FILE_SYSTEM && defined UFILE_SYSTEM_INTEGRITY_CHECK && !defined _NO_FILE_INTERFACE
+            fnDebugMsg("uFileSystem integrity\r\n");
+            iRogueFiles = uOpenFileIntegrityCheck();
+            if (iRogueFiles != 0) {
+                fnDebugMsg("check removed ");
+                fnDebugDec(iRogueFiles, 0);
+                fnDebugMsg(" rogue file(s)!\r\n");
+            }
+            else {
+                fnDebugMsg("OK\r\n");
+            }
+    #endif
           //fnDebugFloat((float)(12345.123), (WITH_CR_LF | 3));          // test floating point output
         }
 #endif
@@ -732,10 +839,10 @@ extern void fnApplication(TTASKTABLE *ptrTaskTable)
 #if defined FREEMASTER_UART
         FreemasterPortID = fnOpenFreeMasterUART();                       // enable UART for FreeMaster use
 #endif
-#if defined TEST_I2C || defined I2C_SLAVE_MODE || defined TEST_DS1307 || defined TEST_SENSIRION || defined TEST_MMA8451Q || defined TEST_MMA7660F || defined TEST_FXOS8700 // {56}
+#if defined I2C_TEST_CODE_ENABLED                                        // {56}
         fnConfigI2C_Interface();
 #endif
-#if defined USE_DHCP_CLIENT || defined USE_DHCP_SERVER || defined USE_ZERO_CONFIG
+#if (defined USE_DHCP_CLIENT && !defined USB_RNDIS_HOST) || defined USE_DHCP_SERVER || defined USE_ZERO_CONFIG
         fnConfigureDHCP_ZERO();
 #endif
 #if defined USE_HTTP
@@ -747,7 +854,7 @@ extern void fnApplication(TTASKTABLE *ptrTaskTable)
 #if defined PHY_POLL_LINK                                                // {83}
         fnInterruptMessage(TASK_NETWORK_INDICATOR, LAN_LINK_DOWN);       // start PHY polling operation
 #endif
-#if defined _WINDOWS && (defined ETH_INTERFACE || defined USB_CDC_RNDIS || defined USE_PPP)
+#if defined _WINDOWS && (defined ETH_INTERFACE || defined USB_CDC_RNDIS || defined USB_RNDIS_HOST || defined USE_PPP)
         fnSimulateLinkUp();                                              // ethernet link up simulation
 #endif
 #if defined TEST_GLOBAL_TIMERS
@@ -766,6 +873,9 @@ extern void fnApplication(TTASKTABLE *ptrTaskTable)
         OurNetworkNumber = 1;                                            // set a valid network address for ourselves
         fnSendDist();
 #endif
+#if defined USE_DMX512_MASTER || defined USE_DMX512_SLAVE                // {109}
+        uTaskerStateChange(TASK_DMX512, UTASKER_ACTIVATE);               // start the DMX512 task
+#endif
 #if defined USE_SNMP
         fnInitialiseSNMP();                                              // {91}
         fnSendSNMPTrap(SNMP_COLDSTART, 0, ALL_SNMP_MANAGERS);            // send cold start trap to all possible SNMP managers
@@ -777,10 +887,17 @@ extern void fnApplication(TTASKTABLE *ptrTaskTable)
         fnStart_mDNS((USOCKET)(defineNetwork(0) | defineInterface(0)));  // start mDNS server operation
 #endif
 #if defined USB_INTERFACE
+    #if defined USB_HOST_SUPPORT && defined USB_MSD_HOST && defined FAT_EMULATION && defined USE_USB_MSD && !defined SDCARD_SUPPORT
+        uTaskerStateChange(TASK_MASS_STORAGE, UTASKER_ACTIVATE);         // {114} start mass storage task (it is scheduled before the USB task) so that the emulated drive is mounted
+    #endif
         uTaskerStateChange(TASK_USB, UTASKER_ACTIVATE);                  // start USB task
 #endif
 #if (defined SDCARD_SUPPORT || defined SPI_FLASH_FAT || defined FLASH_FAT) && !defined MB785_GLCD_MODE
+    #if defined DELAY_MASS_STORAGE_START
+        uTaskerMonoTimer(OWN_TASK, (DELAY_LIMIT)(2 *SEC), E_TIMER_MASS_STORAGE_START_DELAY);
+    #else
         uTaskerStateChange(TASK_MASS_STORAGE, UTASKER_ACTIVATE);         // {52} start mass storage task
+    #endif
 #endif
 #if defined IRQ_TEST || defined WAKEUP_TEST
         fnInitIRQ();                                                     // initialise pin interrupts or wakeup source(s)
@@ -793,7 +910,9 @@ extern void fnApplication(TTASKTABLE *ptrTaskTable)
         #include "ADC_Timers.h"                                          // ADC and timer initialisation
     #undef  _ADC_TIMER_INIT
 #endif
-
+#if defined SPI_INTERFACE && defined TEST_SPI                            // {{111}}
+        fnInitSPIInterface();
+#endif
 #if defined CAN_INTERFACE && defined TEST_CAN                            // {39}
         fnInitCANInterface();                                            // {57}
 #endif
@@ -802,6 +921,9 @@ extern void fnApplication(TTASKTABLE *ptrTaskTable)
 #endif
 #if defined SERIAL_INTERFACE && defined USE_TELNET && defined TELNET_RFC2217_SUPPORT // {101}
         fnConfigureTelnetRFC2217Server();
+#endif
+#if defined EXTERNAL_TEST
+        fnExternalTest();
 #endif
     }
 #if defined SUPPORT_GLCD && (defined MB785_GLCD_MODE || defined AVR32_EVK1105 || defined AVR32_AT32UC3C_EK || defined IDM_L35_B || defined M52259_TOWER || defined TWR_K60N512 || defined TWR_K60D100M || defined TWR_K70F120M || defined OLIMEX_LPC2478_STK || defined K70F150M_12M || (defined OLIMEX_LPC1766_STK && defined NOKIA_GLCD_MODE)) && defined SDCARD_SUPPORT // {58}{68}
@@ -814,34 +936,39 @@ extern void fnApplication(TTASKTABLE *ptrTaskTable)
 #if defined SERIAL_INTERFACE && defined USE_J1708
     j1708_update();                                                      // this must be polled faster than the overflow frequency of the free running timer
 #endif
-
-    while (fnRead(PortIDInternal, ucInputMessage, HEADER_LENGTH) != 0) { // check input queue
+#if !defined HELLO_WORLD
+    while (fnRead(PortIDInternal, ucInputMessage, HEADER_LENGTH) != 0) { // check task input queue
         switch (ucInputMessage[MSG_SOURCE_TASK]) {                       // switch depending on message source
         case TIMER_EVENT:
             switch (ucInputMessage[MSG_TIMER_EVENT]) {
             case E_TIMER_SW_DELAYED_RESET:
-                fnResetBoard();                                          // delayed reset to allow rest page to be served
+                fnResetBoard();                                          // delayed reset to allow reset page to be served by web server (or similar feedback)
                 break;
-#if defined USE_PARAMETER_BLOCK && defined USE_PAR_SWAP_BLOCK && (defined ETH_INTERFACE || defined USB_CDC_RNDIS || defined USE_PPP)
+    #if defined USE_PARAMETER_BLOCK && defined USE_PAR_SWAP_BLOCK && (defined ETH_INTERFACE || defined USB_CDC_RNDIS || defined USB_RNDIS_HOST || defined USE_PPP)
             case E_TIMER_VALIDATE:
                 fnDelPar(INVALIDATE_TEST_PARAMETER_BLOCK);               // validation timer fired before new parameters were verified. We delete the temporary parameters and restart with the original or defaults
                 fnResetBoard();
                 break;
-#endif
-#if defined USE_MAINTENANCE && defined SERIAL_INTERFACE && (defined USE_TELNET || defined USE_USB_CDC)
+    #endif
+    #if defined USE_MAINTENANCE && defined SERIAL_INTERFACE && (defined USE_TELNET || defined USE_USB_CDC)
             case E_QUIT_SERIAL_COMMAND_MODE:
                 {
                     static const CHAR ucCOMMAND_MODE_TIMEOUT[] = "Connection timed out\r\n";
                     fnWrite(SerialPortID, (unsigned char *)ucCOMMAND_MODE_TIMEOUT, (sizeof(ucCOMMAND_MODE_TIMEOUT) - 1));
                 }
                 break;
-#endif
-#if defined TEST_SENSIRION                                               // {56}
+    #endif
+    #if defined TEST_SENSIRION || defined TEST_DS1621                    // {56}
             case E_NEXT_SENSOR_REQUEST:
                 fnNextSensorRequest();
                 break;
-#endif
-#if defined nRF24L01_INTERFACE
+    #endif
+    #if defined DELAY_MASS_STORAGE_START
+            case E_TIMER_MASS_STORAGE_START_DELAY:
+                uTaskerStateChange(TASK_MASS_STORAGE, UTASKER_ACTIVATE); // {52} start mass storage task
+                break;
+    #endif
+    #if defined nRF24L01_INTERFACE
             case E_nRF24L01_PERIOD:
                 {
                     // Periodically send a message so that the receiver can respond if needed
@@ -855,8 +982,8 @@ extern void fnApplication(TTASKTABLE *ptrTaskTable)
                     uTaskerMonoTimer(OWN_TASK, (DELAY_LIMIT)(5 * SEC), E_nRF24L01_PERIOD); // next period
                 }
                 break;
-#endif
-#if defined USE_MODBUS && defined USE_MODBUS_MASTER // {66}
+    #endif
+    #if defined USE_MODBUS && defined USE_MODBUS_MASTER                  // {66}
             case E_TEST_MODBUS_DELAY:
                 {
                     extern void fnNextTest(void);
@@ -864,64 +991,64 @@ extern void fnApplication(TTASKTABLE *ptrTaskTable)
                   //fnMODBUS_delayed_response(usDelayedReference);       // test delayed response
                 }
                 break;
-#endif
-#if defined SUPPORT_DELAY_WEB_SERVING
+    #endif
+    #if defined SUPPORT_DELAY_WEB_SERVING
             case E_SERVE_PAGE:
                 fnServeDelayed('7', 0);
                 break;
-#endif
-#if defined SUPPORT_LCD || defined SUPPORT_GLCD || defined SUPPORT_OLED  // {38}{48}
+    #endif
+    #if defined SUPPORT_LCD || defined SUPPORT_GLCD || defined SUPPORT_OLED // {38}{48}
     #define HANDLE_TIMERS                                                // messages from the LCD task are handled here - see the file application_lcd.h
     #include "application_lcd.h"                                         // include timer handling from LCD task
     #undef HANDLE_TIMERS
-#endif
-#if !defined NO_PERIPHERAL_DEMONSTRATIONS
+    #endif
+    #if !defined NO_PERIPHERAL_DEMONSTRATIONS
     #define _ADC_TIMER_TIMER_EVENTS                                      // {49}
         #include "ADC_Timers.h"                                          // include timer handling by ADC demo
     #undef _ADC_TIMER_TIMER_EVENTS
-#endif
+    #endif
             default:
-#if defined TEST_GLOBAL_TIMERS                                           // assume unhandled timer events belong to global timers
+    #if defined TEST_GLOBAL_TIMERS                                       // assume unhandled timer events belong to global timers
                 fnHandleGlobalTimers(ucInputMessage[MSG_TIMER_EVENT]);
-#endif
+    #endif
                 break;
             }
             break;
 
         case INTERRUPT_EVENT:
             switch (ucInputMessage[MSG_INTERRUPT_EVENT]) {
-#if defined PWM_MEASUREMENT_DEVELOPMENT
+    #if defined PWM_MEASUREMENT_DEVELOPMENT
                 case 198:
                 {
                     extern void fnShowPWM(void);
                     fnShowPWM();
                 }
                 break;
-#endif
+    #endif
             case TX_FREE:
                 if (iAppState == STATE_BLOCKED) {                        // the TCP buffer we were waiting for has become free
                     iAppState = STATE_ACTIVE;
                 }
                 break;
-#if defined SUPPORT_RTC && (ALARM_TASK == OWN_TASK)
+    #if defined SUPPORT_RTC && defined ALARM_TASK && (ALARM_TASK == OWN_TASK)
             case RTC_ALARM_INTERRUPT_EVENT:
-    #if defined SUPPORT_LOW_POWER
+        #if defined SUPPORT_LOW_POWER
                 fnSetLowPowerMode(WAIT_MODE);
-    #endif
+        #endif
                 fnDebugMsg("RTC Alarm fired\r\n");
                 break;
-#endif
-#if defined nRF24L01_INTERFACE
+    #endif
+    #if defined nRF24L01_INTERFACE
             case E_nRF24L01_EVENT:
                 fnHandle_nRF24L01_event();
                 break;
-#endif
-#if !defined NO_PERIPHERAL_DEMONSTRATIONS
+    #endif
+    #if !defined NO_PERIPHERAL_DEMONSTRATIONS
     #define _CAN_INT_EVENTS
         #include "can_tests.h"                                           // CAN interrupt event handling - specific
     #undef _CAN_INT_EVENTS
-#endif
-#if defined USE_ZERO_CONFIG                                              // {59}
+    #endif
+    #if defined USE_ZERO_CONFIG                                          // {59}
             case ZERO_CONFIG_SUCCESSFUL:
                 fnDebugMsg("Zero config successful\r\n");
                 break;
@@ -931,96 +1058,98 @@ extern void fnApplication(TTASKTABLE *ptrTaskTable)
             case ZERO_CONFIG_COLLISION:
                 fnDebugMsg("Zero config collision\r\n");
                 break;
-#endif
-#if defined TEST_DISTRIBUTED_TX
+    #endif
+    #if defined TEST_DISTRIBUTED_TX
             case UNETWORK_FRAME_LOSS:
                 ulLost_uNetFrames++;
                 break;
             case UNETWORK_SYNC_LOSS:
                 ulLost_uNetSync++;
                 break;
-#endif
-#if defined SUPPORT_GLCD
-    #define HANDLE_LCD_INTERRUPT_EVENTS                                  // interruot events for the LCD are handled here - see the file application_lcd.h
+    #endif
+    #if defined SUPPORT_GLCD
+    #define HANDLE_LCD_INTERRUPT_EVENTS                                  // interrupt events for the LCD are handled here - see the file application_lcd.h
     #include "application_lcd.h"                                         // include LCD interrupt handling
     #undef HANDLE_LCD_INTERRUPT_EVENTS
-#endif
-#if !defined NO_PERIPHERAL_DEMONSTRATIONS
+    #endif
+    #if !defined NO_PERIPHERAL_DEMONSTRATIONS
     #define _ADC_TIMER_INT_EVENTS_1
         #include "ADC_Timers.h"                                          // ADC and timer interrupt event handling - specific
     #undef _ADC_TIMER_INT_EVENTS_1
-#endif
+    #endif
             default:
-#if defined SUPPORT_KEY_SCAN
+    #if defined SUPPORT_KEY_SCAN
                 if ((KEY_EVENT_COL_1_ROW_1_PRESSED <= ucInputMessage[MSG_INTERRUPT_EVENT]) && (KEY_EVENT_COL_4_ROW_4_RELEASED >= ucInputMessage[MSG_INTERRUPT_EVENT])) {
                     fnDebugMsg((char *)cKey[ucInputMessage[MSG_INTERRUPT_EVENT] - KEY_EVENT_COL_1_ROW_1_PRESSED]); // key press or release
-    #if defined GLCD_MENU_TEST
+        #if defined GLCD_MENU_TEST
                     fnHandleKey(&Menu, (ucInputMessage[MSG_INTERRUPT_EVENT] - KEY_EVENT_COL_1_ROW_1_PRESSED));
-    #endif
+        #endif
                     break;
                 }
-#endif
-#if !defined NO_PERIPHERAL_DEMONSTRATIONS
+    #elif defined SUPPORT_TOUCH_SCREEN && defined TFT_CLOCK_DEMO
+                fnHandleTouchEvents(ucInputMessage[MSG_INTERRUPT_EVENT]);
+    #endif
+    #if !defined NO_PERIPHERAL_DEMONSTRATIONS
     #define _ADC_TIMER_INT_EVENTS_2
         #include "ADC_Timers.h"                                          // ADC and timer interrupt event handling - ranges
     #undef _ADC_TIMER_INT_EVENTS_2
     #define _PORT_INTS_EVENTS
         #include "Port_Interrupts.h"                                     // port interrupt timer interrupt event handling - ranges
     #undef _PORT_INTS_EVENTS
-#endif
+    #endif
                 break;
             }
             break;
 
-#if defined SUPPORT_LCD || defined SUPPORT_GLCD || defined SUPPORT_OLED  // {38}{48}
+    #if defined SUPPORT_LCD || defined SUPPORT_GLCD || defined SUPPORT_OLED  // {38}{48}
     #define HANDLE_LCD_MESSAGES                                          // messages from the LCD task are handled here - see the file application_lcd.h
     #include "application_lcd.h"                                         // include message handling from LCD task
     #undef HANDLE_LCD_MESSAGES
-#endif
+    #endif
 
-#if defined USE_DHCP_CLIENT
+    #if defined USE_DHCP_CLIENT
         case TASK_ETHERNET:                                              // {100}
             fnRead(PortIDInternal, ucInputMessage, ucInputMessage[MSG_CONTENT_LENGTH]); // read the message content
             switch (ucInputMessage[0]) {                                 // the event
             case DHCP_SUCCESSFUL:                                        // we can now use the network connection
-    #if IP_NETWORK_COUNT > 1
+        #if IP_NETWORK_COUNT > 1
                 fnDebugMsg("DHCP ");
                 fnDebugDec(ucInputMessage[1], 0);
                 fnDebugMsg(" successful: ");
-    #else
+        #else
                 fnDebugMsg("DHCP successful: ");
-    #endif
-    #if defined USE_MAINTENANCE && (defined USE_TELNET || defined SERIAL_INTERFACE || defined USE_USB_CDC)
+        #endif
+        #if defined USE_MAINTENANCE && (defined USE_TELNET || defined SERIAL_INTERFACE || defined USE_USB_CDC)
                 fnDisplayIP(network[ucInputMessage[1]].ucOurIP);
-    #endif
+        #endif
                 fnDebugMsg("\r\n");
-    #if defined TEST_TFTP
+        #if defined TEST_TFTP
                 if (ucInputMessage[1] == DEFAULT_NETWORK) {              // if on the default network
                     fnTransferTFTP();                                    // start TFTP tranefer once the IP configuration has been resolved
                 }
-    #endif
+        #endif
                 break;
 
             case DHCP_MISSING_SERVER:
-    #if IP_NETWORK_COUNT > 1
+        #if IP_NETWORK_COUNT > 1
                 fnDebugMsg("DHCP ");
                 fnDebugDec(ucInputMessage[1], 0);
                 fnDebugMsg(" failed\r\n");
-    #else
+        #else
                 fnDebugMsg("DHCP failed\r\n");
-    #endif
+        #endif
                 fnStopDHCP(ucInputMessage[1]);                           // DHCP server is missing so stop and continue with backup address (if available)
-    #if defined USE_ZERO_CONFIG                                          // {59}
+        #if defined USE_ZERO_CONFIG                                      // {59}
                 fnStartZeroConfig(OWN_TASK);                             // start zero config process as fall-back
-    #endif
+        #endif
                 break;
             case DHCP_COLLISION:
             case DHCP_LEASE_TERMINATED:
                 break;
             }
             break;
-#endif
-#if defined USE_UDP && defined DEMO_UDP                                  // {50} ARP will only need to resolve if we initiate sending - here we resent the test frame after the destination has been resolved
+    #endif
+    #if defined USE_UDP && defined DEMO_UDP                              // {50} ARP will only need to resolve if we initiate sending - here we resent the test frame after the destination has been resolved
         case TASK_ARP:
             fnRead(PortIDInternal, ucInputMessage, ucInputMessage[MSG_CONTENT_LENGTH]); // read the message content
             switch (ucInputMessage[0]) {                                 // ARP sends us either ARP resolution success or failed
@@ -1032,12 +1161,13 @@ extern void fnApplication(TTASKTABLE *ptrTaskTable)
                 break;
             }
             break;
-#endif
+    #endif
         default:
             fnRead(PortIDInternal, ucInputMessage, ucInputMessage[MSG_CONTENT_LENGTH]); // flush any unexpected messages (assuming they arrived from another task)
             break;
         }
     }
+#endif
 
 #if defined FREEMASTER_UART
     while ((Length = fnRead(FreemasterPortID, ucInputMessage, sizeof(ucInputMessage))) != 0) { // check for input on the FreeMaster UART
@@ -1062,12 +1192,20 @@ extern void fnApplication(TTASKTABLE *ptrTaskTable)
         #endif
     #else
     if (((iAppState & (STATE_ACTIVE | STATE_DELAYING | STATE_ESCAPING | STATE_RESTARTING | STATE_VALIDATING)) != 0) && ((Length = fnMsgs(SerialPortID)) != 0)) {
+      //Length = fnPeekInput(SerialPortID, ucInputMessage, MEDIUM_MESSAGE, PEEK_NEWEST_INPUT);
+      //Length = fnPeekInput(SerialPortID, ucInputMessage, MEDIUM_MESSAGE, PEEK_OLDEST_INPUT);
         while ((Length = fnRead(SerialPortID, ucInputMessage, MEDIUM_MESSAGE)) != 0) { // handle UART input
         #if (defined USE_USB_CDC || defined USB_CDC_HOST) && !defined HELLO_WORLD // {24}{70}
             #if defined USE_MAINTENANCE
             if ((usUSB_state & ES_USB_RS232_MODE) != 0) {                // if in USB-CDC mode
             #endif
-                fnSendToUSB(ucInputMessage, Length);                     // send input to USB interface
+                if (ucInputMessage[0] == ESCAPE_SEQUENCE_START) {        // escape leaves the mode
+                    usUSB_state &= ~ES_USB_RS232_MODE;
+                    fnDebugMsg("vcom exited\r\n");
+                }
+                else {
+                    fnSendToUSB(ucInputMessage, Length);                 // send input to USB interface
+                }
                 continue;
             #if defined USE_MAINTENANCE
             }
@@ -1079,7 +1217,7 @@ extern void fnApplication(TTASKTABLE *ptrTaskTable)
             }
         #else
             fnEchoInput(ucInputMessage, Length);
-            #if defined TRK_KEA8 || defined FRDM_KE04Z
+            #if defined TRK_KEA8 || defined FRDM_KE04Z || defined HELLO_WORLD
             if (ucInputMessage[0] == CARRIAGE_RETURN) {                   // devices with very small memory so no command line interface used - show memory utilisation
                 fnDisplayMemoryUsage();
             }
@@ -1108,9 +1246,13 @@ extern void fnApplication(TTASKTABLE *ptrTaskTable)
     }
 #endif
 #if !defined NO_PERIPHERAL_DEMONSTRATIONS
+    #define _SPI_READ_CODE                                               // SPI reception checking
+        #include "spi_tests.h"                                           // include SPI code to handle reception
+    #undef _SPI_READ_CODE
+
     #define _I2C_READ_CODE                                               // I2C reception checking
     #if !defined BLAZE_K22
-        #include "iic_tests.h"                                           // include I2C code to handle reception
+        #include "i2c_tests.h"                                           // include I2C code to handle reception
     #endif
     #undef _I2C_READ_CODE
 
@@ -1124,14 +1266,14 @@ extern void fnApplication(TTASKTABLE *ptrTaskTable)
 #endif
 }
 
-#if defined USE_DHCP_CLIENT || defined USE_DHCP_SERVER || defined USE_ZERO_CONFIG
+#if (defined USE_DHCP_CLIENT && !defined USB_RNDIS_HOST) || defined USE_DHCP_SERVER || defined USE_ZERO_CONFIG
 static void fnConfigureDHCP_ZERO(void)
 {
     int iNetwork = 0;
     while (iNetwork < IP_NETWORK_COUNT) {
     #if defined USE_DHCP_CLIENT                                          // client
         if ((temp_pars->temp_parameters.usServers[iNetwork] & ACTIVE_DHCP) != 0) {
-        #if defined USB_CDC_RNDIS && (IP_NETWORK_COUNT > 1)
+        #if (defined USB_CDC_RNDIS || defined USB_RNDIS_HOST) && (IP_NETWORK_COUNT > 1)
             if (iNetwork == SECOND_NETWORK) {
                 fnStartDHCP((UTASK_TASK)(FORCE_INIT | OWN_TASK), (RNDIS_INTERFACE | defineNetwork(iNetwork) | DHCP_CLIENT_OPERATION)); // activate DHCP client restricted to the RNDIS interface
             }
@@ -1139,7 +1281,7 @@ static void fnConfigureDHCP_ZERO(void)
                 fnStartDHCP((UTASK_TASK)(FORCE_INIT | OWN_TASK), (ETHERNET_INTERFACE | defineNetwork(iNetwork) | DHCP_CLIENT_OPERATION)); // activate DHCP client on its network
             }
         #else
-            fnStartDHCP((UTASK_TASK)(FORCE_INIT | OWN_TASK), (DHCP_CLIENT_OPERATION | defineNetwork(iNetwork))); // activate DHCP client
+            fnStartDHCP((UTASK_TASK)(FORCE_INIT | OWN_TASK), (DHCP_CLIENT_OPERATION | defineNetwork(iNetwork))); // activate DHCP client on this network
         #endif
         }
         else {                                                           // if not DHCP client
@@ -1148,7 +1290,7 @@ static void fnConfigureDHCP_ZERO(void)
                 fnStartZeroConfig(OWN_TASK);                             // start zero config process
             }
             #elif defined USE_DHCP_SERVER
-                #if defined USB_CDC_RNDIS && (IP_NETWORK_COUNT > 1)
+                #if (defined USB_CDC_RNDIS || defined USB_RNDIS_HOST) && (IP_NETWORK_COUNT > 1)
             if (iNetwork == SECOND_NETWORK) {
                 fnStartDHCP(OWN_TASK, (DHCP_SERVER_OPERATION | defineNetwork(iNetwork) | RNDIS_INTERFACE)); // activate DHCP server on the network and interface
             }
@@ -1172,7 +1314,7 @@ static void fnConfigureDHCP_ZERO(void)
 }
 #endif
 
-#if defined ETH_INTERFACE || defined USB_CDC_RNDIS || defined USE_PPP
+#if defined ETH_INTERFACE || defined WIFI_INTERFACE || defined USB_CDC_RNDIS || defined USB_RNDIS_HOST || defined USE_PPP
 extern void fnSetDefaultNetwork(void)                                    // {99}
 {
     uMemcpy(&network[0], &network_default, sizeof(network_default));     // copy the default network values to the working set
@@ -1182,7 +1324,7 @@ extern void fnSetDefaultNetwork(void)                                    // {99}
 #if defined USE_PARAMETER_BLOCK
 extern void fnRestoreFactory(void)
 {
-    #if defined ETH_INTERFACE || defined USB_CDC_RNDIS || defined USE_PPP
+    #if defined ETH_INTERFACE || defined USB_CDC_RNDIS || defined USB_RNDIS_HOST || defined USE_PPP
     uMemcpy(temp_pars->temp_network, &network_default, sizeof(network_default));
     uMemcpy(&temp_pars->temp_network[DEFAULT_NETWORK].ucOurMAC[0], &network[DEFAULT_NETWORK].ucOurMAC[0], MAC_LENGTH); // return our mac since we never want to lose it
         #if IP_NETWORK_COUNT > 1
@@ -1193,7 +1335,7 @@ extern void fnRestoreFactory(void)
 }
 #endif
 
-#if defined SERIAL_INTERFACE
+#if defined SERIAL_INTERFACE && !defined HELLO_WORLD
 extern void fnFlushSerialRx(void)
 {
     #if defined SUPPORT_FLUSH
@@ -1208,7 +1350,7 @@ extern void fnFlushSerialRx(void)
 //
 extern CHAR *fnGetDHCP_host_name(unsigned char *ptr_ucHostNameLength, int iNetwork)
 {
-    *ptr_ucHostNameLength = uStrlen(temp_pars->temp_parameters.cDeviceIDName); // length of the name
+    *ptr_ucHostNameLength = (unsigned char)uStrlen(temp_pars->temp_parameters.cDeviceIDName); // length of the name
     return (temp_pars->temp_parameters.cDeviceIDName);                   // return pointer to the name to use
 }
 #endif
@@ -1269,10 +1411,18 @@ static void fnGetUserMAC(void)
             uMemcpy(network[DEFAULT_NETWORK].ucOurMAC, ulTestBuffer, MAC_LENGTH); // use the stored value as MAC address
         }
 }
+    #elif ((defined ETH_INTERFACE || defined USB_CDC_RNDIS || defined USE_PPP) && !defined NO_INTERNAL_ETHERNET && defined _iMX && defined SUPPORT_OCOTP && defined MAC_FROM_USER_REG) // {79}
+static void fnGetUserMAC(void)
+{
+        unsigned long ulTestBuffer[2];                                   // the MAC address is saved in two long words
+        ulTestBuffer[0] = HW_OCOTP_MAC0;
+        ulTestBuffer[1] = HW_OCOTP_MAC1;
+        uMemcpy(network[DEFAULT_NETWORK].ucOurMAC, ulTestBuffer, MAC_LENGTH); // use the stored value as MAC address
+}
     #endif
 #endif
 
-#if defined ETH_INTERFACE || defined USB_CDC_RNDIS || defined USE_PPP
+#if defined ETH_INTERFACE || defined WIFI_INTERFACE || defined USB_CDC_RNDIS || defined USB_RNDIS_HOST || defined USE_PPP
 extern void fnGetEthernetPars(void)
 {
     #if defined USE_PARAMETER_BLOCK
@@ -1284,7 +1434,7 @@ extern void fnGetEthernetPars(void)
             fnSetDefaultNetwork();                                       // if no parameters are available, load the default set
         }
     }
-        #if (defined ETH_INTERFACE || defined USB_CDC_RNDIS || defined USE_PPP) && !defined NO_INTERNAL_ETHERNET && defined MAC_FROM_USER_REG && (defined _LM3SXXXX || (defined _KINETIS && defined SUPPORT_PROGRAM_ONCE)) // {45}{79}
+        #if (defined ETH_INTERFACE || defined USB_CDC_RNDIS || defined USE_PPP) && !defined NO_INTERNAL_ETHERNET && defined MAC_FROM_USER_REG && (defined _LM3SXXXX || (defined _KINETIS && defined SUPPORT_PROGRAM_ONCE) || (defined _iMX && defined SUPPORT_OCOTP)) // {45}{79}
     fnGetUserMAC();
         #endif
     #else
@@ -1305,7 +1455,6 @@ extern void fnGetEthernetPars(void)
 #endif
 
 #if defined USE_PARAMETER_BLOCK
-
 static unsigned short fnGetOurParameters_1(void)
 {
     unsigned short usTemp = TEMPORARY_PARAM_SET;
@@ -1317,12 +1466,12 @@ static unsigned short fnGetOurParameters_1(void)
     // - note that the network options and the MAC address have already been set by the Ethernet task
     //
     if (fnGetPar((PAR_DEVICE | TEMPORARY_PARAM_SET), (unsigned char *)&temp_pars->temp_parameters, sizeof(temp_pars->temp_parameters)) < 0) { // try to load working parameters from temporary parameters
-        if (fnGetPar(PAR_DEVICE, (unsigned char *)&temp_pars->temp_parameters, sizeof(temp_pars->temp_parameters)) < 0) { // else try to load for vaid parameters
-            uMemcpy(&temp_pars->temp_parameters, (unsigned char *)&cParameters, sizeof(PARS)); // no valid parameters available - set defaults
-    #if defined ETH_INTERFACE || defined USB_CDC_RNDIS || defined USE_PPP
+        if (fnGetPar(PAR_DEVICE, (unsigned char *)&temp_pars->temp_parameters, sizeof(temp_pars->temp_parameters)) < 0) { // else try to load from valid parameters
+            uMemcpy(&temp_pars->temp_parameters, (unsigned char *)&cParameters, sizeof(PARS)); // no valid parameters available so set defaults
+    #if defined ETH_INTERFACE || defined USB_CDC_RNDIS || defined USB_RNDIS_HOST || defined USE_PPP
             if ((network[DEFAULT_NETWORK].usNetworkOptions & NETWORK_VALUES_FIXED) == 0) {
                 fnSetDefaultNetwork();                                   // if no parameters are available, load the default set
-        #if defined MAC_FROM_USER_REG && !defined NO_INTERNAL_ETHERNET && (defined _LM3SXXXX || (defined _KINETIS && defined SUPPORT_PROGRAM_ONCE)) // {45}{79}
+        #if defined MAC_FROM_USER_REG && !defined NO_INTERNAL_ETHERNET && (defined _LM3SXXXX || (defined _KINETIS && defined SUPPORT_PROGRAM_ONCE) || (defined _iMX && defined SUPPORT_OCOTP)) // {45}{79}
                 fnGetUserMAC();                                          // load the MAC address form another location
         #endif
             }
@@ -1339,10 +1488,10 @@ static unsigned short fnGetOurParameters_1(void)
         }
         usTemp = 0;                                                      // continue using valid set of parameters
     }
-    #if defined ETH_INTERFACE || defined USB_CDC_RNDIS || defined USE_PPP
+    #if defined ETH_INTERFACE || defined USB_CDC_RNDIS || defined USB_RNDIS_HOST || defined USE_PPP
     if ((network[DEFAULT_NETWORK].usNetworkOptions & NETWORK_VALUES_FIXED) == 0) { // if the network values have not been set and fixed
         fnGetPar((unsigned short)(PAR_NETWORK | usTemp), (unsigned char *)&network[DEFAULT_NETWORK], sizeof(network));  // network parameters
-        #if defined MAC_FROM_USER_REG && !defined NO_INTERNAL_ETHERNET && (defined _LM3SXXXX || (defined _KINETIS && defined SUPPORT_PROGRAM_ONCE)) // {45}{79}
+        #if defined MAC_FROM_USER_REG && !defined NO_INTERNAL_ETHERNET && (defined _LM3SXXXX || (defined _KINETIS && defined SUPPORT_PROGRAM_ONCE) || (defined _iMX && defined SUPPORT_OCOTP)) // {45}{79}
         fnGetUserMAC();                                                  // load the MAC address from special location
         #endif
     }
@@ -1359,13 +1508,14 @@ static unsigned short fnGetOurParameters_1(void)
 }
 #endif
 
+#if !defined HELLO_WORLD
 extern unsigned short fnGetOurParameters(int iCase)
 {
-#if defined NO_MODIFIABLE_PARAMETERS
+    #if defined NO_MODIFIABLE_PARAMETERS
     return 0;
-#elif defined USE_PARAMETER_BLOCK
+    #elif defined USE_PARAMETER_BLOCK
     unsigned short usTemp;
-    #if defined ETH_INTERFACE || defined USB_CDC_RNDIS || defined USE_PPP
+        #if defined ETH_INTERFACE || defined USB_CDC_RNDIS || defined USB_RNDIS_HOST || defined USE_PPP
     if (iCase == 1) {
         int iNetwork = 0;
         NETWORK_PARAMETERS network_back[IP_NETWORK_COUNT];               // backup of possibly DHCP modified values
@@ -1383,23 +1533,23 @@ extern unsigned short fnGetOurParameters(int iCase)
         }
     }
     else {
-    #endif
-    #if defined ETH_INTERFACE || defined USB_CDC_RNDIS || defined USE_PPP
-        usTemp = fnGetOurParameters_1();
-        #if !defined DNS_SERVER_OWN_ADDRESS                                  // {63}
-        uMemcpy(network[DEFAULT_NETWORK].ucDNS_server, network[DEFAULT_NETWORK].ucDefGW, IPV4_LENGTH); // DNS server address follows default gateway address
         #endif
+        #if defined ETH_INTERFACE || defined USB_CDC_RNDIS || defined USB_RNDIS_HOST || defined USE_PPP
+        usTemp = fnGetOurParameters_1();
+            #if !defined DNS_SERVER_OWN_ADDRESS                              // {63}
+        uMemcpy(network[DEFAULT_NETWORK].ucDNS_server, network[DEFAULT_NETWORK].ucDefGW, IPV4_LENGTH); // DNS server address follows default gateway address
+            #endif
         uMemcpy(&temp_pars->temp_network, &network[DEFAULT_NETWORK], sizeof(network)); // make a backup copy of all parameters for modification
     }
     uMemcpy(&network_flash, &temp_pars->temp_network, sizeof(NETWORK_PARAMETERS));
-    #else
+        #else
         usTemp = fnGetOurParameters_1();
-    #endif
+        #endif
     if (temp_pars->temp_parameters.ucParVersion != PARAMETER_BLOCK_VERSION) { // either we have found parameters belonging to another project or else a new version. Take the defaults in this case.
         uMemcpy(&temp_pars->temp_parameters, &cParameters, sizeof(PARS));
         usTemp = 0;
     }
-    #if defined USE_PARAMETER_BLOCK
+        #if defined USE_PARAMETER_BLOCK
     uMemcpy(parameters, &temp_pars->temp_parameters, sizeof(PARS));      // make a backup of the working parameter set so that changes can be checked for and reverted if needed
     if (TEMPORARY_PARAM_SET == usTemp) {                                 // {97} if temporary parameters are being used it means that we are validating
         unsigned char ucCheck;
@@ -1417,18 +1567,21 @@ extern unsigned short fnGetOurParameters(int iCase)
         fnSaveNewPars(SAVE_NEW_PARAMETERS);                              // copy the default set to flash so that we have a starting set for validation usage
     }
     return usTemp;
-    #else
+        #else
     return 0;
-    #endif
-#else
+        #endif
+    #else
+        #if !defined BLINKY
     uMemcpy(&temp_pars->temp_parameters, &cParameters, sizeof(PARS));    // {10}
   //uMemcpy(parameters, &cParameters, sizeof(PARS));
-    #if defined ETH_INTERFACE || defined USB_CDC_RNDIS || defined USE_PPP
+            #if defined ETH_INTERFACE || defined USB_CDC_RNDIS || defined USB_RNDIS_HOST || defined USE_PPP
     uMemcpy(&temp_pars->temp_network, &network[DEFAULT_NETWORK], sizeof(temp_pars->temp_network));
-    #endif
+            #endif
+        #endif
     return 0;
-#endif
+    #endif
 }
+#endif
 
 #if defined SUPPORT_GLCD && (defined MB785_GLCD_MODE || defined AVR32_EVK1105 || defined AVR32_AT32UC3C_EK || defined IDM_L35_B || defined M52259_TOWER || defined TWR_K60N512 || defined TWR_K60D100M || defined TWR_K70F120M || defined OLIMEX_LPC2478_STK || defined K70F150M_12M || (defined OLIMEX_LPC1766_STK && defined NOKIA_GLCD_MODE)) && defined SDCARD_SUPPORT // {58}{68}
 static void fnDisplayPhoto(int iOpen)
@@ -1449,19 +1602,19 @@ static void fnDisplayPhoto(int iOpen)
 }
 #endif
 
-
+#if !defined BLINKY && !defined HELLO_WORLD
 // These initialisations are only performed when validated, either at startup or on validation
 //
 static void fnValidatedInit(void)
 {
-#if defined USE_TIME_SERVER                                              // do not initiate when validating
+    #if defined USE_TIME_SERVER                                          // do not initiate when validating
     fnStartTimeServer((DELAY_LIMIT)(5.0 * SEC));                         // if timer server is enabled the first synchronisation request is made after a delay
-#endif
-#if defined USE_SNTP
+    #endif
+    #if defined USE_SNTP
     fnStartSNTP((DELAY_LIMIT)(5.0 * SEC));                               // if SNTP is enabled the first synchronisation request is made after a delay
-#endif
-#if defined SUPPORT_LCD || (defined SUPPORT_GLCD && !defined GLCD_COLOR) || defined SUPPORT_OLED || defined SUPPORT_TFT // {38}
-    #if defined MB785_GLCD_MODE && (defined SDCARD_SUPPORT || defined SPI_FLASH_FAT || defined FLASH_FAT) // allow the mass storage to initialise before starting the LCD (on same SPI interface on the STM3210C-EVAL)
+    #endif
+    #if defined SUPPORT_LCD || (defined SUPPORT_GLCD && !defined GLCD_COLOR) || defined SUPPORT_OLED || defined SUPPORT_TFT // {38}
+        #if defined MB785_GLCD_MODE && (defined SDCARD_SUPPORT || defined SPI_FLASH_FAT || defined FLASH_FAT) // allow the mass storage to initialise before starting the LCD (on same SPI interface on the STM3210C-EVAL)
     if (SDCARD_DETECTION() != 0) {                                       // {69}{84} if the SD card is detected, don't start the LCD task yet but wait until the card has beein initialised
         uTaskerStateChange(TASK_MASS_STORAGE, UTASKER_ACTIVATE);         // start mass storage task
         uTaskerMonoTimer(TASK_LCD, (DELAY_LIMIT)(0.25 * SEC), 0xff);     // start the LCD task after giving the SD card initialisation time to complete
@@ -1469,19 +1622,19 @@ static void fnValidatedInit(void)
     else {
         uTaskerStateChange(TASK_LCD, UTASKER_ACTIVATE);                  // start LCD task only when not validating
     }
-    #elif (defined IDM_L35_B || defined M52259_TOWER || defined TWR_K60N512 || defined TWR_K60D100M || defined TWR_K70F120M || defined AVR32_EVK1105 || defined AVR32_AT32UC3C_EK || defined OLIMEX_LPC2478_STK || defined K70F150M_12M) && defined SDCARD_SUPPORT // {58}{68}
+        #elif (defined IDM_L35_B || defined M52259_TOWER || defined TWR_K60N512 || defined TWR_K60D100M || defined TWR_K70F120M || defined AVR32_EVK1105 || defined AVR32_AT32UC3C_EK || defined OLIMEX_LPC2478_STK || defined K70F150M_12M) && defined SDCARD_SUPPORT // {58}{68}
     uTaskerMonoTimer(TASK_LCD, (DELAY_LIMIT)(0.25 * SEC), 0xff);         // start the LCD task after giving the SD card initialisation time to complete
-    #else
+        #else
   //uTaskerMonoTimer(TASK_LCD, (DELAY_LIMIT)(10 * SEC), 0xff);
     uTaskerStateChange(TASK_LCD, UTASKER_ACTIVATE);                      // start LCD task only when not validating
+        #endif
     #endif
-#endif
-#if defined (USE_SMTP) && !defined (USE_DNS) && defined (SMTP_PARAMETERS)
+    #if defined (USE_SMTP) && !defined (USE_DNS) && defined (SMTP_PARAMETERS)
     uMemcpy(ucSMTP_server, temp_pars->temp_parameters.ucSMTP_server_ip, IPV4_LENGTH);
-#endif
-#if defined USE_MODBUS && !defined MODBUS_USB_SLAVE                      // {54}{47}
+    #endif
+    #if defined USE_MODBUS && !defined MODBUS_USB_SLAVE                  // {54}{47}
     fnInitModbus();                                                      // {27} initialise MODBUS
-#endif
+    #endif
 }
 
 extern int fnAreWeValidating(void)
@@ -1496,21 +1649,20 @@ extern void fnWeHaveBeenValidated(void)
     fnValidatedInit();
 }
 
-
 extern void fnSaveDebugHandle(int iState)
 {
     save_handle = DebugHandle;                                           // push present debug handle
     switch (iState) {                                                    // {24}
-#if defined SERIAL_INTERFACE
+    #if defined SERIAL_INTERFACE
     case SOURCE_SERIAL:
         DebugHandle = SerialPortID;
         break;
-#endif
-#if defined USE_USB_CDC && defined USE_MAINTENANCE                       // {70}
+    #endif
+    #if defined USE_USB_CDC && defined USE_MAINTENANCE                   // {70}
     case SOURCE_USB:
         fnSetUSB_debug();                                                // select the USB connection as debug channel
         break;
-#endif
+    #endif
     default:
         DebugHandle = NETWORK_HANDLE;
         break;
@@ -1521,6 +1673,7 @@ extern void fnRestoreDebugHandle(void)
 {
     DebugHandle = save_handle;                                           // pop debug handle
 }
+#endif
 
 #if defined _MAGIC_RESET_FRAME && defined ETH_INTERFACE                  // {86}
 // When magic frames are activated the user must supply this routine to handle them
@@ -1537,66 +1690,105 @@ extern void fnMagicFrame(unsigned char ucType, unsigned char usOptionalDate[32])
 #endif
 
 #if defined SERIAL_INTERFACE && defined DEMO_UART                        // {32}
-extern QUEUE_HANDLE fnSetNewSerialMode(unsigned char ucDriverMode)
+extern QUEUE_HANDLE fnSetNewSerialMode(TTYTABLE *ptrInterfaceParameters, unsigned char ucDriverMode) // {108}
 {
+    QUEUE_HANDLE newSerialID;
     TTYTABLE tInterfaceParameters;                                       // table for passing information to driver
-    tInterfaceParameters.Channel = DEMO_UART;                            // set UART channel for serial use
-    #if defined NO_MODIFIABLE_PARAMETERS
-    tInterfaceParameters.ucSpeed = cParameters.ucSerialSpeed;            // baud rate
-    tInterfaceParameters.Config = cParameters.SerialMode;                // serial port mode
+    if (0 == ptrInterfaceParameters) {                                   // if no interface parameters are passed we use the paraeter settings and the debug interface
+        tInterfaceParameters.Channel = DEMO_UART;                        // set UART channel for serial use
+    #if defined HELLO_WORLD
+        tInterfaceParameters.ucSpeed = SERIAL_BAUD_115200;               // baud rate
+        tInterfaceParameters.Config = (CHAR_8 | NO_PARITY | ONE_STOP | USE_XON_OFF | CHAR_MODE);
+    #elif defined NO_MODIFIABLE_PARAMETERS
+        tInterfaceParameters.ucSpeed = cParameters.ucSerialSpeed;        // baud rate
+        tInterfaceParameters.Config = cParameters.SerialMode;            // serial port mode
     #else
-    tInterfaceParameters.ucSpeed = temp_pars->temp_parameters.ucSerialSpeed; // baud rate
-    tInterfaceParameters.Config = temp_pars->temp_parameters.SerialMode; // {43}
+        tInterfaceParameters.ucSpeed = temp_pars->temp_parameters.ucSerialSpeed; // baud rate
+        tInterfaceParameters.Config = temp_pars->temp_parameters.SerialMode; // {43}
     #endif
-    tInterfaceParameters.Rx_tx_sizes.RxQueueSize = RX_BUFFER_SIZE;       // input buffer size
-    tInterfaceParameters.Rx_tx_sizes.TxQueueSize = TX_BUFFER_SIZE;       // output buffer size
+        tInterfaceParameters.Rx_tx_sizes.RxQueueSize = RX_BUFFER_SIZE;   // input buffer size
+        tInterfaceParameters.Rx_tx_sizes.TxQueueSize = TX_BUFFER_SIZE;   // output buffer size
     #if defined RUN_IN_FREE_RTOS && defined FREE_RTOS_UART
-    tInterfaceParameters.Task_to_wake = 0;                               // don't schedule any task when characters/messages are received
+        tInterfaceParameters.Task_to_wake = 0;                           // don't schedule any task when characters/messages are received
     #else
-    tInterfaceParameters.Task_to_wake = OWN_TASK;                        // wake self when messages have been received
+        tInterfaceParameters.Task_to_wake = OWN_TASK;                    // wake self when messages have been received
     #endif
     #if defined SUPPORT_FLOW_HIGH_LOW
-    tInterfaceParameters.ucFlowHighWater = temp_pars->temp_parameters.ucFlowHigh; // set the flow control high and low water levels in %
-    tInterfaceParameters.ucFlowLowWater = temp_pars->temp_parameters.ucFlowLow;
+        tInterfaceParameters.ucFlowHighWater = temp_pars->temp_parameters.ucFlowHigh; // set the flow control high and low water levels in %
+        tInterfaceParameters.ucFlowLowWater = temp_pars->temp_parameters.ucFlowLow;
     #endif
     #if defined TEST_MSG_MODE
-    tInterfaceParameters.Config |= (MSG_MODE);
+        tInterfaceParameters.Config |= (MSG_MODE);
         #if defined (TEST_MSG_CNT_MODE) && defined (SUPPORT_MSG_CNT)
-    tInterfaceParameters.Config |= (MSG_MODE_RX_CNT);
+        tInterfaceParameters.Config |= (MSG_MODE_RX_CNT);
         #endif
-    tInterfaceParameters.Config &= ~USE_XON_OFF;
-    tInterfaceParameters.ucMessageTerminator = '\r';
+        tInterfaceParameters.Config &= ~USE_XON_OFF;
+        tInterfaceParameters.ucMessageTerminator = '\r';
     #endif
     #if defined SERIAL_SUPPORT_DMA
         #if defined FREE_RUNNING_RX_DMA_RECEPTION
-            #if defined KINETIS_KL && !defined DEVICE_WITH_eDMA
-  //tInterfaceParameters.ucDMAConfig = (UART_RX_DMA | UART_RX_MODULO); // modulo aligned reception memory is required by kinetis KL parts without eDMA in free-running DMA mode
-    tInterfaceParameters.ucDMAConfig = (UART_RX_DMA | UART_RX_MODULO | UART_TX_DMA); // modulo aligned reception memory is required by kinetis KL parts without eDMA in free-running DMA mode
+            #if !defined DEVICE_WITH_eDMA
+      //tInterfaceParameters.ucDMAConfig = (UART_RX_DMA | UART_RX_MODULO); // modulo aligned reception memory is required by kinetis KL parts without eDMA in free-running DMA mode
+        tInterfaceParameters.ucDMAConfig = (UART_RX_DMA | UART_RX_MODULO | UART_TX_DMA); // modulo aligned reception memory is required by kinetis KL parts without eDMA in free-running DMA mode
             #else
-    tInterfaceParameters.ucDMAConfig = (UART_RX_DMA | UART_TX_DMA);
+        tInterfaceParameters.ucDMAConfig = (UART_RX_DMA | UART_TX_DMA);
             #endif
-            #if !(defined RUN_IN_FREE_RTOS && defined FREE_RTOS_UART)
-    uTaskerStateChange(OWN_TASK, UTASKER_POLLING);                       // set the task to polling mode to regularly check the receive buffer
+            #if !(defined RUN_IN_FREE_RTOS && defined FREE_RTOS_UART) && !defined FREE_RUNNING_RX_DMA_RECEPTION_IDLE_LINE
+        uTaskerStateChange(OWN_TASK, UTASKER_POLLING);                   // set the task to polling mode to regularly check the receive buffer
+            #else
+        tInterfaceParameters.Config |= UART_IDLE_LINE_INTERRUPT;         // use idle line to cause input checking
             #endif
         #else
-  //tInterfaceParameters.ucDMAConfig = 0;
-    tInterfaceParameters.ucDMAConfig = UART_TX_DMA;                      // activate DMA on transmission
-  //tInterfaceParameters.ucDMAConfig = (UART_RX_DMA | UART_RX_DMA_HALF_BUFFER | UART_RX_DMA_FULL_BUFFER | UART_RX_DMA_BREAK));
+        tInterfaceParameters.ucDMAConfig = 0;                            // disable DMA in favour of interrupt driven operation
+      //tInterfaceParameters.ucDMAConfig = UART_TX_DMA;                  // activate DMA on transmission
+      //tInterfaceParameters.ucDMAConfig = (UART_RX_DMA | UART_RX_DMA_FULL_BUFFER); // activate DMA for reception with an interrupt on a full buffer
+      //tInterfaceParameters.ucDMAConfig = (UART_RX_DMA | UART_RX_DMA_HALF_BUFFER | UART_RX_DMA_FULL_BUFFER | UART_RX_DMA_BREAK); // activate DMA for reception with an interrupt on half and full buffer or break condition
         #endif
     #endif
-    #if defined SUPPORT_HW_FLOW
-  //tInterfaceParameters.Config |= RTS_CTS;                              // enable RTS/CTS operation (HW flow control)
+    #if defined USER_DEFINED_UART_RX_HANDLER                             // {110}
+        tInterfaceParameters.receptionHandler = 0;
     #endif
-    if ((SerialPortID = fnOpen(TYPE_TTY, ucDriverMode, &tInterfaceParameters)) != NO_ID_ALLOCATED) { // open or change the channel with defined configurations (initially inactive)
-        fnDriver(SerialPortID, (TX_ON | RX_ON), 0);                      // enable rx and tx
-        if ((tInterfaceParameters.Config & RTS_CTS) != 0) {              // {8} if HW flow control is being used
-            fnDriver(SerialPortID, (MODIFY_INTERRUPT | ENABLE_CTS_CHANGE), 0); // activate CTS interrupt when working with HW flow control (this returns also the present control line states)
-            fnDriver(SerialPortID, (MODIFY_CONTROL | SET_RTS), 0);       // activate RTS line when working with HW flow control
+    #if defined USER_DEFINED_UART_RX_BREAK_DETECTION
+        tInterfaceParameters.receiveBreakHandler = 0;
+    #endif
+    #if defined USER_DEFINED_UART_TX_FRAME_COMPLETE
+        tInterfaceParameters.txFrameCompleteHandler = 0;
+    #endif
+    #if defined SUPPORT_HW_FLOW
+      //tInterfaceParameters.Config |= RTS_CTS;                          // enable RTS/CTS operation (HW flow control)
+    #endif
+    #if defined UART_EXTENDED_MODE
+      //tInterfaceParameters.Config |= UART_INVERT_TX;                   // invert the UART Tx output
+      //tInterfaceParameters.Config |= UART_OPEN_DRAIN_OUTPUT;           // UART Tx output operates in open-drain mode
+    #endif
+        ptrInterfaceParameters = &tInterfaceParameters;
+    }
+    if ((newSerialID = fnOpen(TYPE_TTY, ucDriverMode, ptrInterfaceParameters)) != NO_ID_ALLOCATED) { // open or change the channel with defined configurations (initially inactive)
+        switch (ucDriverMode) {
+        case FOR_READ:
+            fnDriver(newSerialID, (RX_ON), 0);                           // enable rx
+            break;
+        case FOR_WRITE:
+            fnDriver(newSerialID, (TX_ON), 0);                           // enable tx
+            break;
+        case FOR_I_O:
+            fnDriver(newSerialID, (TX_ON | RX_ON), 0);                   // enable rx and tx
+    #if defined SUPPORT_HW_FLOW
+            if ((ptrInterfaceParameters->Config & RTS_CTS) != 0) {       // {8} if HW flow control is being used
+                fnDriver(newSerialID, (MODIFY_INTERRUPT | ENABLE_CTS_CHANGE), 0); // activate CTS interrupt when working with HW flow control (this returns also the present control line states)
+                fnDriver(newSerialID, (MODIFY_CONTROL | SET_RTS), 0);    // activate RTS line when working with HW flow control
+            }
+            fnDriver(newSerialID, (MODIFY_CONTROL | CONFIG_RTS_PIN | SET_RS485_MODE), 0); // configure RTS pin for RS485 mode
+    #endif
+            break;
+        default:
+            break;
         }
     }
-    return SerialPortID;
+    return newSerialID;
 }
 #endif
+
 #if defined SERIAL_INTERFACE && defined USE_J1708
 static void fnInitJ1708(void)
 {
@@ -1608,6 +1800,15 @@ static void fnInitJ1708(void)
     tInterfaceParameters.Rx_tx_sizes.TxQueueSize = 2;                    // output buffer size
     tInterfaceParameters.Task_to_wake = OWN_TASK;                        // wake self when messages have been received
     tInterfaceParameters.Config = (UART_INVERT_TX | CHAR_8 | NO_PARITY | ONE_STOP);
+    #if defined USER_DEFINED_UART_RX_HANDLER                             // {110}
+    tInterfaceParameters.receptionHandler = 0;
+    #endif
+    #if defined USER_DEFINED_UART_RX_BREAK_DETECTION
+    tInterfaceParameters.receiveBreakHandler = 0;
+    #endif
+    #if defined USER_DEFINED_UART_TX_FRAME_COMPLETE
+    tInterfaceParameters.txFrameCompleteHandler = 0;
+    #endif
     #if defined SERIAL_SUPPORT_DMA
     tInterfaceParameters.ucDMAConfig = 0;
     #endif
@@ -1641,7 +1842,6 @@ static void fnInitJ1708(void)
     }
 }
 #endif
-
 
 #if defined USE_SMTP
 extern void fnSendEmail(int iRepeat)
@@ -1736,11 +1936,7 @@ static const CHAR *fnEmailTest(unsigned char ucEvent, unsigned short *usData)
 }
 #endif                                                                   // #endif USE_SMTP
 
-
-
-
-
-#if defined (USE_SMTP) && defined (USE_DNS)
+#if defined USE_SMTP && defined USE_DNS
 static void fnDNSListner(unsigned char ucEvent, unsigned char *ptrIP)
 {
     switch (ucEvent) {
@@ -1757,13 +1953,11 @@ static void fnDNSListner(unsigned char ucEvent, unsigned char *ptrIP)
 }
 #endif
 
-
 #if defined SUPPORT_LCD || defined SUPPORT_GLCD || defined SUPPORT_OLED  // {38}{48}
     #define LCD_MESSAGE_ROUTINES                                         // message transmission routines to the LCD task - see the file application_lcd.h
     #include "application_lcd.h"                                         // include support routines
     #undef LCD_MESSAGE_ROUTINES
 #endif
-
 
 #if defined TEST_GLOBAL_TIMERS
 // Test code allowing the use of global timers to be evaluated
@@ -1830,7 +2024,7 @@ static void fnHandleGlobalTimers(unsigned char ucTimerEvent)
 //
 static void fnConfigUDP(void)
 {
-    if (!((MyUDP_Socket = fnGetUDP_socket(TOS_MINIMISE_DELAY, fnUDPListner, (UDP_OPT_SEND_CS | UDP_OPT_CHECK_CS))) < 0)) {
+    if ((MyUDP_Socket = fnGetUDP_socket(TOS_MINIMISE_DELAY, fnUDPListner, (UDP_OPT_SEND_CS | UDP_OPT_CHECK_CS))) >= 0) {
         fnBindSocket(MyUDP_Socket, MY_UDP_PORT);                         // bind socket
         ptrUDP_Frame    = uMalloc(sizeof(UDP_MESSAGE));                  // get some memory for UDP frame
     }
@@ -1861,7 +2055,6 @@ extern int fnUDPListner(USOCKET SocketNr, unsigned char ucEvent, unsigned char *
     return 0;
 }
 #endif
-
 
 #if defined TEST_TFTP
 static void tftp_listener(unsigned short usError, CHAR *error_text)
@@ -1906,13 +2099,13 @@ static void fnTransferTFTP()
 
 #if !defined BLAZE_K22 && !defined NO_PERIPHERAL_DEMONSTRATIONS
     #define _I2C_RTC_CODE
-        #include "iic_tests.h"                                           // include I2C RTC code to save and retrieve the time and convert format as well as handle a second interrupt
+        #include "i2c_tests.h"                                           // include I2C RTC code to save and retrieve the time and convert format as well as handle a second interrupt
     #undef _I2C_RTC_CODE
     #define _I2C_SENSOR_CODE                                             // {56}
-        #include "iic_tests.h"                                           // include I2C sensor routines
+        #include "i2c_tests.h"                                           // include I2C sensor routines
     #undef _I2C_SENSOR_CODE
     #define _I2C_INIT_CODE
-        #include "iic_tests.h"                                           // include I2C test initialisation routine
+        #include "i2c_tests.h"                                           // include I2C test initialisation routine
     #undef _I2C_INIT_CODE
 #endif
 
@@ -2029,14 +2222,15 @@ static unsigned long *fnRAM_test(int iBlockNumber, int iBlockCount)
     #define _PORT_INT_CODE
         #include "Port_Interrupts.h"                                     // port interrupt configuration code and interrupt handling
     #undef  _PORT_INT_CODE
-
     #define _ADC_TIMER_ROUTINES                                          // include ADC configuration and interrupt handlers
         #include "ADC_Timers.h"                                          // as well as PIT configuration and handling
     #undef  _ADC_TIMER_ROUTINES                                          // and DMA timer, GPT timer and gstandard timer configuration and handling
-
     #define _CAN_INIT_CODE
         #include "can_tests.h"                                           // CAN initialiation code and transmission routine
     #undef _CAN_INIT_CODE
+    #define _SPI_INIT_CODE
+        #include "spi_tests.h"                                           // SPI initialiation code and transmission routine
+    #undef _SPI_INIT_CODE
 #endif
 
 #if defined RTC_TEST                                                     // {3}
@@ -2133,7 +2327,7 @@ static void fnTestRTC(void)
 #define DATA_FILE_1_LENGTH    3722                                       // the number of raw data samples for file 1 (even)
 #define DATA_FILE_2_LENGTH    74982                                      // the number of raw data samples for file 2 (even)
 #define MAX_DATA_FILE_LENGTH  (128 * 1024)
-#define LINEAR_DATA_1         (const unsigned char *)(FLASH_START_ADDRESS + (256 * 1024)) // internal flash address of the start of the file's raw data
+#define LINEAR_DATA_1         (const unsigned char *)(FLASH_START_ADDRESS + (256 * 1024)) // {113} internal flash address of the start of the file's raw data
 #define LINEAR_DATA_2         (const unsigned char *)(LINEAR_DATA_1 + MAX_DATA_FILE_LENGTH) // internal flash address of the start of the file's raw data
 
 static const CHAR cHTML_link[] = "<html><head><title>Emulated FAT</title></head><body bgcolor=#d8d8d8 marginheight=30><center><font color=#ff0000 style=font-size:30px><b style='mso-bidi-font-weight:normal'>&micro;Tasker FAT Emulation</font></b><br><br><br>Full details of this and many other features can be found at <a href=""http://www.uTasker.com/"">the uTasker web site</a>.</body></html>";
@@ -2164,7 +2358,14 @@ typedef struct stDATA_FILE_INFORMATION
 #define DATA_SET_CONTENT      16                                         // after each 16 formatted values a line feed sequence is inserted "    \r\n"
 #define CSV_SEPARATOR_VALUE   ',';
 
-#define APPLICATION_DATA_FILES  8
+#if defined _iMX && defined iMX_BOOT && defined iMX_RT106X
+    #define APPLICATION_DATA_FILES  9
+#else
+    #define APPLICATION_DATA_FILES  8
+#endif
+#if MAXIMUM_DATA_FILES < APPLICATION_DATA_FILES
+    #error "Application is attempting to use more data files than emulated fat support - increase MAXIMUM_DATA_FILES !"
+#endif
 
 static DATA_FILE_INFORMATION dataFile[APPLICATION_DATA_FILES] = {{0}};
 
@@ -2172,17 +2373,17 @@ static DATA_FILE_INFORMATION dataFile[APPLICATION_DATA_FILES] = {{0}};
 #define CREATION_MINUTES1       23
 #define CREATION_SECONDS1       1
 
-#define CREATION_DAY_OF_MONTH1  3
-#define CREATION_MONTH_OF_YEAR1 8
-#define CREATION_YEAR1          (2015 - 1980)
+#define CREATION_DAY_OF_MONTH1  8
+#define CREATION_MONTH_OF_YEAR1 4
+#define CREATION_YEAR1          (2020 - 1980)
 
 #define CREATION_HOURS2         13
 #define CREATION_MINUTES2       9
 #define CREATION_SECONDS2       58
 
-#define CREATION_DAY_OF_MONTH2  3
-#define CREATION_MONTH_OF_YEAR2 8
-#define CREATION_YEAR2          (2015 - 1980)
+#define CREATION_DAY_OF_MONTH2  8
+#define CREATION_MONTH_OF_YEAR2 4
+#define CREATION_YEAR2          (2020 - 1980)
 
 
 // The application must supply this function when using FAT_EMULATION
@@ -2298,8 +2499,7 @@ extern int uDatacopy(int iDisk, int iDataRef, unsigned char *ptrSectorData, cons
     return iAdded;                                                       // the length added to the buffer
 }
 
-
-    #if SIZE_OF_FLASH >= (512 * 1024)
+    #if SIZE_OF_FLASH >= (512 * 1024) && !defined NO_FLASH_SUPPORT
 // Analyse a linear data file in flash to determine its raw content length
 //
 static unsigned long fnGetDataFileLength(const unsigned char *ptrRawData, unsigned long ulDataFileLength, int iIncrement)
@@ -2354,7 +2554,12 @@ static unsigned long fnGetDataFileLength(const unsigned char *ptrRawData, unsign
 //
 static void fnPrepareEmulatedFAT(void)
 {
-    #if SIZE_OF_FLASH >= (512 * 1024)
+    #if defined _iMX && defined iMX_BOOT
+    unsigned char ucInstructionBanks;
+    unsigned char ucDataBanks;
+    fnGetFlexRAM_banks(&ucInstructionBanks, &ucDataBanks);       // request the FlexRAM layout
+    #endif
+    #if SIZE_OF_FLASH >= (512 * 1024) && !defined NO_FLASH_SUPPORT
     dataFile[0].ulDataFileLength = fnGetDataFileLength(LINEAR_DATA_1, DATA_FILE_1_LENGTH, 1); // identify the present raw size of the first data file (prime data if nothing presently exists)
     dataFile[1].ulDataFileLength = fnGetDataFileLength(LINEAR_DATA_2, DATA_FILE_2_LENGTH, 0); // identify the present raw size of the second data file (prime data if nothing presently exists)
     dataFile[0].ptrFileLocation = LINEAR_DATA_1;                         // memory mapped address of file's raw data
@@ -2377,7 +2582,11 @@ static void fnPrepareEmulatedFAT(void)
         #if defined FLEXFLASH_DATA
     dataFile[4].ulDataFileLength = (SIZE_OF_FLASH - SIZE_OF_FLEXFLASH);  // raw data length of complete flash
         #else
+            #if SIZE_OF_FLASH == 0                                       // valid for i.MX RT, without any internal flash
+    dataFile[4].ulDataFileLength = FLEXSPI_FLASH_SIZE;
+            #else
     dataFile[4].ulDataFileLength = SIZE_OF_FLASH;                        // raw data length of complete flash
+            #endif
         #endif
     #endif
     dataFile[4].ucFormatType = FORMAT_TYPE_RAW_BINARY;
@@ -2385,12 +2594,30 @@ static void fnPrepareEmulatedFAT(void)
     dataFile[5].ulDataFileLength = (sizeof(cHTML_link) - 1);             // raw string content length
     dataFile[5].ucFormatType = FORMAT_TYPE_RAW_STRING;                   // used to avoid flash routines being used for access
     dataFile[6].ptrFileLocation  = (const unsigned char *)RAM_START_ADDRESS;
+    #if defined _iMX && defined iMX_BOOT
+    dataFile[6].ulDataFileLength = (ucDataBanks * FLEX_RAM_GRANULARITY);
+    #else
     dataFile[6].ulDataFileLength = SIZE_OF_RAM;
+    #endif
     dataFile[6].ucFormatType = FORMAT_TYPE_RAW_STRING;                   // used to avoid flash routines being used for access
             #if defined FLEXFLASH_DATA                                   // if kinetis with flex we display a further file with its content
     dataFile[7].ucFormatType = FORMAT_TYPE_RAW_BINARY;
     dataFile[7].ptrFileLocation = (const unsigned char *)(FLASH_START_ADDRESS + (SIZE_OF_FLASH - SIZE_OF_FLEXFLASH)); // set the virtual address of the flex memory
     dataFile[7].ulDataFileLength = SIZE_OF_FLEXFLASH;
+            #elif defined _iMX && defined iMX_BOOT
+    dataFile[7].ucFormatType = FORMAT_TYPE_RAW_STRING;
+    dataFile[7].ptrFileLocation = (const unsigned char *)(RAM_START_ADDRESS_ITC); // set the virtual address of the flex memory
+    dataFile[7].ulDataFileLength = (ucInstructionBanks * FLEX_RAM_GRANULARITY);
+                #if defined iMX_RT106X
+    dataFile[8].ucFormatType = FORMAT_TYPE_RAW_STRING;
+    dataFile[8].ptrFileLocation = (const unsigned char *)(RAM_START_ADDRESS_OCR2); // set the virtual address of the OCRAM2 memory
+    dataFile[8].ulDataFileLength = SIZE_OF_RAM_OCR2;
+                    #if defined iMX_RT1064_ && !defined USE_EXTERNAL_QSPI_FLASH
+    dataFile[9].ucFormatType = FORMAT_TYPE_RAW_STRING;
+    dataFile[9].ptrFileLocation = (const unsigned char *)(FLEXSPI2_FLASH_BASE); // set the virtual address of the on-chip spi flash memory
+    dataFile[9].ulDataFileLength = FLEXSPI2_FLASH_SIZE;
+                    #endif
+                #endif
             #endif
     #if SIZE_OF_FLASH >= (512 * 1024)
         #if defined EMULATED_FAT_FILE_DATE_CONTROL
@@ -2408,32 +2635,63 @@ static void fnPrepareEmulatedFAT(void)
     dataFile[2].ptrFileName = "Formatted Data File 1.csv";
     dataFile[3].ptrFileName = "Formatted Data File 2.csv";
             #endif
+            #if defined _iMX
+    dataFile[4].ptrFileName = "SPI_flash.bin";
+            #else
     dataFile[4].ptrFileName = "software.bin";
+            #endif
     dataFile[5].ptrFileName = "uTasker.html";
+            #if defined _iMX
+    dataFile[6].ptrFileName = "DTC_ram.bin";
+            #else
     dataFile[6].ptrFileName = "ram.bin";
+            #endif
             #if defined FLEXFLASH_DATA                                   // if kinetis with flex we display a further file with its content
     dataFile[7].ptrFileName = "flex.bin";
+            #elif defined _iMX && defined iMX_BOOT
+    dataFile[7].ptrFileName = "ITC_ram.bin";
+                #if defined iMX_RT106X
+    dataFile[8].ptrFileName = "OCR2_ram.bin";
+                    #if defined iMX_RT1064_ && defined USE_EXTERNAL_QSPI_FLASH
+    dataFile[9].ptrFileName = "SIP_flash.bin";
+                    #endif
+                #endif
             #endif
-        #else
+        #else                                                            // when only short file names are supported
             #if SIZE_OF_FLASH >= (512 * 1024)
     dataFile[0].ptrFileName = "DATA-1.BIN";
     dataFile[1].ptrFileName = "DATA-2.BIN";
     dataFile[2].ptrFileName = "DATA-1.CSV";
     dataFile[3].ptrFileName = "DATA-2.CSV";
             #endif
+            #if defined _iMX
+    dataFile[4].ptrFileName = "SPIFLASH.bin";
+#           else
     dataFile[4].ptrFileName = "SOFTWARE.BIN";
+            #endif
     dataFile[5].ptrFileName = "UTASKER.HTM";
+            #if defined _iMX
+    dataFile[6].ptrFileName = "ITC_RAM.BIN";
+            #else
     dataFile[6].ptrFileName = "RAM.BIN";
+            #endif
             #if defined FLEXFLASH_DATA                                   // if kinetis with flex we display a further file with its content
     dataFile[7].ptrFileName = "FLEX.BIN";
+            #elif defined _iMX
+    dataFile[7].ptrFileName = "ITC_RAM.BIN";
+                #if defined iMX_RT106X
+    dataFile[8].ptrFileName = "OCR2_RAM.BIN";
+                    #if defined iMX_RT1064_ && defined USE_EXTERNAL_QSPI_FLASH
+    dataFile[9].ptrFileName = "SIPFLASH.BIN";
+                    #endif
+                #endif
             #endif
         #endif
     #endif
 }
 #endif
 
-
-#if defined ETHERNET_BRIDGING && !defined USB_CDC_RNDIS && !defined USE_PPP // {75}
+#if defined ETHERNET_BRIDGING && !defined USB_CDC_RNDIS && !defined USB_RNDIS_HOST && !defined USE_PPP // {75}
 // Example of bridging Ethernet reception content to the serial interface
 //
 extern void fnBridgeEthernetFrame(ETHERNET_FRAME *ptr_rx_frame)
@@ -2705,6 +2963,15 @@ static QUEUE_HANDLE fnConfigRFC2217_uart(RFC2217_UART_SETTINGS *uart_config, uns
     tInterfaceParameters.ucFlowHighWater = 80;                            // set the flow control high and low water levels in %
     tInterfaceParameters.ucFlowLowWater = 20;
     #endif
+    #if defined USER_DEFINED_UART_RX_HANDLER                             // {110}
+    tInterfaceParameters.receptionHandler = 0;
+    #endif
+    #if defined USER_DEFINED_UART_RX_BREAK_DETECTION
+    tInterfaceParameters.receiveBreakHandler = 0;
+    #endif
+    #if defined USER_DEFINED_UART_TX_FRAME_COMPLETE
+    tInterfaceParameters.txFrameCompleteHandler = 0;
+    #endif
     #if defined SERIAL_SUPPORT_DMA
     tInterfaceParameters.ucDMAConfig = UART_TX_DMA;                      // activate DMA on transmission
     #endif
@@ -2777,7 +3044,6 @@ QUEUE_HANDLE fnGetUART_Handle(void)
     #endif
 #endif
 
-
 #if defined SUPPORT_SLCD && defined STOP_WATCH_APPLICATION
 // Called at 10ms intervals from the tick interrupt
 //
@@ -2836,74 +3102,84 @@ extern void fnStopWatchApplication(void)
 //
 extern void fnUserHWInit(void)
 {
+#if defined APPLICATION_WITHOUT_OS                                       // simple main loop program without OS
+    FOREVER_LOOP() {
+        fnDelayLoop(100000);                                             // 100ms delay
+        fnRetriggerWatchdog();                                           // retrigger the watchdog and toggle the heart-beat LED
+    }
+#else
     CONFIG_TEST_OUTPUT();                                                // allow user configuration of a test output
-#if defined USB_HOST_SUPPORT
+    #if defined USB_HOST_SUPPORT
     USB_HOST_POWER_CONFIG();                                             // configure USB host power supply to default (off) state
-#endif
-#if defined SC16IS7XX_CLOCK_FROM_TIMER
+    #endif
+    #if defined SC16IS7XX_CLOCK_FROM_TIMER
     CONFIG_SC16IS7XX_CLOCK();
-#endif
-#if defined LAN_REPORT_ACTIVITY
+    #endif
+    #if defined LAN_REPORT_ACTIVITY
     CONFIGURE_LAN_LEDS();                                                // configure and drive ports
-#endif
-#if defined SUPPORT_KEY_SCAN
+    #endif
+    #if defined SUPPORT_KEY_SCAN
     INIT_KEY_SCAN();                                                     // general initialisation for key scan
-#endif
-#if (defined SPECIAL_LCD_DEMO || defined SUPPORT_GLCD) && !defined SUPPORT_TFT && !defined TFT_GLCD_MODE // {38} configure GLCD ports and drive RST line if required
+    #endif
+    #if defined GLCD_BACKLIGHT_CONTROL
+    BACK_LIGHT_MIN_INTENSITY();
+    #endif
+    #if (defined SPECIAL_LCD_DEMO || defined SUPPORT_GLCD) && !defined SUPPORT_TFT && !defined TFT_GLCD_MODE // {38} configure GLCD ports and drive RST line if required
     CONFIGURE_GLCD();
-    #if defined BLAZE_K22_
+        #if defined BLAZE_K22_
     if (IS_POWERED_UP(4, USBOTG) != 0) {                                 // if the USB controller has been left powered up by the Blaze boot loader
         USB_USBTRC0 |= USB_USBTRC0_USBRESET;                             // command a reset of the USB controller
-        while ((USB_USBTRC0 & USB_USBTRC0_USBRESET) != 0) {              // wait for the reset to complete
-        #if defined _WINDOWS
-            USB_USBTRC0 = 0;
-        #endif
-        }
+        _WAIT_REGISTER_TRUE(USB_USBTRC0, USB_USBTRC0_USBRESET);          // wait for the reset to complete
         POWER_DOWN_ATOMIC(4, USBOTG);                                    // power down the USB controller
      }
+        #endif
     #endif
-#endif
-#if defined MB785_GLCD_MODE && defined SDCARD_SUPPORT
+    #if defined MB785_GLCD_MODE && defined SDCARD_SUPPORT
     CONFIGURE_SDCARD_DETECT_INPUT();                                     // {69}
-#endif
-#if defined ETH_INTERFACE
-    #if defined M52259EVB                                                // this board has a DP83640 PHY, which requires a 167ms powerup stabilisation delay. The reset is help low for this period. It is released when configuring the Ethernet connection.
+    #endif
+    #if defined ETH_INTERFACE
+        #if defined M52259EVB                                            // this board has a DP83640 PHY, which requires a 167ms powerup stabilisation delay. The reset is help low for this period. It is released when configuring the Ethernet connection.
     RESET_RCR |= FRCRSTOUT;                                              // assert RSTO
-    #elif defined RESET_PHY
+        #elif defined RESET_PHY
     ASSERT_PHY_RST();                                                    // immediately set PHY to reset state
     CONFIG_PHY_STRAPS();                                                 // configure the required strap options - the reset line will be de-asserted during the Ethernet configuration
+        #endif
     #endif
-#endif
-#if defined RAM_TEST                                                     // {61}
+    #if defined RAM_TEST                                                 // {61}
     if (fnRAM_test(0, (SIZE_OF_RAM/RAM_BLOCK_SIZE)) != (unsigned long *)0xffffffff) { // test code of a complete RAM area
         // The return address was the address in RAM that failed
         //
         FOREVER_LOOP() {}                                                // serious error found in RAM - stop here
     }
-#endif
-#if defined nRF24L01_INTERFACE
-    fnPrepare_nRF24L01_signals();
+    #endif
+    #if defined nRF24L01_INTERFACE                                       // configure the hardware lines immediately after reset so that the device has stabilised by the time the initialisation is called
+    CONFIGURE_INTERFACE_nRF24L01();                                      // configure hardware lines to default states
+    #endif
+    #if defined WIFI_INTERFACE
+    CONFIGURE_INTERFACE_WIFI();
+    #endif
 #endif
 }
 
-#if defined QUICK_DEV_TASKS && !defined BLINKY                           // {106}
+#if defined QUICK_DEV_TASKS && (!defined BLINKY && !defined HELLO_WORLD) // {106}
 // When QUICK_DEV_TASKS is enabled these 4 development tasks are added so that new task based developments can be easily started
 // - the task configuration table and task names can later be reworked in TaskConfig.h to finalise new projects
 // - the first task will be started when the application runs and can be used to start others if desired
 //
-extern void fnQuickTask1(TTASKTABLE *ptrTaskTable)
+extern void fnQuickTask1(TTASKTABLE *ptrTaskTable)                       // TASK_DEV_1
+{
+    //uTaskerStateChange(TASK_DEV_2, UTASKER_POLLING);                   // use this to turn quicktask2 into a forever-loop type task (polling)
+}
+
+extern void fnQuickTask2(TTASKTABLE *ptrTaskTable)                       // TASK_DEV_2
 {
 }
 
-extern void fnQuickTask2(TTASKTABLE *ptrTaskTable)
+extern void fnQuickTask3(TTASKTABLE *ptrTaskTable)                       // TASK_DEV_3
 {
 }
 
-extern void fnQuickTask3(TTASKTABLE *ptrTaskTable)
-{
-}
-
-extern void fnQuickTask4(TTASKTABLE *ptrTaskTable)
+extern void fnQuickTask4(TTASKTABLE *ptrTaskTable)                       // TASK_DEV_4
 {
 }
 #endif
@@ -2915,3 +3191,4 @@ extern void fnStepper(TTASKTABLE *ptrTaskTable)
     fnTestStepper();
 }
 #endif
+

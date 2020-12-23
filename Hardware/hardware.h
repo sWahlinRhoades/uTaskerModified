@@ -11,7 +11,7 @@
     File:      hardware.h
     Project:   Single Chip Embedded Internet
     ---------------------------------------------------------------------
-    Copyright (C) M.J.Butcher Consulting 2004..2019
+    Copyright (C) M.J.Butcher Consulting 2004..2020
     *********************************************************************
     01.03.2007 fnGetFlashAdd() added
     30.03.2007 fnPutFlashAdd() added
@@ -77,6 +77,11 @@
     04.12.2017 Add special arithmetic                                    {49}
     08.07.2018 Add fnPowerFailureWarning()                               {50}
     01.11.2018 Move boot mailbox values to this file                     {51}
+    04.07.2019 Add InitI2C_FRAM_Interface()                              {52}
+    28.12.2019 Add fnUnplugUSBDevice() and fnPlugUSBDevice()             {53}
+    07.05.2020 Adjusted for dual-USB
+    07.09.2020 Add fnShowEthernet()
+    23.09.2020 Add device offset option                                  {54}
 
 */
 
@@ -152,23 +157,26 @@ extern void fnConfigUSB(QUEUE_HANDLE Channel, USBTABLE *pars);           // conf
     extern QUEUE_TRANSFER fnPrepareUSBOutData(USBQUE *ptrQueue, unsigned short usLength, int iEndpoint, USB_HW *ptrUSB_HW); // {23}
 
     #if defined USB_HOST_SUPPORT
-        extern void fnResetDataToggle(int iEndpoint, USB_HW *ptrUSB_HW);
+        extern void fnResetDataToggle(int iChannel, int iEndpoint, USB_HW *ptrUSB_HW);
     #endif
 
     #if defined _WINDOWS                                                 // {4}
-        #define _SIM_USB(x,y,z)  fnSimUSB(x,y,z)
+        #define _SIM_USB(w,x,y,z)  fnSimUSB(w,x,y,z)
     #else
-        #define _SIM_USB(x,y,z)
+        #define _SIM_USB(w,x,y,z)
     #endif
     #if defined USB_HS_INTERFACE                                         // {39}
         extern void fnTxUSBHS(unsigned char *pData, unsigned short usLen, int iEndpoint, USB_HW *ptrUSB_HW);
     #endif
     extern int fnHostEndpoint(unsigned char ucEndpoint, int iCommand, int iEvent); // {40}
         #define IN_POLLING 0
-    extern unsigned long fnUSB_error_counters(int iValue);
+    extern unsigned long fnUSB_error_counters(int iChannel, int iValue);
         #define USB_CRC_5_ERROR_COUNTER     0
         #define USB_CRC_16_ERROR_COUNTER    1
         #define USB_ERRORS_RESET           -1
+
+    extern int fnUnplugUSBDevice(int iDevice);                           // {53} disconnect USB device (cause reset)
+    extern int fnPlugUSBDevice(int iDevice);                             // {53} re-connect USB device (cause re-enumeration)
 #endif
 
 // I2C interface support
@@ -210,6 +218,7 @@ extern unsigned char fnGetTailTagPort(void);                             // {38}
     #define ETH_TX_PORT_BOTH       3                                     // transmissions are sent to both ports
 extern void fnModifyMulticastFilter(QUEUE_TRANSFER action, unsigned char *ptrIP); // {42}
 extern void fnSetFragmentMode(int iMode);                                // {46}
+extern void fnShowEthernet(int iInterface);
 
 // SPI interface support
 //
@@ -256,7 +265,7 @@ extern DELAY_LIMIT fnStopHW_Timer(void);                                 // stop
 
 // Buffer DMA                             
 //
-extern void fnDMA_BufferReset(int iChannel, int iAction);                // {47}
+extern void fnDMA_BufferReset(unsigned long ulChannel, int iAction);     // {47}
     #define DMA_BUFFER_RESET         0                                   // disable DMA and reset the buffer (but don't re-enable yet)
     #define DMA_BUFFER_START         1                                   // start DMA operation (must have been configured previously)
     #define DMA_BUFFER_RESTART       2                                   // reset buffer and restart immediately
@@ -292,10 +301,10 @@ extern signed long    fnFastSignedIntegerDivide(signed long slDivide, signed lon
 
 // These functions can be called by hardware routines
 //
-extern void fnSciRxByte( unsigned char ch, QUEUE_HANDLE Channel );       // put a received byte in input queue
-extern void fnSciTxByte( QUEUE_HANDLE Channel );                         // transmit next byte from queue
-extern void fnSciRxMsg( QUEUE_HANDLE Channel );                          // terminate a rx message in buffer
-extern int  fnSciRxIdle( QUEUE_HANDLE Channel );                         // {9} rx idle line detected for defined period of time
+extern void fnSciRxByte(unsigned char ch, QUEUE_HANDLE Channel);         // put a received byte in input queue
+extern void fnSciTxByte(QUEUE_HANDLE Channel);                           // transmit next byte from queue
+extern void fnSciRxMsg(QUEUE_HANDLE Channel);                            // terminate a rx message in buffer
+extern int  fnSciRxIdle(QUEUE_HANDLE Channel);                           // {9} rx idle line detected for defined period of time
 
 // FLASH support
 //
@@ -309,6 +318,7 @@ extern void fnProtectFlash(unsigned char *ptrSector, unsigned char ucProtection)
     #define FLASH_SECTOR_NOT_PROTECTED  0
     #define FLASH_SECTOR_PROTECTED      1
 extern int  fnMassEraseFlash(void);                                      // {14}
+extern void fnDisplaySPI(void);
 
 #if defined _WINDOWS
     extern unsigned char *fnGetFlashAdd(unsigned char *ucAdd);           // routine to map real hardware address to simulated FLASH
@@ -325,6 +335,8 @@ extern void fnProtectSector(volatile unsigned short *usSectorPointer);
 extern unsigned char *fnGetExtFlashAdd(unsigned char *ucAdd);            // routine to map real external hardware address to simulated external FLASH
 extern unsigned char *fnPutExtFlashAdd(unsigned char *ucAdd);            // inverse of fnGetExtFlashAdd
 
+extern unsigned short fnSPI_Flash_statusRead(int iDevice);
+extern void fnSPI_Flash_statusWrite(int iDevice, unsigned char ucStatus);
 extern unsigned char fnSPI_Flash_available(void);
 extern unsigned char fnSPI_FlashExt_available(int iExtension);
     #define NO_SPI_FLASH_AVAILABLE    0                                  // No SPI FLASH detected
@@ -367,6 +379,22 @@ extern unsigned char fnSPI_FlashExt_available(int iExtension);
     #define W25Q32                    6
     #define W25Q64                    7
     #define W25Q128                   8
+    #define W25Q256                   9
+    #define W25Q512                   10
+    #define W25Q1G                    11
+    #define W25Q2G                    12
+
+    #define EcoXiP_ATXP032            1
+    #define EcoXiP_ATXP064            2
+    #define EcoXiP_ATXP128            3
+
+    #define AT25SF128A                1                                  // adesto
+
+    #define S26KL512                  1                                  // Cypress S26KL512
+
+    #define IS25LP_WP_32              1
+    #define IS25LP_WP_64              2
+    #define IS25LP_WP_256D            3                                  // ISSI IS25LP(WP)256D
 
     #define S25FL116K                 1                                  // Spansion S25FL1-K
     #define S25FL132K                 2
@@ -377,6 +405,9 @@ extern unsigned char fnSPI_FlashExt_available(int iExtension);
     #define MX25L3245                 3
     #define MX25L6445                 4
     #define MX25L12845                5
+    #define MX25L25635                6
+
+    #define MX66L51235F               1
 
 typedef struct stSTORAGE_AREA_ENTRY                                      // {28}
 {
@@ -385,12 +416,16 @@ typedef struct stSTORAGE_AREA_ENTRY                                      // {28}
     unsigned char *ptrMemoryEnd;                                         // pointer to last location at the end of the storage area (total area when multiple devices) [the reason why the address of last byte is used - and not following address - is to allow the storage area to end at the last possible address in 32 bit memory space; otherwise there would be an overflow to zero]
     unsigned char ucStorageType;                                         // the storage type, such as internal Flash, SPI Flash etc.
     unsigned char ucDeviceCount;                                         // the number of individual devices the storage area is made up of (it is assumed that all devices are the same type and size)
+#if defined STORAGE_DEVICE_OFFSET                                        // {54}
+    unsigned char ucDeviceOffset;
+#endif
 } STORAGE_AREA_ENTRY;
 
 #define _STORAGE_INVALID         0x80                                    // storage device types
 #define _STORAGE_SPI_EEPROM      0x41
 #define _STORAGE_I2C_EEPROM      0x42
 #define _STORAGE_PARALLEL_NVRAM  0x43
+#define _STORAGE_I2C_FRAM        0x44
 #define _STORAGE_INTERNAL_FLASH  0x01
 #define _STORAGE_SPI_FLASH       0x02
 #define _STORAGE_PARALLEL_FLASH  0x03
@@ -412,7 +447,7 @@ typedef struct stACCESS_DETAILS
 extern STORAGE_AREA_ENTRY *UserStorageListPtr;
 
 extern unsigned char fnGetStorageType(unsigned char *memory_pointer, ACCESS_DETAILS *ptrAccessDetails);
-
+extern QUEUE_HANDLE InitI2C_FRAM_Interface(QUEUE_HANDLE existing_handle);// {52}
 
 // Parameter support
 //
@@ -463,7 +498,12 @@ extern void fnClearSLCD(void);                                           // {25}
 
 // Boot mailbox values                                                   {51}
 //
-#define RESET_TO_SERIAL_LOADER      0x89a2                               // pattern set to BOOT_MAIL_BOX to request the serial loader to start
-#define RESET_TO_APPLICATION        0x755d                               // pattern set to BOOT_MAIL_BOX to request the serial loader to jump to the application
-#define RTC_VALID_PATTERN           0xca35                               // pattern set the RTC_VALID_LOCATION when the RTC values are valid
+#define DO_FULL_RESET               0x0155                               // pattern set to BOOT_MAIL_BOX to request a full reset sequence
+#define RESET_TO_SERIAL_LOADER      0x02aa                               // pattern set to BOOT_MAIL_BOX to request the serial loader to start
+#define RESET_TO_FALLBACK_LOADER    0x04a5                               // pattern set to BOOT_MAIL_BOX to request the fallback loader to start
+#define RESET_TO_APPLICATION        0x085a                               // pattern set to BOOT_MAIL_BOX to request the loader to jump to the application
+#define RESET_TO_APPLICATION_PAUSE  0x085b                               // pattern set to BOOT_MAIL_BOX to request the loader to jump to the application after a delay to allow debugger connection before jump
+#define RESET_TO_DEBUGGER           0x085c                               // pattern set to BOOT_MAIL_BOX to request the loader to jump to the application after a delay to allow debugger connection at start
+#define RESET_NO_COUNT_FLAG         0x8000                               // flag set to BOOT_MAIL_BOX value to request the next reset to not to be counted
 
+#define RTC_VALID_PATTERN           0xca35                               // pattern set the RTC_VALID_LOCATION when the RTC values are valid

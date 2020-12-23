@@ -11,7 +11,7 @@
     File:      stm32_USB_OTG.h
     Project:   Single Chip Embedded Internet
     ---------------------------------------------------------------------
-    Copyright (C) M.J.Butcher Consulting 2004..2019
+    Copyright (C) M.J.Butcher Consulting 2004..2020
     *********************************************************************
 
 */
@@ -73,7 +73,7 @@ extern int fnConsumeUSB_out(unsigned char ucEndpointRef)
         *ulPtrCtrl |= OTG_FS_DOEPCTL_CNAK;                               // allow further reception on the endpoint
         return USB_BUFFER_NO_DATA;                                       // no waiting data
     }                                                                    // else handle stored data
-    if (fnEndpointData(ucEndpointRef, (unsigned char *)usb_hardware.ulUSB_buffer[ucEndpointRef], usb_hardware.usStoredLength[ucEndpointRef], OUT_DATA_RECEPTION, 0) != MAINTAIN_OWNERSHIP) {
+    if (fnEndpointData(ucEndpointRef, (unsigned char *)usb_hardware.ulUSB_buffer[ucEndpointRef], usb_hardware.usStoredLength[ucEndpointRef], OUT_DATA_RECEPTION, &usb_hardware) != MAINTAIN_OWNERSHIP) {
         usb_hardware.usStoredLength[ucEndpointRef] = 0;                  // the input is no longer valid
         *ulPtrCtrl |= OTG_FS_DOEPCTL_CNAK;                               // allow further reception on the endpoint
         return USB_BUFFER_FREED;                                         // buffer consumed and freed
@@ -87,16 +87,22 @@ unsigned long ulTemp[5];
 static void fnExtractFIFO(volatile unsigned long *ptrRxFIFO, USB_HW *ptr_usb_hardware, int iEndpoint_ref)
 {
     int iLength = ptr_usb_hardware->usLength;
+    int iFlush = 0;
     unsigned long *ptrBuffer = ptr_usb_hardware->ulUSB_buffer[iEndpoint_ref];
+
+    if (iLength > sizeof(ptr_usb_hardware->ulUSB_buffer[iEndpoint_ref])) { // if the host has sent oversize frame (unexpected)
+        iFlush = (iLength - sizeof(ptr_usb_hardware->ulUSB_buffer[iEndpoint_ref]);
+        iLength = sizeof(ptr_usb_hardware->ulUSB_buffer[iEndpoint_ref]); // limit the data read to the buffer
+    }
 
 
 if (iLogOn == 10)
 {
-ulTemp[0] = *ptrRxFIFO;
-ulTemp[1] = *ptrRxFIFO;
-ulTemp[2] = *ptrRxFIFO;
-ulTemp[3] = *ptrRxFIFO;
-ulTemp[4] = *ptrRxFIFO;
+    ulTemp[0] = *ptrRxFIFO;
+    ulTemp[1] = *ptrRxFIFO;
+    ulTemp[2] = *ptrRxFIFO;
+    ulTemp[3] = *ptrRxFIFO;
+    ulTemp[4] = *ptrRxFIFO;
 }
     while (iLength > 0) {
     #if defined _WINDOWS
@@ -107,12 +113,16 @@ ulTemp[4] = *ptrRxFIFO;
     #endif
         iLength -= 4;
     }
+    while (iFlush > 0) {                                                 // safely flush any oversize frame content
+        (void)*ptrRxFIFO;
+        iFlush -= 4;
+    }
 }
 
 
 // Return USB error counters
 //
-extern unsigned long fnUSB_error_counters(int iValue)                    // {24}
+extern unsigned long fnUSB_error_counters(int iChannel, int iValue)      // {24}
 {
     // No error counters supported 
     //
@@ -136,7 +146,7 @@ extern void fnPutToFIFO(int iLength, volatile unsigned long *ptrTxFIFO, unsigned
     #endif
         iLength -= 4;
     } while (iLength > 0);
-    _SIM_USB(USB_SIM_TX, 0, 0);
+    _SIM_USB(0, USB_SIM_TX, 0, 0);
 }
 
 
@@ -219,7 +229,7 @@ extern void fnActivateHWEndpoint(unsigned char ucEndpointType, unsigned char ucE
     ulEndpointCtrl += ((0x20/sizeof(unsigned long)) * ucEndpointRef);
     *ulEndpointCtrl = ulEndpoint_config;                                 // set endpoint configuration
     OTG_FS_DAINTMSK |= ulEP_interrupt;                                   // enable endpoint interrupts
-    _SIM_USB(USB_SIM_ENUMERATED,0,0);                                    // inform the simulator that USB enumeration has completed
+    _SIM_USB(0, USB_SIM_ENUMERATED,0,0);                                 // inform the simulator that USB enumeration has completed
 }
 
 // Copy data to the TxFIFO and start transmission
@@ -261,7 +271,7 @@ extern void fnSendUSB_data(unsigned char *pData, unsigned short Len, int iEndpoi
         fnPutToFIFO(Len, OTG_FS_DFIFO3_ADDR, pData);
         break;
     }
-    _SIM_USB(USB_SIM_TX, iEndpoint, ptrUSB_HW);
+    _SIM_USB(0, USB_SIM_TX, iEndpoint, ptrUSB_HW);
 }
 
 // Send a zero data frame
@@ -286,7 +296,7 @@ extern void fnSendZeroData(USB_HW *ptrUSB_HW, int iEndpoint)
         OTG_FS_DIEPCTL3 |= (OTG_FS_DIEPCTL_CNAK | OTG_FS_DIEPCTL_EPENA);
         break;
     }
-    _SIM_USB(USB_SIM_TX, iEndpoint, ptrUSB_HW);
+    _SIM_USB(0, USB_SIM_TX, iEndpoint, ptrUSB_HW);
 }
 
 
@@ -332,11 +342,11 @@ static int fnProcessInput(int iEndpoint_ref, unsigned char ucFrameType)
     case STALL_ENDPOINT:                                                 // send stall
         if (iEndpoint_ref == 0) {
             OTG_FS_DIEPCTL0 |= OTG_FS_DIEPCTL_STALL;                     // stall control endpoint
-            fnSetUSBEndpointState(iEndpoint_ref, USB_ENDPOINT_STALLED);       
-            _SIM_USB(USB_SIM_STALL, iEndpoint_ref, &usb_hardware);
+            fnSetUSBEndpointState(iEndpoint_ref, USB_ENDPOINT_STALLED, 0);       
+            _SIM_USB(0, USB_SIM_STALL, iEndpoint_ref, &usb_hardware);
         }
         else {
-            int iIN_ref = fnGetPairedIN(iEndpoint_ref);                  // get the paired IN endpoint reference
+            int iIN_ref = fnGetPairedIN(iEndpoint_ref, 0);               // get the paired IN endpoint reference
             switch (iIN_ref) {
             case 1:
                 OTG_FS_DIEPCTL1 |= OTG_FS_DIEPCTL_STALL;                 // stall on IN endpoint 1
@@ -348,8 +358,8 @@ static int fnProcessInput(int iEndpoint_ref, unsigned char ucFrameType)
                 OTG_FS_DIEPCTL3 |= OTG_FS_DIEPCTL_STALL;                 // stall on IN endpoint 3
                 break;
             }
-            fnSetUSBEndpointState(iIN_ref, USB_ENDPOINT_STALLED);        // mark the stall at the IN endpoint
-            _SIM_USB(USB_SIM_STALL, iIN_ref, &usb_hardware);
+            fnSetUSBEndpointState(iIN_ref, USB_ENDPOINT_STALLED, 0);     // mark the stall at the IN endpoint
+            _SIM_USB(0, USB_SIM_STALL, iIN_ref, &usb_hardware);
         }
         break;
     default:
@@ -659,7 +669,7 @@ extern void fnConfigUSB(QUEUE_HANDLE Channel, USBTABLE *pars)
     #else
     unsigned long size_field = OTG_FS_DIEPCTL_MPSIZ_64_BYTES;
     #endif
-    #if defined _STM32F2XX || defined _STM32F4XX || defined _STM32F7XX   // {13}
+    #if defined _STM32F2XX || defined _STM32F4XX || defined _STM32F7XX || defined _STM32H7XX // {13}
     _CONFIG_PERIPHERAL_INPUT(A, (PERIPHERAL_USB), (PORTA_BIT11 | PORTA_BIT12), (OUTPUT_PUSH_PULL | OUTPUT_ULTRA_FAST)); // configure the pins for use as USB
     // Note that the necessary 48MHz clock is supplied by the ring-clock, which is a second output from the main PLL
     // - this was configured during initialisation when the USB operation is enabled in the project
@@ -679,8 +689,10 @@ extern void fnConfigUSB(QUEUE_HANDLE Channel, USBTABLE *pars)
         #endif
     POWER_UP(AHB1, RCC_AHB1ENR_OTGFSEN);                                 // power up USB controller (only perform after setting the RCC_CFGR_OTGFSPRE accordingly)
     #endif
+    #if defined RCC_APB1RSTR
     RCC_APB1RSTR |= RCC_APB1RSTR_PWRRST;                                 // reset power (this is taken from an ST example but there are no details as to what for)
-    #if defined _STM32F2XX || defined _STM32F4XX || defined _STM32F7XX   // {13}
+    #endif
+    #if defined _STM32F2XX || defined _STM32F4XX || defined _STM32F7XX || defined _STM32H7XX // {13}
     OTG_FS_GCCFG = (OTG_FS_GCCFG_PWRDWN | OTG_FS_GCCFG_NOVBUSSENS);      // enable USB transceiver with Vbus sensing option disabled
     #else
     OTG_FS_GCCFG = (OTG_FS_GCCFG_PWRDWN | OTG_FS_GCCFG_VBUSASEN | OTG_FS_GCCFG_VBUSBSEN); // enable USB transceiver with Vbus sensing enabled (without sensing the device will not set its pull-ups)

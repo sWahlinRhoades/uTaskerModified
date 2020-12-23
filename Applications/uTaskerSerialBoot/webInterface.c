@@ -11,13 +11,13 @@
     File:      webInterface.c
     Project:   Ethernet Boot Loader
     ---------------------------------------------------------------------
-    Copyright (C) M.J.Butcher Consulting 2004..2016
+    Copyright (C) M.J.Butcher Consulting 2004..2018
     *********************************************************************
     03.06.2014 Add file object when working together with USB-MSD        {1}
     04.06.2014 Add nework indicator task to allow PHY polling when necessary {2}
     21.01.2015 Add file object whenever USB-MSD is enabled               {3}
     12.06.2015 Close outstanding flash buffer before committing start of code {4}
-    07.07 2020 Parameters for fnStartHTTP() modified                     {5}
+    11.02 2016 Parameters for fnStartHTTP() modified                     {5}
 
 */
 
@@ -66,7 +66,7 @@ NETWORK_PARAMETERS network[IP_NETWORK_COUNT] = {                         // fixe
     { 192, 168, 0, 1 },                                                  // ucDefGW - Our default gateway
     { 192, 168, 0, 1 },                                                  // ucDNS_server - Our default DNS server
     #if defined USE_IPV6
-    { _IP6_ADD_DIGIT(0x2001), _IP6_ADD_DIGIT(0x0470), _IP6_ADD_DIGIT(0x0026), _IP6_ADD_DIGIT(0x0105), _IP6_ADD_DIGIT(0x0000), _IP6_ADD_DIGIT(0x0000), _IP6_ADD_DIGIT(0x0000), _IP6_ADD_DIGIT(0x0030) }, // default global IPV6 address
+    { _IP6_ADD_DIGIT(0x2001), _IP6_ADD_DIGIT(0x0470), _IP6_ADD_DIGIT(0x0026), _IP6_ADD_DIGIT(0x0105), _IP6_ADD_DIGIT(0x0000), _IP6_ADD_DIGIT(0x0000), _IP6_ADD_DIGIT(0x0000), _IP6_ADD_DIGIT(0x0030) }, // default global IPv6 address
     #endif
     },
 };
@@ -265,7 +265,7 @@ static CHAR *fnInsertString(unsigned char *ptrBuffer, LENGTH_CHUNK_COUNT TxLengt
     #define WEB_ESCAPE_LEN 4
 #endif
 
-    if (!TxLength) {                                                     // this means that we have a simple string field to be filled
+    if (TxLength == 0) {                                                 // this means that we have a simple string field to be filled
         switch (*ptrBuffer++) {
         case 'V':                                                        // display version
             if (*ptrBuffer == '1') {                                     // display application version
@@ -304,12 +304,12 @@ static CHAR *fnInsertString(unsigned char *ptrBuffer, LENGTH_CHUNK_COUNT TxLengt
 static int fnCheckErasePassword(int iType, CHAR *ptrData)
 {
     if (iType != 0) {
-        if (!uMemcmp(ptrData, cErasePass, sizeof(cErasePass))) {
+        if (0 == uMemcmp(ptrData, cErasePass, sizeof(cErasePass))) {
             return 1;
         }
     }
     else {
-        if (!uMemcmp(ptrData, cMassErasePass, sizeof(cMassErasePass))) {
+        if (0 == uMemcmp(ptrData, cMassErasePass, sizeof(cMassErasePass))) {
             return 1;
         }
     }

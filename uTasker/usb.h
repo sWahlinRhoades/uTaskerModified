@@ -11,7 +11,7 @@
     File:      usb.h
     Project:   Single Chip Embedded Internet
     ---------------------------------------------------------------------
-    Copyright (C) M.J.Butcher Consulting 2004..2019
+    Copyright (C) M.J.Butcher Consulting 2004..2020
     *********************************************************************
     20.09.2008 Add USB host defines                                      {1}
     23.11.2009 Remove little-endian macros and padding defined to driver.h since the same is required for SD cards and other general use
@@ -24,6 +24,11 @@
     01.12.2015 Add RNDIS definitions                                     {8}
     13.04.2016 Change parameter of fnGetUSB_string_entry() to unsigned char {9}
     15.08.2018 Move USB_SPEC_VERSION default to this header              {10}
+    30.03.2020 Add E_USB_ACTIVATE_CONFIGURATION_1                        {11}
+    01.06.2020 Add fnDisplayEndpoint()                                   {12}
+    12.06.2020 Add fnGetUSB_InterfaceFilter()                            {13}
+    14.06.2020 Add fnUSB_DeviceResetCycle()                              {14}
+    30.06.2020 Add fnShowEndpoint()                                      {15}
 
 */
 
@@ -64,6 +69,26 @@ __PACK_ON                                                                // ensu
 
 #define UNICODE_ENGLISH_LANGUAGE           0x0409
 
+#define USB_HS_1_ISO_TRANSACTION           0
+#define USB_HS_2_ISO_TRANSACTION          (1 << 11)
+#define USB_HS_3_ISO_TRANSACTION          (2 << 11)
+#define USB_HS_8_1ms                      1                              // 8 transfers per 1ms frame
+#define USB_HS_4_1ms                      2                              // 4 transfers per 1ms frame
+#define USB_HS_2_1ms                      3                              // 2 transfers per 1ms frame
+#define USB_HS_1ms                        4                              // single transfer per 1ms frame
+#define USB_HS_2ms                        5                              // single transfer for each 2 x 1ms frames
+#define USB_HS_4ms                        6                              // single transfer for each 4 x 1ms frames
+#define USB_HS_8ms                        7                              // single transfer for each 8 x 1ms frames
+#define USB_HS_16ms                       8                              // single transfer for each 16 x 1ms frames
+#define USB_HS_32ms                       9                              // single transfer for each 32 x 1ms frames
+#define USB_HS_64ms                       10                             // single transfer for each 64 x 1ms frames
+#define USB_HS_128ms                      11                             // single transfer for each 128 x 1ms frames
+#define USB_HS_256ms                      12                             // single transfer for each 256 x 1ms frames
+#define USB_HS_512ms                      13                             // single transfer for each 512 x 1ms frames
+#define USB_HS_1024ms                     14                             // single transfer for each 1024 x 1ms frames
+#define USB_HS_2048ms                     15                             // single transfer for each 2048 x 1ms frames
+#define USB_HS_4096ms                     16                             // single transfer for each 4096 x 1ms frames
+
 // Standard USB descriptor type values
 //
 #define STANDARD_DEVICE_DESCRIPTOR         0x0100
@@ -78,6 +103,16 @@ __PACK_ON                                                                // ensu
 #define TYPE_AND_DIRECTION_MASK            0xe0
 #define STANDARD_HOST_TO_DEVICE            0x00
 #define STANDARD_DEVICE_TO_HOST            0x80
+
+#if (defined USB_HS_INTERFACE && defined USB_FS_INTERFACE) || (defined _iMX && (HSUSB_CONTROLLERS > 1))
+    #define UBS_HANDLE_TO_CHANNEL(channel)  (channel >> 6)
+    #define UBS_HANDLE_TO_ENDPOINT(channel) (channel & 0x3f)
+    #define USB_CONTROLLER_ENDPOINT(endpoint, controller)    ((controller << 6) | endpoint)
+#else
+    #define UBS_HANDLE_TO_CHANNEL(channel)  (0)
+    #define UBS_HANDLE_TO_ENDPOINT(channel) (channel)
+    #define USB_CONTROLLER_ENDPOINT(endpoint, controller) (endpoint)
+#endif
 
 __PACK_ON                                                                // compilers using pragmas to control packing will start struct packing from here
 typedef struct _PACK stUSB_DEVICE_DESCRIPTOR
@@ -398,7 +433,7 @@ typedef struct _PACK CDC_NOTIFICATION_HEADER
 #define CDC_SERIAL_STATE_bOverRun               LITTLE_SHORT_WORD(0x0040)
 
 
-#if defined USB_CDC_RNDIS                                                // {8}
+#if defined USB_CDC_RNDIS || (defined USB_HOST_SUPPORT && defined USB_CDC_HOST && defined USB_RNDIS_HOST) // {8}
 // General objects
 //
 #define OID_GEN_SUPPORTED_LIST                  0x00010101               // required
@@ -559,6 +594,21 @@ typedef struct _PACK stREMOTE_NDIS_SET_COMPLETE_MESSAGE
     unsigned char          ucStatus[4];
 } REMOTE_NDIS_SET_COMPLETE_MESSAGE;
 
+typedef struct _PACK stREMOTE_NDIS_SET_KEEPALIVE_CMPLT
+{
+    unsigned char          ucMessageType[4];                             // type of message being sent
+    unsigned char          ucMessageLength[4];                           // total length of this message
+    unsigned char          ucRequestID[4];                               // RNDIS message ID value
+    unsigned char          ucStatus[4];
+} REMOTE_NDIS_SET_KEEPALIVE_CMPLT;
+
+typedef struct _PACK stREMOTE_NDIS_KEEPALIVE_MESSAGE
+{
+    unsigned char          ucMessageType[4];                             // type of message being sent
+    unsigned char          ucMessageLength[4];                           // total length of this message
+    unsigned char          ucRequestID[4];                               // RNDIS message ID value
+} REMOTE_NDIS_KEEPALIVE_MESSAGE;
+
 typedef struct _PACK stREMOTE_NDIS_INDICATE_STATUS_MESSAGE
 {
     unsigned char          ucMessageType[4];                             // type of message being sent
@@ -672,7 +722,7 @@ typedef struct stREMOTE_NDIS_CONTROL
 
 typedef struct _PACK stREMOTE_NDIS_ETHERNET_PACKET_MESSAGE {
     REMOTE_NDIS_PACKET_MESSAGE rndis_message;
-    unsigned char          ucPayload[USB_ETH_MTU];                       // space for maximum Ethernet data length
+    unsigned char          ucRNDISPayload[USB_ETH_MTU];                  // space for maximum Ethernet data length
 } REMOTE_NDIS_ETHERNET_PACKET_MESSAGE;
 #endif
 
@@ -697,6 +747,17 @@ typedef struct _PACK stUSB_AUDIO_CONTROL_ENDPOINT_DESCRIPTOR
     unsigned char          bRefresh;                                     // reset to 0
     unsigned char          bSynchAddress;                                // synch endpoint address - reset to 0
 } USB_AUDIO_CONTROL_ENDPOINT_DESCRIPTOR;
+
+typedef struct _PACK stUSB_AUDIO_CONTROL_INTERFACE_HEADER_DESCRIPTOR_1
+{
+    unsigned char          bLength;                                      // descriptor size in bytes
+    unsigned char          bDescriptorType;                              // device descriptor
+    unsigned char          bDescriptorSubtype;                           // descriptor subtype
+    unsigned char          bcdADC[2];                                    // audio device class specification release number
+    unsigned char          wTotalLength[2];
+    unsigned char          bInCollection;                                // number of audio-streaming and MIDI-streaming interfaces in the audio interface collection
+    unsigned char          baInterfaceNr1;                               // interface number of the first audio-streaming or MIDI-streaming interface in the collection
+} USB_AUDIO_CONTROL_INTERFACE_HEADER_DESCRIPTOR_1;
 
 typedef struct _PACK stUSB_AUDIO_CONTROL_INTERFACE_HEADER_DESCRIPTOR_2
 {
@@ -748,6 +809,18 @@ typedef struct _PACK stUSB_AUDIO_FEATURE_UNIT_DESCRIPTOR
     unsigned char          iFeature;                                     // index of string for the feature unit
 } USB_AUDIO_FEATURE_UNIT_DESCRIPTOR;
 
+typedef struct _PACK stUSB_AUDIO_FEATURE_UNIT_DESCRIPTOR_2
+{
+    unsigned char          bLength;                                      // descriptor size in bytes
+    unsigned char          bDescriptorType;                              // device descriptor
+    unsigned char          bDescriptorSubtype;                           // descriptor subtype
+    unsigned char          bUnitID;                                      // identifier of the unit within the audio function
+    unsigned char          bSourceID;                                    // identifier of the unit or terminal to which the feature unit is connected
+    unsigned char          bControlSize;                                 // size in bytes of an element of the bmsControls() array
+    unsigned char          bmaControls[3];                               // bitmap
+    unsigned char          iFeature;                                     // index of string for the feature unit
+} USB_AUDIO_FEATURE_UNIT_DESCRIPTOR_2;
+
 typedef struct _PACK stUSB_ISO_AUDIO_DATA_ENDPOINT_DESCRIPTOR
 {
     unsigned char          bLength;                                      // descriptor size in bytes
@@ -795,6 +868,11 @@ typedef struct stUSB_ENDPOINT_DESCRIPTOR_ENTRIES
 #define ENDPOINT_ISOCHRONOUS               1
 #define ENDPOINT_BULK                      2
 #define ENDPOINT_INTERRUPT                 3
+
+#define ENDPOINT_BULK_IN                   4                             // additional types for software use
+#define ENDPOINT_BULK_OUT                  5
+#define ENDPOINT_INVALID                 0xff
+
 #define ENDPOINT_TERMINATE_TRANSMISSION 0x40                             // pseudo attribute so that this endpoint sends a zero frame on buffer termination
 #define ENDPOINT_DISABLE                0xff
 
@@ -817,6 +895,7 @@ typedef struct stUSB_ENDPOINT_DESCRIPTOR_ENTRIES
 #define INTERFACE_CLASS_MASS_STORAGE       8                             // {2}
 #define INTERFACE_CLASS_HUB                9
 #define INTERFACE_CLASS_COMMUNICATION_DATA 0x0a
+#define INTERFACE_CLASS_WIRELESS_CONTROLLER 0xe0                         // android tethered connection (RNDIS)
 
 #define AUDIO_SUBCLASS_CONTROL             1
 #define AUDIO_SUBCLASS_STREAMING           2
@@ -884,8 +963,10 @@ typedef struct _PACK stUSB_STRING_DESCRIPTOR
 
 #define REQUEST_DEVICE_STANDARD        0x00                              // bmRequestType.Recipient == Device, bmRequestType.Type == Standard
 #define REQUEST_DEVICE_VENDOR          0x40                              // bmRequestType.Recipient == Device, bmRequestType.Type == Vendor
+#define REQUEST_DEVICE_CLASS           0x20                              // bmRequestType.Recipient == Device, bmRequestType.Type == Class
 #define REQUEST_INTERFACE_STANDARD     0x01                              // bmRequestType.Recipient == Interface, bmRequestType.Type == Standard
 #define REQUEST_INTERFACE_CLASS        0x21                              // bmRequestType.Recipient == Interface, bmRequestType.Type == Class
+#define REQUEST_OTHER_CLASS            0x23                              // bmRequestType.Recipient == Other, bmRequestType.Type == Class
 #define REQUEST_ENDPOINT_STANDARD      0x02                              // {4}
 #define REQUEST_ENDPOINT_OTHER         0x03
 
@@ -952,17 +1033,34 @@ typedef struct _PACK stCDC_PSTN_LINE_CODING
 
 // Interface for application to access device information
 //
-extern void *fnGetUSB_config_descriptor(unsigned short *usLength);
-extern void *fnGetUSB_device_descriptor(unsigned short *usLength);
-extern unsigned char *fnGetUSB_string_entry(unsigned char ucStringRef, unsigned short *usLength); // {9}
+extern void *fnGetUSB_config_descriptor(unsigned short *usLength, int iChannel);
+extern void *fnGetUSB_device_descriptor(unsigned short *usLength, int iChannel);
+extern unsigned char *fnGetUSB_string_entry(unsigned char ucStringRef, unsigned short *usLength, int iChannel); // {9}
+extern unsigned long fnGetUSB_InterfaceFilter(int iChannel);             // {13}
+extern void fnUSB_DeviceResetCycle(int iChannel);                        // {14}
 
-extern void *fnGetDeviceInfo(int iInfoRef);                              // used by host application to access device information
+#define ACCEPT_USB_INTERFACES(interfaces)       ~(interfaces)
+#define USB_INTERFACE_ACCEPTED(thisInterface)   (1 << thisInterface)
+
+extern void *fnGetDeviceInfo(int iInfoRef, int iChannel);                // used by host application to access device information
     #define REQUEST_USB_DEVICE_DESCRIPTOR 0
     #define REQUEST_USB_CONFIG_DESCRIPTOR 1
     #define REQUEST_USB_STRING_DESCRIPTOR 2
 
-extern QUEUE_TRANSFER fnClearFeature(QUEUE_LIMIT control_handle, unsigned char ucEndpoint);
+extern QUEUE_TRANSFER fnClearFeature(QUEUE_LIMIT control_handle, unsigned char ucEndpoint, int iChannel);
 
+typedef struct stUSB_ENDPOINT_INFO
+{
+    DELAY_LIMIT    pollingRate;
+    unsigned long  pollingRate_us;
+    unsigned short usEndpointSize;
+    unsigned char  ucEndpointType;
+    unsigned char  ucEndpointNumber;
+    unsigned char  ucTransactions;
+} USB_ENDPOINT_INFO;
+
+extern void fnDisplayEndpoint(USB_ENDPOINT_DESCRIPTOR *ptr_endpoint_desc, USB_ENDPOINT_INFO *ptrEndpointInfo, unsigned char ucHostSpeed, int iDebugOut); // {12}
+extern void fnShowEndpoint(unsigned char ucEndpointReference);           // {15}
 
 // Mass Storage
 //
@@ -1234,12 +1332,42 @@ typedef struct _PACK stUSB_MASS_STORAGE_CSW                              // comm
 //
 typedef struct _PACK stUSB_HOST_DESCRIPTOR
 {
-    unsigned char          bmRecipient_device_direction;                 // descriptor size in bytes
+    unsigned char          bmRecipient_device_direction;                 // recipient, type and direction
     unsigned char          bRequest;                                     // request type
     unsigned char          wValue[2];                                    // 
     unsigned char          wIndex[2];                                    // 
     unsigned char          wLength[2];                                   // length that can be accepted
 } USB_HOST_DESCRIPTOR;
+
+
+typedef struct _PACK stUSB_HUB_DESCRIPTOR
+{
+    unsigned char          bDescLength;                                  // descriptor size in bytes (variable)
+    unsigned char          bDescriptorType;                              // device descriptor (0x29 for hub)
+    unsigned char          bNbrPorts;                                    // number of downstream facing ports
+    unsigned char          wHubCharacteristics[2];                       // 
+    unsigned char          bPwrOn2PwrGood;                               // time in 2ms units from the time the power-on sequence begins on a port until power is good
+    unsigned char          bHubContrCurrent;                             // maximum current requirements of the hub controller electronics in mA
+    unsigned char          DeviceRemovable_PortPwrCtrlMask[1];           // variable
+} USB_HUB_DESCRIPTOR;
+
+#define USB_HUB_DESCRIPTOR_TYPE                         0x29
+
+#define USB_HUB_LOGICAL_POWER_SWITCHING_MODE_MASK       0x03
+#define USB_HUB_LOGICAL_POWER_SWITCHING_MODE_GANGED     0x00
+#define USB_HUB_LOGICAL_POWER_SWITCHING_MODE_INDIVIDUAL 0x01
+#define USB_HUB_COMPOUND_DEVICE                         0x04
+#define USB_HUB_OVER_CURRENT_PROTECTION_MODE_MASK       0x18
+#define USB_HUB_OVER_CURRENT_PROTECTION_MODE_GLOBAL     0x00
+#define USB_HUB_OVER_CURRENT_PROTECTION_MODE_INDIVIDUAL 0x08
+#define USB_HUB_OVER_CURRENT_PROTECTION_MODE_NONE       0x10             // 0x10 or 0x18
+#define USB_HUB_THINK_TIME_MASK                         0x60
+#define USB_HUB_THINK_TIME_8_FS                         0x00
+#define USB_HUB_THINK_TIME_16_FS                        0x20
+#define USB_HUB_THINK_TIME_24_FS                        0x40
+#define USB_HUB_THINK_TIME_32_FS                        0x60
+#define USB_HUB_DOWN_STREAM_PORT_INDICATOR              0x80
+
 __PACK_OFF
 #if defined _CODE_WARRIOR_CF                                             // ensure alignment continues outside of this file
     #pragma pack(0)
@@ -1247,10 +1375,16 @@ __PACK_OFF
 
 // USB messages
 //
-#define E_USB_ACTIVATE_CONFIGURATION      0xfe                           // device mode
-#define E_USB_SET_INTERFACE               0xfd
-#define E_USB_DEVICE_INFO                 0xfc                           // host mode
-#define E_USB_DEVICE_STALLED              0xfb
-#define E_USB_DEVICE_CLEARED              0xfa
-#define E_USB_HOST_ERROR_REPORT           0xf9
+#define E_USB_ACTIVATE_CONFIGURATION_1       0xfd                        // controller 1 configured
+#define E_USB_ACTIVATE_CONFIGURATION         0xfc                        // {11} controller 0 configured
+#define E_USB_SET_INTERFACE_1                0xfb
+#define E_USB_SET_INTERFACE                  0xfa
+#define E_USB_DEVICE_INFO_1                  0xf9                        // host mode
+#define E_USB_DEVICE_INFO                    0xf8
+#define E_USB_DEVICE_STALLED_1               0xf7
+#define E_USB_DEVICE_STALLED                 0xf6
+#define E_USB_DEVICE_CLEARED_1               0xf5
+#define E_USB_DEVICE_CLEARED                 0xf4
+#define E_USB_HOST_ERROR_REPORT_1            0xf3
+#define E_USB_HOST_ERROR_REPORT              0xf2
 #endif

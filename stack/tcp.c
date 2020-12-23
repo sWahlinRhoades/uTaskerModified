@@ -11,7 +11,7 @@
     File:      tcp.c
     Project:   Single Chip Embedded Internet
     ---------------------------------------------------------------------
-    Copyright (C) M.J.Butcher Consulting 2004..2018
+    Copyright (C) M.J.Butcher Consulting 2004..2019
     **********************************************************************
     03.06.2007 fnGetFreeTCP_Port() made external                         {1}
     03.06.2007 Extend REUSE_TIME_WAIT_SOCKETS to rx connection use       {2}
@@ -87,6 +87,7 @@
     09.01.2018 Add fnInsertTCPHeader()                                   {70}
     06.02.2018 Only callback with TCP_EVENT_CLOSED event when socket is reused from the TCP_STATE_FIN_WAIT_2 state {71}
     20.02.2018 Allow preparing data in the output buffer of an open connection but not start its transmission yet {72}
+    25.08.2019 Add fnTCP_Limit() and TCP_CONNECTION_NETWORK_LIMITATION option {73}
 
 */
 
@@ -206,7 +207,7 @@ extern void fnTaskTCP(TTASKTABLE *ptrTaskTable)
     QUEUE_HANDLE PortIDInternal = ptrTaskTable->TaskID;                  // queue ID for task input
     unsigned char ucInputMessage[MEDIUM_MESSAGE];                        // reserve space for receiving messages
 
-    while (fnRead(PortIDInternal, ucInputMessage, HEADER_LENGTH)) {      // check input queue
+    while (fnRead(PortIDInternal, ucInputMessage, HEADER_LENGTH) != 0) { // check task input queue
         switch (ucInputMessage[MSG_SOURCE_TASK]) {
             case TIMER_EVENT:
                 fnPollTCP();                                             // do TCP management on a periodic basis
@@ -357,9 +358,10 @@ extern USOCKET fnTCP_Listen(USOCKET TCP_socket, unsigned short usPort, unsigned 
     }
     ptr_TCP->ulSendUnackedNumber = 0;
     ptr_TCP->ucSendFlags = 0;
-    ptr_TCP->ulNextTransmissionNumber = 0xFFFFFFFF;
+    ptr_TCP->ulNextTransmissionNumber = 0xffffffff;
     ptr_TCP->ulNextReceptionNumber = 0;
     ptr_TCP->ucRetransmissions = 0;
+    ptr_TCP->MySocketNumber = TCP_socket;
 #if defined CONTROL_WINDOW_SIZE
     if (usMaxWindow == 0) {
         ptr_TCP->usRxWindowSize = TCP_MAX_WINDOW_SIZE;                   // set standard window size if application doesn't care
@@ -370,6 +372,27 @@ extern USOCKET fnTCP_Listen(USOCKET TCP_socket, unsigned short usPort, unsigned 
 #endif
     return (TCP_socket);
 }
+
+#if defined TCP_CONNECTION_NETWORK_LIMITATION && (IP_NETWORK_COUNT > 1)  // {73}
+extern USOCKET fnTCP_Limit(USOCKET TCP_socket, unsigned long ulLimitations)
+{
+    TCP_CONTROL *ptr_TCP;
+    if ((ptr_TCP = fnGetSocketControl(TCP_socket)) == 0) {               // get a pointer to the TCP socket control structure
+        return SOCKET_NOT_FOUND;
+    }
+    ptr_TCP->ulConnectionLimitations = ulLimitations;                    // enter the connection limitations
+    return TCP_socket;
+}
+
+static int fnTCP_BlockNetwork(TCP_CONTROL *ptr_TCP, unsigned char ucNetworkID)
+{
+    unsigned long ulNetworkFlag = (1 << ucNetworkID);                    // calculate the network flag
+    if ((ptr_TCP->ulConnectionLimitations & ulNetworkFlag) != 0) {       // test the network limitation
+        return -1;                                                       // a conection to the socket is blocked on this network
+    }
+    return 0;                                                            // connection to the socket is allowed on this network
+}
+#endif
 
 // Get a free TCP port from the dynamic port range
 //
@@ -1232,7 +1255,7 @@ static unsigned long fnGetTCP_init_seq(void)
         // or the partner is powered down at this moment. There is no ack and no rep to the final fin!!
         // So that the socket is not blocked forever we also allow it to be reused here...
         //
-        if (ptr_TCP->ucTCP_state & (TCP_STATE_FIN_WAIT_2 | TCP_STATE_TIME_WAIT)) {
+        if ((ptr_TCP->ucTCP_state & (TCP_STATE_FIN_WAIT_2 | TCP_STATE_TIME_WAIT)) != 0) {
             int iTimeWait2 = ((ptr_TCP->ucTCP_state & TCP_STATE_FIN_WAIT_2) != 0);
             fnNewTCPState(ptr_TCP, TCP_STATE_CLOSED);
             if (iTimeWait2 != 0) {                                       // {71} only inform of close if the socket was is the TCP_STATE_FIN_WAIT_2 state
@@ -1386,7 +1409,12 @@ _syn_frame_rpt:
     }
 
     for (; Socket < NO_OF_TCPSOCKETS; Socket++) {
-        if (ptr_TCP->usLocport == tcp_frame->usDestPort) {               // we are looking for a TCP socket to accept on this port
+        if ((ptr_TCP->usLocport == tcp_frame->usDestPort)
+#if defined TCP_CONNECTION_NETWORK_LIMITATION && (IP_NETWORK_COUNT > 1)  // {73}
+            && (fnTCP_BlockNetwork(ptr_TCP, ptrRx_frame->ucNetworkID) == 0) // only accept the connection on networks that are allowed
+#endif
+        )
+        {                                                                // we are looking for a TCP socket to accept on this port
             if (ptr_TCP->ucTCP_state == TCP_STATE_LISTEN) {              // a listening port is only interested in a SYN
                 if (iSynFrame != 0) {                                    // check whether we are handling a SYN
                     ptr_TCP->usRemport = tcp_frame->usSourcePort;        // we bind the socket on SYN reception
@@ -1851,7 +1879,9 @@ extern void fnHandleTCP(ETHERNET_FRAME *ptrRx_frame)                     // {41}
                     return;
                 }
 #if defined SUPPORT_PEER_WINDOW && (defined HTTP_WINDOWING_BUFFERS || defined FTP_DATA_WINDOWS) // {10}
-                ptr_TCP->ucPersistentTimer = ptr_TCP->ucProbeCount = 0;  // {3}
+                if (ptr_TCP->usTxWindowSize != 0) {
+                    ptr_TCP->ucPersistentTimer = ptr_TCP->ucProbeCount = 0;  // {3}
+                }
 #endif
                 if (rx_tcp_packet.ulAckNo == ptr_TCP->ulNextTransmissionNumber) { // is all outstanding data being acked?
 //#if defined DISCARD_DATA_WHILE_CLOSING                                 // {5}{33} if the reception frame is carrying data as well as acking we need to synchronise the ack counter here in case the application initiates a close
@@ -1882,7 +1912,7 @@ extern void fnHandleTCP(ETHERNET_FRAME *ptrRx_frame)                     // {41}
                         ptr_TCP->ulNextReceptionNumber -= (usLen - ucHeadLen);
                     }
 //#endif
-#if defined SUPPORT_PEER_WINDOW && (defined HTTP_WINDOWING_BUFFERS || defined FTP_DATA_WINDOWS) // {3}{10}
+#if defined SUPPORT_PEER_WINDOW_ && (defined HTTP_WINDOWING_BUFFERS || defined FTP_DATA_WINDOWS) // {3}{10}
                     if (ptr_TCP->usTxWindowSize == 0) {                  // peer's window has completely closed so start persistent timer
                         ptr_TCP->ucPersistentTimer = 5;                  // persistent timer initial timeout value
                     }
@@ -1892,7 +1922,13 @@ extern void fnHandleTCP(ETHERNET_FRAME *ptrRx_frame)                     // {41}
                 else {                                                   // inform application that partial data has possibly been successfully acked
                     unsigned short usPartialDataLength = (unsigned short)(ptr_TCP->ulNextTransmissionNumber - rx_tcp_packet.ulAckNo); // the length of the data being acknowledged
                     if (usPartialDataLength != 0) {                      // {29}
-                        ptr_TCP->usTxWindowSize -= usPartialDataLength;  // {32} since there is still data underway to the peer respect this in the window size
+                        if (ptr_TCP->usTxWindowSize >= usPartialDataLength) {
+                            ptr_TCP->usTxWindowSize -= usPartialDataLength;  // {32} since there is still data underway to the peer respect this in the window size
+                        }
+                        else {                                           // ack to a probe - still with no space
+                            ptr_TCP->ulNextTransmissionNumber -= usPartialDataLength;
+                            return;
+                        }
                         if ((APP_REQUEST_CLOSE & (iAppTCP |= ptr_TCP->event_listener(tcp_socket, TCP_EVENT_PARTIAL_ACK, ptr_TCP->ucRemoteIP, usPartialDataLength))) != 0) { // {56} usPartialDataLength is the number of bytes that are still unaccounted for
                             if ((rx_tcp_packet.usHeaderLengthAndFlags & TCP_FLAG_FIN) != 0) { // the application has commanded the close of the connection
                                 // We have just received FIN + ACK, meaning that the other side has also initiated a close
@@ -2159,7 +2195,7 @@ static void fnPollTCP(void)
     for (Socket = 0; Socket < NO_OF_TCPSOCKETS; Socket++) {              // for each TCP socket
         switch (ptr_TCP->ucTCP_state) {
             case TCP_STATE_ESTABLISHED:
-                if ((ptr_TCP->ucTCPInternalFlags & TCP_CLOSEPENDING) && (ptr_TCP->ulNextTransmissionNumber == ptr_TCP->ulSendUnackedNumber)) {
+                if (((ptr_TCP->ucTCPInternalFlags & TCP_CLOSEPENDING) != 0) && (ptr_TCP->ulNextTransmissionNumber == ptr_TCP->ulSendUnackedNumber)) {
                     ptr_TCP->ulNextTransmissionNumber++;                 // we have a queued close and all data has now been acknowledged so perform the close
                     ptr_TCP->ucSendFlags = (TCP_FLAG_ACK | TCP_FLAG_FIN);
                     fnSendTCPControl(ptr_TCP);
@@ -2173,7 +2209,7 @@ static void fnPollTCP(void)
                         if (ptr_TCP->ucProbeCount < (sizeof(ucProbeTime) - 1)) { // limit maximum value
                             ptr_TCP->ucProbeCount++;
                         }
-                        ptr_TCP->event_listener(Socket, TCP_WINDOW_PROBE, ptr_TCP->ucRemoteIP, ptr_TCP->usRemport);
+                        ptr_TCP->event_listener(Socket, TCP_WINDOW_PROBE, ptr_TCP->ucRemoteIP, ptr_TCP->usRemport); // allow the application to probe the peers TCP windows (by sending one byte more data that it advertises it can accept)
                     }
                 }
 #endif
@@ -2212,7 +2248,7 @@ static void fnPollTCP(void)
                         }
                         else {
 #if defined MJBC_TEST4                                                   // no open transmission to repeat
-                            if (ptr_TCP->ucTCPInternalFlags & SILLY_WINDOW_AVOIDANCE) { // always count down when the silly window probe is active and no repetitions
+                            if ((ptr_TCP->ucTCPInternalFlags & SILLY_WINDOW_AVOIDANCE) != 0) { // always count down when the silly window probe is active and no repetitions
                                 if (ptr_TCP->usTransmitTimer != 0) {     // no transmission timeout timeout yet
                                     ptr_TCP->usTransmitTimer--;          // count down
                                 }
@@ -2233,7 +2269,7 @@ static void fnPollTCP(void)
 #if defined HTTP_WINDOWING_BUFFERS || defined FTP_DATA_WINDOWS           // {16}
                         present_tcp = ptr_TCP;                           // set global pointer to the present receive socket TCP control structure
 #endif
-                        if (ptr_TCP->event_listener(Socket, TCP_EVENT_REGENERATE, 0, usRepeatLength)) { // application must retransmit the data
+                        if (ptr_TCP->event_listener(Socket, TCP_EVENT_REGENERATE, 0, usRepeatLength) != 0) { // application must retransmit the data
                             ptr_TCP->usTransmitTimer = (TCP_STANDARD_RETRY_TOUT - 1); // the application has resent the non-acked data, set repeat delay {11}
                             ptr_TCP->ucRetransmissions = (ucRetransmissions - 1); // {26} decrement the remaining retry count before giving up
                             break;
@@ -2286,10 +2322,10 @@ static void fnPollTCP(void)
                 fnDoCountDown(ptr_TCP);
                 break;
 
-            case TCP_STATE_FREE:                                         // nothing to do in these states
-            case TCP_STATE_RESERVED:
-            case TCP_STATE_CLOSED:
-            case TCP_STATE_LISTEN:
+          //case TCP_STATE_FREE:                                         // nothing to do in these states
+          //case TCP_STATE_RESERVED:
+          //case TCP_STATE_CLOSED:
+          //case TCP_STATE_LISTEN:
             default:
                 ptr_TCP++;                                               // {58} continue without setting iInUse
                 continue;

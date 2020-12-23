@@ -11,7 +11,7 @@
     File:      ip.c
     Project:   Single Chip Embedded Internet
     ---------------------------------------------------------------------
-    Copyright (C) M.J.Butcher Consulting 2004..2016
+    Copyright (C) M.J.Butcher Consulting 2004..2019
     *********************************************************************
     08.04.2007 Add SUPPORT_SUBNET_BROADCAST - new function fnSubnetBroadcast() {1}
     25.08.2007 Use static RAM for code from RAM since uMalloc may not always be ready {2}
@@ -38,6 +38,9 @@
     04.09.2014 Allow user to define which networks respond to broadcasts {23}
     02.01.2016 Optionally support IPv4 transmission fragmentation        {24}
     02.01.2016 Optionally support IPv4 reception de-fragmentation        {25}
+    12.05.2017 Add optional Ethernet error flags support                 {26}
+    26.05.2017 Allow PPP interfaces to use IP without ARP                {27}
+    29.05.2017 Avoid PPP reception adding ARP entries                    {28}
 
 */        
 
@@ -115,8 +118,8 @@
     unsigned char ucLinkLocalIPv6Address[IP_NETWORK_COUNT][IPV6_LENGTH] = {{0}};
 #endif
 #if IP_INTERFACE_COUNT > 1
-    QUEUE_HANDLE InterfaceHandles[IP_INTERFACE_COUNT] = {0};
-    unsigned char InterfaceCharacteristics[IP_INTERFACE_COUNT] = {0};
+    static QUEUE_HANDLE InterfaceHandles[IP_INTERFACE_COUNT] = {0};
+    static unsigned char InterfaceCharacteristics[IP_INTERFACE_COUNT] = {0};
 #endif
 #if defined IPV4_SUPPORT_RX_DEFRAGMENTATION                              // {25}
     static unsigned char *ptrDefragPool = 0;                             // pointer to de-fragmentation data polll
@@ -136,20 +139,18 @@ extern unsigned short fnCalcIP_CS(unsigned short cs, unsigned char *dat, unsigne
     unsigned char cs_l = (unsigned char)(cs);
     unsigned char cs_h = (unsigned char)(cs >> 8);                       // prime check sum initial value
 
-    while (usLen--) {
+    while (usLen-- != 0) {
         if ((cs_h += *dat) < *dat) {                                     // process MSB
-            if ( ++cs_l == 0 ) {
+            if (++cs_l == 0) {
                 cs_h++;
             }
         }
-
         if (0 == usLen--) {
             break;
         }
         dat++;
-
         if ((cs_l += *dat) < *dat) {                                     // process LSB
-            if ( ++cs_h == 0 ) {
+            if (++cs_h == 0) {
                 cs_l++;
             }
         }
@@ -160,7 +161,7 @@ extern unsigned short fnCalcIP_CS(unsigned short cs, unsigned char *dat, unsigne
 #endif
 
 #if defined USE_IP
-    #ifdef RUN_LOOPS_IN_RAM
+    #if defined RUN_LOOPS_IN_RAM
 extern void fnInitIP(void)                                               // {2}
 {
     #if defined _WINDOWS
@@ -236,7 +237,7 @@ extern int fnGetAnyInterfaceCharacteristics(USOCKET uSocket, unsigned char ucCha
         int iInterfaceReference = 0;
         while (ucInterface != 0) {                                       // until the first interface has been found
             if ((ucInterface & 0x01) != 0) {
-                if (InterfaceCharacteristics[iInterfaceReference] & ucCharacteristic) {
+                if ((InterfaceCharacteristics[iInterfaceReference] & ucCharacteristic) != 0) {
                     return 1;
                 }
             }
@@ -245,7 +246,7 @@ extern int fnGetAnyInterfaceCharacteristics(USOCKET uSocket, unsigned char ucCha
         }
         return 0;
     }
-    return (InterfaceCharacteristics[0] & ucCharacteristic);             // if no interface is specified we return the characeteristic of the first (default) interface
+    return ((InterfaceCharacteristics[0] & ucCharacteristic) != 0);         // if no interface is specified we return the characteristic of the first (default) interface
 }
 
 
@@ -498,28 +499,36 @@ extern int fnHandleIPv4(ETHERNET_FRAME *frame)                           // {9}
     register unsigned char ucNetworkID;
     #endif
     #if IP_INTERFACE_COUNT > 1
-    register unsigned char Tx_handle = frame->Tx_handle;
+    register unsigned char Tx_handle = frame->Tx_handle;                 // the interface handle to send respones on
     #endif
     unsigned short tLen;
     unsigned char ucOptionsLength;
     IP_PACKET *received_ip_packet;
+    #if !defined USE_PPP || (IP_INTERFACE_COUNT != 1)
     ARP_DETAILS arp_details;
     arp_details.ucType = ARP_TEMP_IP;
-    #if IP_INTERFACE_COUNT > 1
-    arp_details.Tx_handle = Tx_handle;
-    #endif
-    #if defined ARP_VLAN_SUPPORT
+        #if IP_INTERFACE_COUNT > 1
+    arp_details.Tx_handle = Tx_handle;                                   // the interface handle to send arp respones on
+        #endif
+        #if defined ARP_VLAN_SUPPORT
     arp_details.usVLAN_ID = frame->usVLAN_ID;
+        #endif
     #endif
 
     if ((frame->ptEth->ethernet_frame_type[1] != (unsigned char)PROTOCOL_IPv4) // not IP frame
        || (frame->frame_size < ETH_HEADER_LEN) || ((frame->frame_size - ETH_HEADER_LEN) < IP_MIN_HLEN) // invalid length
        ) {
+    #if defined ETH_ERROR_FLAGS                                          // {26}
+        frame->ucErrorFlags = ETH_ERROR_INVALID_IPv4;
+    #endif
         return 0;                                 
     }
     received_ip_packet = (IP_PACKET *)frame->ptEth->ucData;              // use a structure for interpretation of frame
 
     if ((received_ip_packet->version_header_length & IP_VERSION_MASK) != (IPV4_LENGTH << 4)) { // check IP version
+    #if defined ETH_ERROR_FLAGS                                          // {26}
+        frame->ucErrorFlags = ETH_ERROR_INVALID_IPv4;
+    #endif
         return 0;                                                        // not IPv4
     }
         
@@ -528,6 +537,9 @@ extern int fnHandleIPv4(ETHERNET_FRAME *frame)                           // {9}
     tLen += received_ip_packet->total_length[1];
     #if !defined IP_RX_CHECKSUM_OFFLOAD || defined IP_INTERFACE_WITHOUT_CS_OFFLOADING || defined _WINDOWS // {5}    
     if (tLen > (frame->frame_size - ETH_HEADER_LEN)) {
+    #if defined ETH_ERROR_FLAGS                                          // {26}
+        frame->ucErrorFlags = ETH_ERROR_INVALID_IPv4;
+    #endif
         return 0;                                                        // length error
     }
     #endif
@@ -537,19 +549,21 @@ extern int fnHandleIPv4(ETHERNET_FRAME *frame)                           // {9}
     if (ucNetworkID == NETWORK_REJECT) {
         return 0;                                                        // ignore the reception if the user decides to reject the frame
     }
+        #if !defined USE_PPP || (IP_INTERFACE_COUNT != 1)
     arp_details.ucNetworkID = frame->ucNetworkID = ucNetworkID;
+        #endif
     #endif
-    if ((uMemcmp(received_ip_packet->destination_IP_address, &network[_NETWORK_ID].ucOurIP[0], IPV4_LENGTH)) // check whether we are addressed (unicast address)
+    if ((uMemcmp(received_ip_packet->destination_IP_address, &network[_NETWORK_ID].ucOurIP[0], IPV4_LENGTH) != 0) // check whether we are addressed (unicast address)
     #if IP_NETWORK_COUNT > 1                                             // {23}
         && (frame->ucBroadcastResponse == 0)                             // user has defined that broadcast, or subnet broadcast should be responded to on one or more networks
     #else
-        #if defined SUPPORT_SUBNET_BROADCAST                             // {1}
-        && ((fnSubnetBroadcast(received_ip_packet->destination_IP_address, &network[_NETWORK_ID].ucOurIP[0], &network[_NETWORK_ID].ucNetMask[0], IPV4_LENGTH) == 0) && (uMemcmp(received_ip_packet->destination_IP_address, cucBroadcast, IPV4_LENGTH))) // {12}{13}
+        #if defined SUPPORT_SUBNET_BROADCAST                             // {1} check for subnet broadcast (but not global broadcast)
+        && ((fnSubnetBroadcast(received_ip_packet->destination_IP_address, &network[_NETWORK_ID].ucOurIP[0], &network[_NETWORK_ID].ucNetMask[0], IPV4_LENGTH) == 0) && (uMemcmp(received_ip_packet->destination_IP_address, cucBroadcast, IPV4_LENGTH) != 0)) // {12}{13}
         #else
-        && (uMemcmp(received_ip_packet->destination_IP_address, cucBroadcast, IPV4_LENGTH))
+        && (uMemcmp(received_ip_packet->destination_IP_address, cucBroadcast, IPV4_LENGTH) != 0) // check for non-broadcast
         #endif
     #endif
-    #if defined USE_IGMP                                                 // {19}{20}
+    #if defined USE_IGMP || defined SUPPORT_MULTICAST_RX                 // {19}
         && ((received_ip_packet->destination_IP_address[0] < 224) || (received_ip_packet->destination_IP_address[0] > 239)) // not multicast address range
     #endif
         ) {
@@ -585,13 +599,24 @@ extern int fnHandleIPv4(ETHERNET_FRAME *frame)                           // {9}
     #if !defined IP_RX_CHECKSUM_OFFLOAD || defined IP_INTERFACE_WITHOUT_CS_OFFLOADING || defined _WINDOWS // {5}    
     if (IP_GOOD_CS != fnRxCalcIP_CS(0, frame, (unsigned short)(IP_MIN_HLEN + ucOptionsLength))) {
         #if !defined _WINDOWS                                            // Win7 offloading is difficult to disable so ignore
+            #if defined ETH_ERROR_FLAGS                                  // {26}
+        frame->ucErrorFlags = ETH_ERROR_INVALID_IPv4_CHECKSUM;
+            #endif
         return 0;                                                        // check sum error - quit    
         #endif
     }
     #endif
-    if (uMemcmp(received_ip_packet->source_IP_address, cucBroadcast, IPV4_LENGTH) != 0) { // add the address to ARP cache as long as not broadcast
-        fnAddARP(received_ip_packet->source_IP_address, frame->ptEth->ethernet_source_MAC, &arp_details); // {15}
+    #if defined USE_PPP && (IP_INTERFACE_COUNT > 1)                      // {28}
+    if ((frame->ucInterfaceHandling & INTERFACE_NO_MAC_ETHERNET_II) == 0) { // only add IP addresses to ARP cache when the interfaces uses a MAC address
+    #endif
+    #if !defined USE_PPP || (IP_INTERFACE_COUNT != 1)                    // {28}
+        if (uMemcmp(received_ip_packet->source_IP_address, cucBroadcast, IPV4_LENGTH) != 0) { // add the address to ARP cache as long as not broadcast
+            fnAddARP(received_ip_packet->source_IP_address, frame->ptEth->ethernet_source_MAC, &arp_details); // {15}
+        }
+    #endif
+    #if defined USE_PPP && (IP_INTERFACE_COUNT > 1)
     }
+    #endif
     frame->usIPLength = (IP_MIN_HLEN + ucOptionsLength);
     frame->usDataLength = (tLen - (IP_MIN_HLEN + ucOptionsLength));      // {9}
     #if defined IPV4_SUPPORT_RX_DEFRAGMENTATION                          // {25}
@@ -679,8 +704,8 @@ static unsigned short fnInsertIP_checksum(unsigned char *ptrData, unsigned char 
         unsigned short usCheckSum = fnCalcIP_CS(0, (ptrData - 10), 10); 
         usCheckSum = fnCalcIP_CS(usCheckSum, &network[ucNetworkID].ucOurIP[0], IPV4_LENGTH);
         usCheckSum = fnCalcIP_CS(usCheckSum, prIP_to, IPV4_LENGTH);
-        usCheckSum = ~usCheckSum;                                            // we do not support options after the IP addresses !!
-        *ptrData++  = (unsigned char)((usCheckSum) >> 8);                    // insert the checksum value
+        usCheckSum = ~usCheckSum;                                        // we do not support options after the IP addresses !!
+        *ptrData++  = (unsigned char)((usCheckSum) >> 8);                // insert the checksum value
         *ptrData    = (unsigned char)(usCheckSum);
         return usCheckSum;
     }
@@ -700,6 +725,9 @@ static unsigned short fnInsertIP_checksum(unsigned char *ptrData, unsigned char 
 //
 extern signed short fnSendIPv4(unsigned char *prIP_to, unsigned char ucProtType, unsigned char ucTypeOfService, unsigned char ucTTL, unsigned char *dat, unsigned short usLen, UTASK_TASK Owner, USOCKET cSocket)
 {
+    #if defined USE_PPP
+    static const ARP_TAB PPP_ARP = { ARP_BROADCAST_ENTRY, 0 };           // {27} dummy ARP entry for PPP interface use
+    #endif
     static const unsigned char ucIP_ProtV4[] = {(unsigned char)(PROTOCOL_IPv4 >> 8), (unsigned char)(PROTOCOL_IPv4)};
     static unsigned short usIP_identification_field = 0;                 // IP identification field content initially zero and is incremented in every IP frame that is sent
     #if defined USE_IGMP && (defined USE_IGMP_V2 || defined USE_IGMP_V3) // {20}
@@ -738,9 +766,13 @@ extern signed short fnSendIPv4(unsigned char *prIP_to, unsigned char ucProtType,
     
     #if defined SUPPORT_MULTICAST_TX || defined USE_IGMP                 // {18}
     if (((ucProtType != IP_UDP) && (ucProtType != IP_IGMPV2)) || (*prIP_to < 224) || (*prIP_to > 239)) { // {20} if not a UDP multicast destination use standard ARP resolution
+        #if defined USE_PPP && IP_INTERFACE_COUNT == 1                   // {27} PPP interface never used ARP
+        ptrARP = (ARP_TAB *)&PPP_ARP;                                    // PPP interface traffic doesn't use ARP so use a dummy entry
+        #else
         if ((ptrARP = fnGetIP_ARP(prIP_to, Owner, cSocket)) == 0) {      // see whether IP is in ARP table
             return NO_ARP_ENTRY;                                         // ARP will normally try to resolve the address here and we receive notification when it has completed
         }
+        #endif
     }
     else {                                                               // transmission to an IGMP or UDP multicast address
         #if IP_INTERFACE_COUNT > 1
@@ -754,7 +786,7 @@ extern signed short fnSendIPv4(unsigned char *prIP_to, unsigned char ucProtType,
                 if (cSocket & interfaces) {                              // multicast frame is to be sent on this interface
                     if ((ucProtType == IP_UDP) && (usUDPchecksum != 0)) {// multicast UDP with a UDP checksum
                         if ((fnGetInterfaceCharacteristics(uReference) & INTERFACE_NO_TX_CS_OFFLOADING) == 0) { // if this interface performes checksum offloading we must ensure that the UDP checksum is set to zero
-                            *(dat + 6) = 0;                           // set the UDP checksum in the frame zu zero
+                            *(dat + 6) = 0;                              // set the UDP checksum in the frame zu zero
                             *(dat + 7) = 0;
                         }
                     }
@@ -787,16 +819,28 @@ extern signed short fnSendIPv4(unsigned char *prIP_to, unsigned char ucProtType,
         #endif
     }
     #else
+        #if defined USE_PPP && IP_INTERFACE_COUNT == 1                   // {27}
+        ptrARP = (ARP_TAB *)&PPP_ARP;                                    // PPP interface traffic doesn't use ARP so use a dummy entry
+        #else
     if ((ptrARP = fnGetIP_ARP(prIP_to, Owner, cSocket)) == 0) {          // see whether IP is in ARP table
+            #if defined USE_PPP && IP_INTERFACE_COUNT > 1                // {27}
+        cSocket &= ~((INTERFACE_MASK << INTERFACE_SHIFT) & ~(PPP_INTERFACES)); // remove non-PPP interfaces from the interface list
+        if ((cSocket & (INTERFACE_MASK << INTERFACE_SHIFT)) == 0) {      // check whether there are remaining PPP interfaces
+            return NO_ARP_ENTRY;                                         // if no PPP interface in operation we quit
+        }
+        ptrARP = (ARP_TAB *)&PPP_ARP;                                    // PPP interface traffic doesn't use ARP so use a dummy entry
+            #else
         return NO_ARP_ENTRY;                                             // ARP will normally try to resolve the address here and we receive notification when it has completed
+            #endif
     }
+        #endif
     #endif
 
     #if IP_NETWORK_COUNT > 1                                             // use the network and interface as detailed by the sender (not ARP entry)
     ucNetworkID = extractNetwork(cSocket);
     #endif
     #if IP_INTERFACE_COUNT > 1
-    if (ptrARP->ucState & ARP_BROADCAST_ENTRY) {                         // {16} when sending broadcasts the caller's interface is used rather than the ARP entry
+    if ((ptrARP->ucState & ARP_BROADCAST_ENTRY) != 0) {                  // {16} when sending broadcasts the caller's interface is used rather than the ARP entry
         int iInterfaceReference = fnGetFirstInterface(cSocket);
         Tx_handle = fnGetInterfaceHandle(iInterfaceReference);           // send broadcasts only to first interface found
     }
@@ -808,11 +852,11 @@ extern signed short fnSendIPv4(unsigned char *prIP_to, unsigned char ucProtType,
         #endif
     #endif
     uMemcpy(&ucData[0], ptrARP->ucMac, MAC_LENGTH);                      // add datalink (Ethernet addresses) information
-    uMemcpy(&ucData[MAC_LENGTH], &network[_NETWORK_ID].ucOurMAC[0], MAC_LENGTH);
+    uMemcpy(&ucData[MAC_LENGTH], &network[_NETWORK_ID].ucOurMAC[0], MAC_LENGTH); // our unicast MAC address
     uMemcpy(&ucData[2 * MAC_LENGTH], ucIP_ProtV4, sizeof(ucIP_ProtV4));
     #if defined IPV4_SUPPORT_TX_FRAGMENTATION                            // {24}
     do {                                                                 // send as many fragments as required
-        i = (2 * MAC_LENGTH + sizeof(ucIP_ProtV4));
+        i = ((2 * MAC_LENGTH) + sizeof(ucIP_ProtV4));
         if (usLen > ETH_MTU) {                                           // if the datagram payload is larger than can be carried in the MTU
             unsigned short usPayloadMax = (ETH_MTU - IP_MIN_HLEN);
         #if defined USE_IGMP && (defined USE_IGMP_V2 || defined USE_IGMP_V3)
@@ -828,7 +872,7 @@ extern signed short fnSendIPv4(unsigned char *prIP_to, unsigned char ucProtType,
             usRemainder = 0;                                             // no fragmentation required for this frame
         }
     #else
-        i = (2 * MAC_LENGTH + sizeof(ucIP_ProtV4));
+        i = ((2 * MAC_LENGTH) + sizeof(ucIP_ProtV4));
     #endif
         ucData[i++]  = (IP_DEFAULT_VERSION_HEADER_LENGTH + OPTION_LENGTH/4); // construct the IP header with no option
         ucData[i++]  = ucTypeOfService;
@@ -901,7 +945,7 @@ extern signed short fnSendIPv4(unsigned char *prIP_to, unsigned char ucProtType,
         usFragmentOffset += (usLen/8);                                   // next fragment offset
         usLen = usRemainder;
         usIP_identification_field--;
-    } while (1);                                                         // repeat sending datagram fragments
+    } FOREVER_LOOP();                                                    // repeat sending datagram fragments
     return iReturn;
     #else
     fnWrite(_ETHERNET_HANDLE, dat, usLen);                               // add the pay load
@@ -921,7 +965,7 @@ extern signed short fnSendIPV6(unsigned char *prIP_to, unsigned char ucProtType,
     int iExternal = 0;
     unsigned short i;
     unsigned char  ucData[(ETH_HEADER_LEN + sizeof(IP_PACKET_V6))];      // space for temporary Ethernet II and IPV6 header (no options supported)
-        #ifdef USE_IP            
+        #if defined USE_IP            
     if (uMemcmp(prIP_to, ucLinkLocalIPv6Address[DEFAULT_NETWORK], IPV6_SUBNET_LENGTH) != 0) { // if not in the IPv6 local subnet use the IPV4 gateway instead
         ARP_TAB *ptrARP;   
         if ((ptrARP = fnGetIP_ARP(&network[DEFAULT_NETWORK].ucDefGW[0], Owner, cSocket)) == 0) { // see whether IPV4 gateway is in ARP table
@@ -976,7 +1020,7 @@ extern signed short fnSendIPV6(unsigned char *prIP_to, unsigned char ucProtType,
         dat[2] = 0;
         dat[3] = 0;
         #endif
-        #ifdef USE_IP_STATS
+        #if defined USE_IP_STATS
         fnTxStats(IP_ICMPV6, DEFAULT_NETWORK);                           // count ICMPV6 transmissions
         #endif
     }

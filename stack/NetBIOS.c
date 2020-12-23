@@ -11,7 +11,7 @@
     File:      NetBIOS.c
     Project:   Single Chip Embedded Internet
     ---------------------------------------------------------------------
-    Copyright (C) M.J.Butcher Consulting 2004..2016
+    Copyright (C) M.J.Butcher Consulting 2004..2020
     *********************************************************************
     21.12.2012 Change fnStartNetBIOS_Server() return value to USOCKET    {1}
     07.04.2013 Don't reply when the IP address is presently 0.0.0.0 (eg. before DHCP has completed) {2}
@@ -20,7 +20,7 @@
 
 #include "config.h"
 
-#ifdef USE_NETBIOS
+#if defined USE_NETBIOS
 
 // We support NetBIOS over UDP since this is the usual method.
 // NetBIOS is described in rfc1001 (concepts and methods) and rfc1002 (detailed specifications).
@@ -174,7 +174,7 @@ static int fnNetBIOS_Listener(USOCKET NetBIOS_SocketNr, unsigned char ucEvent, u
         }
 
         // If we get this far it means that a request is being made for our name, so answer with our IP address
-        // - directly manipulate the receive buffer and use it for our answer packet
+        // - directly manipulate the receive buffer and use it for our response packet
         //
         ptrAnswer->query.flags[0] = (NetBIOS_RESPONSE_FLAG | NetBIOS_AUTHORITATIVE_FLAG | NetBIOS_RECURSIVE_DESIRED_FLAG);
         ptrAnswer->query.flags[1] = 0;

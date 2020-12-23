@@ -11,7 +11,7 @@
     File:      webutils.c
     Project:   Single Chip Embedded Internet
     ---------------------------------------------------------------------
-    Copyright (C) M.J.Butcher Consulting 2004..2018
+    Copyright (C) M.J.Butcher Consulting 2004..2020
     *********************************************************************
     16.02.2007 Added fnEncode64() to support SMTP login
     01.06.2007 Changed use of user name and password checking            {1}
@@ -220,14 +220,14 @@ extern int fnInsertHTMLString(CHAR *cToAdd, unsigned short usAddLength, unsigned
     int iRtn = 0;                                                        // {5}
     unsigned char *ptrEnd;
     unsigned char *ptrShift;
-    unsigned short usLength = *usLen - 1;
+    unsigned short usLength = (*usLen - 1);
 
-    ptrEnd = *ptrBuffer + usLength;                                      // set pointer to end of buffer
-    ptrShift = ptrEnd - usAddLength;                                     // set pointer to end after insertion
+    ptrEnd = (*ptrBuffer + usLength);                                    // set pointer to end of buffer
+    ptrShift = (ptrEnd - usAddLength);                                   // set pointer to end after insertion
 
     if ((*ptrBuffer - WEB_ESCAPE_LEN + usAddLength) > ptrEnd) {          // no space to insert in this frame {6} (was previously >= this was not serious but > is more correct and so more efficient when the length is identical to the buffer length)
         if ((ptrEnd + usAddLength - WEB_ESCAPE_LEN) < ptrBufferEnd)      // {8} check whether the buffer has room to grow
-      //if ((*ptrBuffer + (WEB_ESCAPE_LEN - 2) + usAddLength) < ptrBufferEnd)  original check which was corrected (for monitoring purposes)
+      //if ((*ptrBuffer + (WEB_ESCAPE_LEN - 2) + usAddLength) < ptrBufferEnd) original check which was corrected (for monitoring purposes)
         { // {5} there is still space in the physical buffer so make use of it
             unsigned short usLengthIncrease = (usAddLength - WEB_ESCAPE_LEN);
             ptrEnd += usLengthIncrease;                                  // increase buffer length
@@ -254,7 +254,7 @@ extern int fnInsertHTMLString(CHAR *cToAdd, unsigned short usAddLength, unsigned
             ptrShift -= usLength;
             uReverseMemcpy(ptrEnd, ptrShift, usLength);                  // shift remaining bytes along in buffer, making room for the insertion
     #else
-            while (usLength--) {
+            while (usLength-- != 0) {
                 *(--ptrEnd) = *(--ptrShift);                             // shift remaining bytes along in buffer, making room for the insertion
             }
     #endif

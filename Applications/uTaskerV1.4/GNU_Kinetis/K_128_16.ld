@@ -29,21 +29,21 @@ SECTIONS
   {
     __vector_table = .;
     KEEP(*(.vectors .vectors.*))
-  }
+  } > FLASH
   __vectors_end__ = __vector_table + SIZEOF(.vectors);
 
   .f_config ALIGN(__Fconfig_segment_start__ , 4) :
   {
     __flash_config = .;
     KEEP(*(.f_config .f_config.*))
-  }
+  } > FLASH
 
   __init_load_start__ = __FLASH_segment_start__;
   .init ALIGN(__FLASH_segment_start__ , 4) :
   {
     __init_start__ = .;
     *(.init .init.*)
-  }
+  } > FLASH
   __init_end__ = __init_start__ + SIZEOF(.init);
 
 
@@ -52,7 +52,7 @@ SECTIONS
   {
     __text_start__ = .;
     *(.text .text.* .glue_7t .glue_7 .gnu.linkonce.t.*)
-  }
+  } > FLASH
   __text_end__ = __text_start__ + SIZEOF(.text);
 
  
@@ -61,7 +61,7 @@ SECTIONS
   {
     __dtors_start__ = .;
     KEEP (*(SORT(.dtors.*))) KEEP (*(.dtors))
-  }
+  } > FLASH
   __dtors_end__ = __dtors_start__ + SIZEOF(.dtors);
 
  
@@ -70,7 +70,7 @@ SECTIONS
   {
     __ctors_start__ = .;
     KEEP (*(SORT(.ctors.*))) KEEP (*(.ctors))
-  }
+  } > FLASH
   __ctors_end__ = __ctors_start__ + SIZEOF(.ctors);
 
  
@@ -79,7 +79,7 @@ SECTIONS
   {
     __rodata_start__ = .;
     *(.rodata .rodata.* .gnu.linkonce.r.*)
-  }
+  } > FLASH
   __rodata_end__ = __rodata_start__ + SIZEOF(.rodata);
 
 
@@ -88,7 +88,7 @@ SECTIONS
   {
     __fast_start__ = .;
     *(.fast .fast.*)
-  }
+  } > SRAM
   __fast_end__ = __fast_start__ + SIZEOF(.fast);
 
   __fast_load_end__ = __fast_load_start__ + SIZEOF(.fast);
@@ -98,7 +98,7 @@ SECTIONS
   {
     __fast_run_start__ = .;
     . = MAX(__fast_run_start__ + SIZEOF(.fast), .);
-  }
+  } > SRAM
   __fast_run_end__ = __fast_run_start__ + SIZEOF(.fast_run);
 
  
@@ -107,7 +107,7 @@ SECTIONS
   {
     __data_start__ = .;
     *(.data .data.* .gnu.linkonce.d.*)
-  }
+  } > SRAM
   __data_end__ = __data_start__ + SIZEOF(.data);
 
   __data_load_end__ = __data_load_start__ + SIZEOF(.data);
@@ -120,7 +120,7 @@ SECTIONS
   {
     __data_run_start__ = .;
     . = MAX(__data_run_start__ + SIZEOF(.data), .);
-  }
+  } > SRAM
   __data_run_end__ = __data_run_start__ + SIZEOF(.data_run);
 
  
@@ -129,7 +129,7 @@ SECTIONS
   {
     __bss_start__ = .;
     *(.bss .bss.* .gnu.linkonce.b.*) *(COMMON)
-  }
+  } > SRAM
   __bss_end__ = __bss_start__ + SIZEOF(.bss);
 
   
@@ -138,7 +138,7 @@ SECTIONS
   {
     __non_init_start__ = .;
     *(.non_init .non_init.*)
-  }
+  } > SRAM
   __non_init_end__ = __non_init_start__ + SIZEOF(.non_init);
 
  

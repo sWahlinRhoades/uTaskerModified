@@ -11,7 +11,7 @@
     File:      usb_msd_descriptors.h
     Project:   uTasker project
     ---------------------------------------------------------------------
-    Copyright (C) M.J.Butcher Consulting 2004..2016
+    Copyright (C) M.J.Butcher Consulting 2004..2019
     *********************************************************************
 
 */
@@ -21,7 +21,7 @@
     #define USB_PRODUCT_RELEASE_NUMBER      0x0100                       // V1.0 (binary coded decimal)
 
     #if defined USB_SIMPLEX_ENDPOINTS
-        #define NUMBER_OF__SM_ENDPOINTS     (1)                          // uses 1 endpoint (1 bulk IN/OUT) in addition to the default control endpoint 0
+        #define NUMBER_OF_MSD_ENDPOINTS     (1)                          // uses 1 endpoint (1 bulk IN/OUT) in addition to the default control endpoint 0
         #define USB_MSB_IN_ENDPOINT_NUMBER  0x01
     #else
         #define NUMBER_OF_MSD_ENDPOINTS     (2)                          // uses 2 endpoints (1 IN and 1 OUT) in addition to the default control endpoint 0
@@ -204,7 +204,11 @@ static const USB_CONFIGURATION_DESCRIPTOR_COLLECTION config_descriptor = {
     (OUT_ENDPOINT | 0x01),                                               // direction and address of endpoint
     #endif
     ENDPOINT_BULK,                                                       // endpoint attributes
+    #if defined USB_HS_INTERFACE
+    {LITTLE_SHORT_WORD_BYTES(512)},                                      // endpoint FIFO size (little-endian - 512 bytes)
+    #else
     {LITTLE_SHORT_WORD_BYTES(64)},                                       // endpoint FIFO size (little-endian - 64 bytes)
+    #endif
     0                                                                    // polling interval in ms - ignored for bulk
     },
 
@@ -217,7 +221,11 @@ static const USB_CONFIGURATION_DESCRIPTOR_COLLECTION config_descriptor = {
     (IN_ENDPOINT | USB_MSB_IN_ENDPOINT_NUMBER),                          // direction and address of endpoint
     #endif
     ENDPOINT_BULK,                                                       // endpoint attributes
+    #if defined USB_HS_INTERFACE
+    {LITTLE_SHORT_WORD_BYTES(512)},                                      // endpoint FIFO size (little-endian - 512 bytes)
+    #else
     {LITTLE_SHORT_WORD_BYTES(64)},                                       // endpoint FIFO size (little-endian - 64 bytes)
+    #endif
     0                                                                    // polling interval in ms - ignored for bulk
     },
     #if defined USE_USB_HID_MOUSE

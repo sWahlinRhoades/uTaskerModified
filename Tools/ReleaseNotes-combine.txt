@@ -57,3 +57,28 @@ Version V1.6 17-03-2020
 =======================
 
 Correctly recognise srec/ihex files in unicode
+
+Version V1.7 06-07-2020
+=======================
+
+Add option to combine binary files with file object entries compatible with the uTasker USB MSD device loader.
+This makes it possible to combine complete loader/application images for single-step production progamming.
+
+Use example:
+
+uTaskerCombine uTaskerBootLoader.bin uTaskerV1.4_application.bin 0x10000[0x100-UPLOAD_DISK] uTaskerComplete.bin
+
+The binary input file "uTaskerBootLoader.bin" is combined with the binary input file "uTaskerV1.4_application.bin", whereby a FAT file
+object for the second file is generated and inserted at 0x10000, with a length of 0x100. This directory entry contains also a disk volume ID
+"UPLOAD_DISK" so that the USB MSD device loader can display the disk and file names accordingly. The file itself contains its original date/time/size
+for version management purposes.
+the second file is thus located at 0x10100, after the file object, in order to give the exact same layout as if it had been loaded using the serial loader.
+
+
+Version V1.8 13-07-2020
+=======================
+
+Remove complete file path when embedding file objects
+Ensure iHex extended record is terminated with CR and LF
+
+

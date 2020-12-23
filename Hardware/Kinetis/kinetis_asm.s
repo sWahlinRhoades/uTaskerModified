@@ -11,7 +11,7 @@
 ;// File:      kinetis_asm.s [Freescale]
 ;// Project:   Single Chip Embedded Internet
 ;// ---------------------------------------------------------------------
-;// Copyright (C) M.J.Butcher Consulting 2004..2015
+;// Copyright (C) M.J.Butcher Consulting 2004..2017
 ;// *********************************************************************
 ;//
 ;// This file contains assembler code needed by Keil since it doesn't support in-line assmembler Thumb mode

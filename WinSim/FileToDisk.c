@@ -11,7 +11,7 @@
     File:      FileToDisk.c
     Project:   Single Chip Embedded Internet
     ---------------------------------------------------------------------
-    Copyright (C) M.J.Butcher Consulting 2004..2016
+    Copyright (C) M.J.Butcher Consulting 2004..2020
     *********************************************************************
     18.01.2007 Correct file sharing flag (_SH_DENYNO) for more recent VisualStudio versions  {1}
     11.05.2007 Add SAVE_COMPLETE_FLASH support (mainly for devices with multiple FLASH banks){2}
@@ -35,6 +35,10 @@
     13.11.2011 Add SAM3                                                  {20}
     06.08.2013 Enable FLASH operations when USE_PARAMETER_BLOCK is used  {21}
     28.04.2014 Allow FLASH_ROUTINES to enable flash simulation           {22}
+    03.09.2018 Add FRAM image support                                    {23}
+    26.12.2018 Add iMX                                                   {24}
+    05.10.2020 Add iMX OTP                                               {25}
+    07.10.2020 Padd smaller SPI flash files with 0xff to their full size {26}
 
 */
 
@@ -61,93 +65,99 @@
     #define STRCAT strcat
 #endif
 
-#ifdef _HW_NE64
+#if defined _HW_NE64
     #if defined SPI_FILE_SYSTEM && !defined FLASH_FILE_SYSTEM            // {5}
        #define FLASH_FILE  "M95XXX_NE64.ini"
     #else
        #define FLASH_FILE  "FLASH_NE64.ini"
     #endif
-#endif
-#ifdef _HW_SAM7X
+#elif defined _HW_SAM7X
     #if defined SPI_FILE_SYSTEM && !defined FLASH_FILE_SYSTEM            // {5}
         #define FLASH_FILE  "M95XXX_SAM7X.ini"
     #else
         #define FLASH_FILE  "FLASH_SAM7X.ini"
     #endif
-#endif
-#ifdef _HW_SAM3X                                                        // {20}
+#elif defined _HW_SAM3X                                                    // {20}
     #if defined SPI_FILE_SYSTEM && !defined FLASH_FILE_SYSTEM
         #define FLASH_FILE  "M95XXX_SAM3.ini"
     #else
         #define FLASH_FILE  "FLASH_SAM3.ini"
     #endif
-#endif
-#ifdef _HW_AVR32                                                         // {9}
+#elif defined _HW_AVR32                                                    // {9}
     #if defined SPI_FILE_SYSTEM && !defined FLASH_FILE_SYSTEM
         #define FLASH_FILE  "M95XXX_AVR32.ini"
     #else
         #define FLASH_FILE  "FLASH_AVR32.ini"
     #endif
-#endif
-#if defined _M5223X || defined _FLEXIS32
+#elif defined _M5223X || defined _FLEXIS32
     #if defined SPI_FILE_SYSTEM && !defined FLASH_FILE_SYSTEM            // {5}
         #define FLASH_FILE  "M95XXX_M5223X.ini"
     #else
         #define FLASH_FILE  "FLASH_M5223X.ini"
     #endif
-#endif
-#ifdef _STR91XF
+#elif defined _STR91XF
     #if defined SPI_FILE_SYSTEM && !defined FLASH_FILE_SYSTEM            // {5}
         #define FLASH_FILE  "M95XXX_STR91XF.ini"
     #else
         #define FLASH_FILE  "FLASH_STR91XF.ini"
     #endif
-#endif
-#ifdef _LPC23XX
+#elif defined _LPC23XX
     #if defined SPI_FILE_SYSTEM && !defined FLASH_FILE_SYSTEM            // {5}
         #define FLASH_FILE  "M95XXX_LPC23XX.ini"
     #else
         #define FLASH_FILE  "FLASH_LPC23XX.ini"
     #endif
-#endif
-#ifdef _LPC17XX                                                          // {12}
-    #define FLASH_FILE  "FLASH_LPC17XX.ini"
-#endif
-#ifdef _KINETIS                                                          // {17}
+#elif defined _LPC17XX                                                   // {12}
+    #define FLASH_FILE  "FLASH_LPC17XX.ini"$
+#elif defined _KINETIS                                                   // {17}
     #define FLASH_FILE  "FLASH_KINETIS.ini"
-#endif
-#ifdef _LM3SXXXX                                                         // {4}
+#elif defined _LM3SXXXX                                                  // {4}
     #if defined SPI_FILE_SYSTEM && !defined FLASH_FILE_SYSTEM            // {5}
         #define FLASH_FILE  "M95XXX_LM3SXXXX.ini"
     #else
         #define FLASH_FILE  "FLASH_LM3SXXXX.ini"
     #endif
-#endif
-#ifdef _STM32                                                            // {14}
+#elif defined _STM32                                                     // {14}
     #if defined SPI_FILE_SYSTEM && !defined FLASH_FILE_SYSTEM
         #define FLASH_FILE  "M95XXX_STM32.ini"
     #else
         #define FLASH_FILE  "FLASH_STM32.ini"
     #endif
-#endif
-#ifdef _RX6XX                                                            // {16}
+#elif defined _RX6XX                                                     // {16}
     #define FLASH_FILE  "FLASH_RX6XX.ini"
 #endif
 
-#if defined SPI_SW_UPLOAD || defined SPI_FLASH_FAT || (defined SPI_FILE_SYSTEM && defined FLASH_FILE_SYSTEM) // {5}
+#if defined SPI_SW_UPLOAD || defined SPI_FLASH_FAT || (defined _iMX && defined iMX_BOOTLOADER) || (defined SPI_FILE_SYSTEM && defined FLASH_FILE_SYSTEM) // {5}
     #if defined SPI_FLASH_ST
         #define SPI_FLASH_FILE "STM25PXXX.ini"                           // {6}
     #elif defined SPI_FLASH_SST25
         #define SPI_FLASH_FILE "SST25XXXX.ini"                           // {7}
     #elif defined SPI_FLASH_S25FL1_K
         #define SPI_FLASH_FILE "S25FL1-K.ini"
-    #elif defined SPI_FLASH_W25Q
+    #elif defined SPI_FLASH_MX25L && !(defined SPI_FLASH_SECOND_SOURCE_MODE && defined SIM_DISABLE_MX25L)
+        #define SPI_FLASH_FILE "MX25Lxxxxx.ini"
+    #elif defined SPI_FLASH_W25Q && !(defined SPI_FLASH_SECOND_SOURCE_MODE && defined SIM_DISABLE_W25Q)
         #define SPI_FLASH_FILE "W25QXXX.ini"
+    #elif defined SPI_FLASH_IS25 && !(defined SPI_FLASH_SECOND_SOURCE_MODE && defined SIM_DISABLE_IS25)
+        #define SPI_FLASH_FILE "IS25XXX.ini"
+    #elif defined SPI_FLASH_AT25SF && !(defined SPI_FLASH_SECOND_SOURCE_MODE && defined SIM_DISABLE_AT25SF)
+        #define SPI_FLASH_FILE "AT25SFXXX.ini"
+    #elif defined SPI_FLASH_S26KL && !(defined SPI_FLASH_SECOND_SOURCE_MODE && defined SIM_DISABLE_S26KL)
+        #define SPI_FLASH_FILE "S26KLXXX.ini"
+    #elif defined SPI_FLASH_ATXP && !(defined SPI_FLASH_SECOND_SOURCE_MODE && defined SIM_DISABLE_ATXP)
+        #define SPI_FLASH_FILE "ATXPXXX.ini"
     #else
         #define SPI_FLASH_FILE "AT45DBXXX.ini"                           // {3}
     #endif
 #endif
-#if defined I2C_EEPROM_FILE_SYSTEM                                       // {18}
+#if defined FM24W256_CNT && (FM24W256_CNT > 0)                           // {23}
+    #define I2C_FRAM_FILE "FM24W256.ini"
+#elif defined FM24CL16B_PRESENT
+    #define I2C_FRAM_FILE "FM24CL16B.ini"
+#elif defined _STORAGE_I2C_FRAM_ENABLED
+    #define I2C_FRAM_FILE "FRAM_128k.ini"
+#endif
+#if defined I2C_EEPROM_FILE_SYSTEM || (defined M24M01_CNT && (M24M01_CNT > 0)) // {18}
     #define I2C_EEPROM_FILE "M24M01.ini"
 #endif
 #if defined EXT_FLASH_FILE_SYSTEM                                        // {19}
@@ -173,14 +183,19 @@ static signed char *fnGetFileName(signed char *ptrPath)
     return prtFileName;
 }
 
-// Read in a FLASH.ini file to get the present FLASH contents, including present parameters
+// Read in a FLASH_xxx.ini file to get the present FLASH contents, including present parameters
 //
 extern void fnPrimeFileSystem(void)
 {
-#if defined FLASH_ROUTINES || defined ACTIVE_FILE_SYSTEM || defined USE_PARAMETER_BLOCK || defined USE_PARAMETER_AREA || defined SPI_SW_UPLOAD || defined SPI_FLASH_FAT || (defined SPI_FILE_SYSTEM && defined FLASH_FILE_SYSTEM)
+#if defined FLASH_ROUTINES || defined ACTIVE_FILE_SYSTEM || defined USE_PARAMETER_BLOCK || defined USE_PARAMETER_AREA || defined SPI_SW_UPLOAD || defined SPI_FLASH_FAT || (defined _iMX && defined iMX_BOOTLOADER) || (defined SPI_FILE_SYSTEM && defined FLASH_FILE_SYSTEM)
+    int iFileIni;
+#elif defined FM24CL16B_PRESENT || (defined FM24W256_CNT && (FM24W256_CNT > 0))
     int iFileIni;
 #endif
-#if defined FLASH_ROUTINES || defined ACTIVE_FILE_SYSTEM || defined USE_PARAMETER_BLOCK || defined USE_PARAMETER_AREA // {11}{21}{22}
+#if defined _iMX
+    int iFileIMX_OPT;
+#endif
+#if !defined DEVICE_WITHOUT_INTERNAL_FLASH && (defined FLASH_ROUTINES || defined ACTIVE_FILE_SYSTEM || defined USE_PARAMETER_BLOCK || defined USE_PARAMETER_AREA) // {11}{21}{22}
     unsigned char *ptrMem = fnGetFileSystemStart(0);
     #if _VC80_UPGRADE < 0x0600
 	iFileIni = _open(FLASH_FILE, (_O_BINARY | _O_RDWR));
@@ -207,7 +222,7 @@ extern void fnPrimeFileSystem(void)
     }
     #endif
 #endif
-#if defined SPI_SW_UPLOAD || defined SPI_FLASH_FAT || (defined SPI_FILE_SYSTEM && defined FLASH_FILE_SYSTEM) // {3}{5}
+#if defined SPI_SW_UPLOAD || defined SPI_FLASH_FAT || (defined _iMX && defined iMX_BOOTLOADER) || (defined SPI_FILE_SYSTEM && defined FLASH_FILE_SYSTEM) // {3}{5}
     #if _VC80_UPGRADE < 0x0600
 	iFileIni = _open(SPI_FLASH_FILE, (_O_BINARY | _O_RDWR));
     #else
@@ -215,14 +230,33 @@ extern void fnPrimeFileSystem(void)
     #endif
 
     if (iFileIni >= 0) {
-		_read(iFileIni, fnGetDataFlashStart(), fnGetDataFlashSize());
+        unsigned char *ptrFlash = fnGetDataFlashStart();
+        unsigned long ulFlashSize = fnGetDataFlashSize();
+        int iLength = _read(iFileIni, ptrFlash, ulFlashSize);
+        if (iLength >= 0) {
+            if ((unsigned long)iLength < ulFlashSize) {                  // {26} if the file is smaller than the memory size
+                memset((ptrFlash + iLength), 0xff, (ulFlashSize - iLength)); // pad with 0xff up to the end of the flash
+            }
+        }
 	    _close(iFileIni);   
     }
     else {
         fnInitSPI_DataFlash();                                           // set blank SPI file system
     }
 #endif
-#if defined I2C_EEPROM_FILE_SYSTEM                                       // {18}
+#if defined _iMX                                                         // {25}
+    #if _VC80_UPGRADE < 0x0600
+    iFileIMX_OPT = _open("iMX_OTP.ini", (_O_BINARY | _O_RDWR));
+    #else
+	_sopen_s(&iFileIMX_OPT, "iMX_OTP.ini", (_O_BINARY | _O_RDWR), _SH_DENYWR, _S_IREAD);
+    #endif
+
+    if (iFileIMX_OPT >= 0) {
+		_read(iFileIMX_OPT, fnGetIMX_OPTstart(), fnGetIMX_OPTsize());
+	    _close(iFileIMX_OPT);
+    }
+#endif
+#if defined I2C_EEPROM_FILE_SYSTEM || (defined M24M01_CNT && (M24M01_CNT > 0)) // {18}
     #if _VC80_UPGRADE < 0x0600
 	iFileIni = _open(I2C_EEPROM_FILE, (_O_BINARY | _O_RDWR));
     #else
@@ -235,6 +269,21 @@ extern void fnPrimeFileSystem(void)
     }
     else {
         fnInitI2C_EEPROM();                                              // set blank I2C EEPROM
+    }
+#endif
+#if defined FM24CL16B_PRESENT || (defined FM24W256_CNT && (FM24W256_CNT > 0)) || defined _STORAGE_I2C_FRAM_ENABLED // {23}
+    #if _VC80_UPGRADE < 0x0600
+	iFileIni = _open(I2C_FRAM_FILE, (_O_BINARY | _O_RDWR));
+    #else
+	_sopen_s(&iFileIni, I2C_FRAM_FILE, (_O_BINARY | _O_RDWR), _SH_DENYWR, _S_IREAD);
+    #endif
+
+    if (iFileIni >= 0) {
+		_read(iFileIni, fnGetI2CFRAMStart(), fnGetI2CFRAMSize());
+	    _close(iFileIni);   
+    }
+    else {
+        fnInitI2C_FRAM();                                               // set blank I2C FRAM
     }
 #endif
 #if defined EXT_FLASH_FILE_SYSTEM                                        // {19}
@@ -264,7 +313,7 @@ extern void fnPrimeFileSystem(void)
 	    _close(iFileIni);   
     }
 #endif
-#ifdef BATTERY_BACKED_RAM                                                // {10}
+#if defined BATTERY_BACKED_RAM                                           // {10}
     #if _VC80_UPGRADE < 0x0600
 	iFileIni = _open(BAT_BACK_FILE, (_O_BINARY | _O_RDWR));
     #else
@@ -288,10 +337,15 @@ extern void fnPrimeFileSystem(void)
 
 extern void fnSaveFlashToFile(void)
 {
-#if defined FLASH_ROUTINES || defined ACTIVE_FILE_SYSTEM || defined USE_PARAMETER_BLOCK || defined USE_PARAMETER_AREA || defined SPI_SW_UPLOAD || defined SPI_FLASH_FAT || (defined SPI_FILE_SYSTEM && defined FLASH_FILE_SYSTEM)
+#if defined FLASH_ROUTINES || defined ACTIVE_FILE_SYSTEM || defined USE_PARAMETER_BLOCK || defined USE_PARAMETER_AREA || defined SPI_SW_UPLOAD || (defined _iMX && defined iMX_BOOTLOADER) || defined SPI_FLASH_FAT || (defined SPI_FILE_SYSTEM && defined FLASH_FILE_SYSTEM)
+    int iFileIni;
+#elif defined FM24CL16B_PRESENT || (defined FM24W256_CNT && (FM24W256_CNT > 0)) || defined _STORAGE_I2C_FRAM_ENABLED
     int iFileIni;
 #endif
-#if defined FLASH_ROUTINES || defined ACTIVE_FILE_SYSTEM || defined USE_PARAMETER_BLOCK || defined USE_PARAMETER_AREA // {11}{21}{22}
+#if defined _iMX
+    int iFileIMX_OPT;
+#endif
+#if !defined DEVICE_WITHOUT_INTERNAL_FLASH && (defined FLASH_ROUTINES || defined ACTIVE_FILE_SYSTEM || defined USE_PARAMETER_BLOCK || defined USE_PARAMETER_AREA) // {11}{21}{22}
     #if _VC80_UPGRADE < 0x0600
 	iFileIni = _open(FLASH_FILE, (_O_BINARY | _O_TRUNC  | _O_CREAT | _O_RDWR ), _S_IREAD | _S_IWRITE );
     #else
@@ -312,7 +366,7 @@ extern void fnSaveFlashToFile(void)
 	    _close(iFileIni);        
     }
 #endif
-#if defined SPI_SW_UPLOAD || defined SPI_FLASH_FAT || (defined SPI_FILE_SYSTEM && defined FLASH_FILE_SYSTEM) // {3}
+#if defined SPI_SW_UPLOAD || defined SPI_FLASH_FAT || (defined _iMX && defined iMX_BOOTLOADER) || (defined SPI_FILE_SYSTEM && defined FLASH_FILE_SYSTEM) // {3}
     #if _VC80_UPGRADE < 0x0600
 	iFileIni = _open(SPI_FLASH_FILE, (_O_BINARY | _O_TRUNC  | _O_CREAT | _O_RDWR ), _S_IREAD | _S_IWRITE );
     #else
@@ -324,7 +378,19 @@ extern void fnSaveFlashToFile(void)
 	    _close(iFileIni);        
     }
 #endif
-#if defined I2C_EEPROM_FILE_SYSTEM                                       // {18}
+#if defined _iMX                                                         // {25}
+    #if _VC80_UPGRADE < 0x0600
+    iFileIMX_OPT = _open(SPI_FLASH_FILE, (_O_BINARY | _O_TRUNC  | _O_CREAT | _O_RDWR ), _S_IREAD | _S_IWRITE);
+    #else
+	_sopen_s(&iFileIMX_OPT, "iMX_OTP.ini", (_O_BINARY |  _O_TRUNC  | _O_CREAT | _O_RDWR), _SH_DENYNO, _S_IREAD | _S_IWRITE);
+    #endif
+
+    if (iFileIMX_OPT >= 0) {
+        _write(iFileIMX_OPT, fnGetIMX_OPTstart(), fnGetIMX_OPTsize());   // save data flash
+	    _close(iFileIMX_OPT);
+    }
+#endif
+#if defined I2C_EEPROM_FILE_SYSTEM || (defined M24M01_CNT && (M24M01_CNT > 0)) // {18}
     #if _VC80_UPGRADE < 0x0600
 	iFileIni = _open(I2C_EEPROM_FILE, (_O_BINARY | _O_TRUNC  | _O_CREAT | _O_RDWR ), _S_IREAD | _S_IWRITE );
     #else
@@ -333,6 +399,18 @@ extern void fnSaveFlashToFile(void)
 
     if (iFileIni >= 0) {
         _write(iFileIni, fnGetI2CEEPROMStart(), fnGetI2CEEPROMSize());   // save I2C EEPROM
+	    _close(iFileIni);        
+    }
+#endif
+#if defined FM24CL16B_PRESENT || (defined FM24W256_CNT && (FM24W256_CNT > 0)) || defined _STORAGE_I2C_FRAM_ENABLED // {23}
+    #if _VC80_UPGRADE < 0x0600
+	iFileIni = _open(I2C_FRAM_FILE, (_O_BINARY | _O_TRUNC  | _O_CREAT | _O_RDWR ), _S_IREAD | _S_IWRITE );
+    #else
+	_sopen_s(&iFileIni, I2C_FRAM_FILE, (_O_BINARY |  _O_TRUNC  | _O_CREAT | _O_RDWR), _SH_DENYNO, _S_IREAD | _S_IWRITE);
+    #endif
+
+    if (iFileIni >= 0) {
+        _write(iFileIni, fnGetI2CFRAMStart(), fnGetI2CFRAMSize());       // save I2C FRAM
 	    _close(iFileIni);        
     }
 #endif
@@ -376,7 +454,7 @@ extern void fnSaveFlashToFile(void)
 	    _close(iFileIni);
     }
 #endif
-#ifdef _USER_MEMORY_SAVE                                                 // {15}
+#if defined _USER_MEMORY_SAVE                                            // {15}
     fnSaveUserData();
 #endif
 }
@@ -385,7 +463,7 @@ extern void fnSetProjectDetails(signed char **ProjectDisplay)
 {
     char buf[BUF1SIZE + 2];
     unsigned long ulFrequency = PLL_OUTPUT_FREQ;
-    unsigned long ulMHz = PLL_OUTPUT_FREQ/1000000;
+    unsigned long ulMHz = (ulFrequency/1000000);
     unsigned long ulRemainder = ulFrequency - (ulMHz * 1000000);
     int iDecimalPlaces = 4;
     int iDiv = 100000;

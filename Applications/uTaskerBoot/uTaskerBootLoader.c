@@ -2,16 +2,16 @@
     Mark Butcher    Bsc (Hons) MPhil MIET
 
     M.J.Butcher Consulting
-    Birchstrasse 20f,    CH-5406, R�tihof
+    Birchstrasse 20f,    CH-5406, Rütihof
     Switzerland
 
     www.uTasker.com    Skype: M_J_Butcher
 
     ---------------------------------------------------------------------
-    File:      uTaskerBootLoader.c [FREESCALE Coldfire, SAM7X, LPC23XX, LM3Sxxxx, STR91XF, AVR32, RX6XX, Kinetis]
+    File:      uTaskerBootLoader.c [FREESCALE/NXP Coldfire, SAM7X, LPC23XX, LM3Sxxxx, STR91XF, AVR32, RX6XX, Kinetis, iMX RT]
     Project:   Single Chip Embedded Internet
     ---------------------------------------------------------------------
-    Copyright (C) M.J.Butcher Consulting 2004..2016
+    Copyright (C) M.J.Butcher Consulting 2004..2020
     *********************************************************************
     27.02.2007 Changed header interpretation so that it is endian-independent {1}
     29.03.2007 Added decryption support                                  {2}
@@ -38,7 +38,12 @@
     05.05.2012 Correction for encrypted data with large offset           {23}
     24.08.2013 Add option for multiple intermediate locations (MULTIPLE_INTERMEDIATE_CODE_LOCATIONS) {24}
     25.08.2013 Add NET_KBED and NET_K60 configuration                    {25}
-    26.05.2013 Option added to operate without uFileSystem header (working directly with upload header) {26}
+    26.05.2013 Option added to operate without uFileSystem header (working directly with upload header) {26} - moved to config.h
+    20.06.2019 Replaced all occurances of UPLOAD_FILE_LOCATION with UPLOAD_FILE_LOCATION to allow all MULTIPLE_INTERMEDIATE_CODE_LOCATIONS configurations to operate
+    07.02.2020 Add watchdog retrigger during programming to ensure that larger copies can't result in a timeout {27}
+    09.02.2020 Add iMX support
+    20.06.2020 Add configuration for SERIAL_LOADER_UPDATER               {28}
+    21.06.2020 Add option AUTOMATE_UFILE_HEADER                          {29}
 
 */
 
@@ -46,19 +51,20 @@
 /*                           include files                             */
 /* =================================================================== */
 
-#include "config.h"
+#if defined _iMX_SERIAL_LOADER
+    #include "../uTaskerSerialBoot/config.h"
+#else
+    #include "config.h"
+#endif
 
 
 /* =================================================================== */
 /*                          local definitions                          */
 /* =================================================================== */
 
-#define NO_UFILE_HEADER                                                // {26} the uploaded file has no uFileSystem header
-
-//#define ADAPTABLE_PARAMETERS                                           // support secondary bootloader uploads as well as application uploads
 #define BARE_ESSENTIAL
-//#define SUPPORT_FORCE_BOOT
-//#define SUPPORT_VERIFY_APP_BEFORE_START
+//#define SUPPORT_FORCE_BOOT                                             // not used
+//#define SUPPORT_VERIFY_APP_BEFORE_START                                // not used
 
 
 /********************* Set up for the boot loader **********************/
@@ -118,8 +124,110 @@
     #if defined _COMPILE_IAR                                             // {20}
         #define uTaskerBoot            main                              // main calls this routine
     #endif
+#elif defined _iMX
+    #if !defined iMX_BOOTLOADER
+        #define UTASKER_SERIAL_LOADER_START (FLEXSPI_FLASH_BASE + BM_FLASH_AREA_SIZE + 0x100) // QSPI-flash serial loader area start
+        #define UTASKER_APP2_START         UTASKER_SERIAL_LOADER_START
+        #if !defined _iMX_SERIAL_LOADER
+            #define UTASKER_APP_START      (UTASKER_SERIAL_LOADER_START + SERIAL_LOADER_FLASH_AREA_SIZE) // QSPI-flash application area start
+        #endif
+        #define UTASK_APP2_LENGTH          (SERIAL_LOADER_FLASH_AREA_SIZE) // maximum supported serial loader length
+        #define UTASK_APP_LENGTH           (APPLICATION_FLASH_AREA_SIZE) // maximum supported application length
+        #if (SPI_FLASH_SIZE >= (8 * 1024 * 1024))
+            #define UPLOAD_FILE_LOCATION       (unsigned char *)(0x6074c000/*FLEXSPI_FLASH_BASE + FLASH_BOOT_PROGRAM_AREA_SIZE*/) // QSPI-flash upload image area start (file 'z')
+        #elif (SPI_FLASH_SIZE == (2 * 1024 * 1024))
+            #define UPLOAD_FILE_LOCATION   (unsigned char *)(0x6017c000/*FLEXSPI_FLASH_BASE + FLASH_BOOT_PROGRAM_AREA_SIZE*/) // QSPI-flash upload image area start (file 'z')
+        #else
+            #if (defined MIMXRT1024 || defined MIMXRT1064) && !defined USE_EXTERNAL_QSPI_FLASH
+                #define UPLOAD_FILE_LOCATION   (unsigned char *)(0x7037c000/*FLEXSPI_FLASH_BASE + FLASH_BOOT_PROGRAM_AREA_SIZE*/) // QSPI-flash upload image area start (file 'z')
+            #else
+                #define UPLOAD_FILE_LOCATION   (unsigned char *)(0x6037c000/*FLEXSPI_FLASH_BASE + FLASH_BOOT_PROGRAM_AREA_SIZE*/) // QSPI-flash upload image area start (file 'z')
+            #endif
+        #endif
+        static const unsigned char ucKey[]  = APPLICATION_AUTHENTICATION_KEY;
+        static const unsigned char ucKey2[] = SERIAL_LOADER_AUTHENTICATION_KEY;
+      //#define VALID_VERSION_MAGIC_NUMBER_2  0x2223
+            #define uFILE_START                UPLOAD_FILE_LOCATION
+            #define FILE_SYSTEM_SIZE           UTASK_APP_LENGTH
+    #endif
+
+    #if defined iMX_BOOTLOADER
+    extern void *uMemcpy(void *ptrTo, const void *ptrFrom, size_t Size)
+    {
+        void *buffer = ptrTo;
+        unsigned char *ptr1 = (unsigned char *)ptrTo;
+        unsigned char *ptr2 = (unsigned char *)ptrFrom;
+        while (Size-- != 0) {
+        #if defined iMX_RT1011
+            *ptr1++ = fnSynchronisedByteRead((const unsigned char *)ptr2++);
+        #else
+            *ptr1++ = *ptr2++;
+        #endif
+        }
+        return buffer;
+    }
+    extern void *uMemset(void *ptrTo, int iValue, size_t Size)
+    {
+        register unsigned char ucValue = (unsigned char)iValue;
+        void *buffer = ptrTo;
+        unsigned char *ptr = (unsigned char *)ptrTo;
+
+        while (Size-- != 0) {
+            *ptr++ = ucValue;
+        }
+        return buffer;
+    }
+    extern size_t uStrlen(const CHAR *ptrStr)
+    {
+        size_t length = 0;
+        #if defined iMX_RT1011
+        while (fnSynchronisedByteRead((const unsigned char *)ptrStr++) != 0) { // search for the null-terminator at the end of the string
+            length++;
+        }
+        #else
+        while (*ptrStr++ != 0) {                                         // search for the null-terminator at the end of the string
+            length++;
+        }
+        #endif
+        return length;                                                   // return the number of characters found before the null-terminator
+    }
+    // CRC-16 routine
+    //
+    extern unsigned short fnCRC16(unsigned short usCRC, unsigned char *ptrInput, unsigned long ulBlockSize)
+    {
+        while (ulBlockSize-- != 0) {
+            usCRC = (unsigned char)(usCRC >> 8) | (usCRC << 8);
+        #if defined iMX_RT1011
+            usCRC ^= fnSynchronisedByteRead((const unsigned char *)ptrInput++);
+        #else
+            usCRC ^= *ptrInput++;
+        #endif
+            usCRC ^= (unsigned char)(usCRC & 0xff) >> 4;
+            usCRC ^= (usCRC << 8) << 4;
+            usCRC ^= ((usCRC & 0xff) << 4) << 1;
+        }
+        return usCRC;
+    }
+    #else
+    extern int uFileErase(unsigned char *ptrFile, MAX_FILE_LENGTH FileLength)
+    {
+        return fnEraseFlashSector(ptrFile, FileLength);
+    }
+
+    extern void fnGetPars(unsigned char *ParLocation, unsigned char *ptrValue, MAX_FILE_LENGTH Size)
+    {
+        fnGetParsFile(ParLocation, ptrValue, Size);
+    }
+    #endif
 #elif defined _KINETIS                                                   // {18}
-    #if defined NET_KBED || defined NET_K60                              // {25}
+    #if defined SERIAL_LOADER_UPDATER                                    // {28}
+        #define UTASKER_APP_START          (4 * 1024)                    // 0x1000
+        #define UPLOAD_FILE_LOCATION       (32 * 1024)                   // 0x8000
+        #define UTASK_APP_LENGTH           (UPLOAD_FILE_LOCATION - UTASKER_APP_START) // 28k (0x7000)
+
+        static const unsigned char ucKey[] = {0xf4, 0x08, 0xb2, 0x78, 0x01, 0x7a};
+        #define VALID_VERSION_MAGIC_NUMBER  0x1240                       // magic number for serial loader updater
+    #elif defined NET_KBED || defined NET_K60                            // {25}
         #if defined SPI_SW_UPLOAD
             #define UPLOAD_FILE_LOCATION   (uFILE_SYSTEM_END + 0)        // start of SPI FLASH
             #define UTASKER_APP_START      (0x1000)                      // external SPI FLASH solution requires two FLASH block for the boot code because it needs both FLASH and SPI drivers
@@ -128,7 +236,7 @@
             #define BOOT_LOADER_LENGTH     UTASKER_APP_START             // this boot loader must fit within this size
             #define UTASK_APP_LENGTH       (MAX_FILE_LENGTH)(UTASKER_APP2_START - BOOT_LOADER_LENGTH) // the maximum length of the secondary loader
         #else
-            #define UTASKER_APP_START      0x1000                        // internal FLASH solution requires two FLASH block for the boot code (slightly larger than 2k)
+            #define UTASKER_APP_START      0x1000                        // internal FLASH solution requires two FLASH blocks for the boot code (slightly larger than 2k)
             #define UPLOAD_FILE_LOCATION   (unsigned char *)uFILE_START  // location in internal FLASH
             #define UTASK_APP_LENGTH       FILE_SYSTEM_SIZE              // 128k
         #endif
@@ -159,24 +267,74 @@
         #endif
     #else
         #if defined SPI_SW_UPLOAD
-            #define UPLOAD_FILE_LOCATION   (uFILE_SYSTEM_END + 0)        // start of SPI FLASH
-            #define UTASKER_APP_START      0x1000                        // external SPI FLASH solution requires one FLASH block for the boot code because it needs both FLASH and SPI drivers
-            #define UTASK_APP_LENGTH       (MAX_FILE_LENGTH)(0x18000 - UTASKER_APP_START) // 92k
+            #if defined CAPUCCINO_KL27 && defined DEV5
+                #define UPLOAD_FILE_LOCATION   (unsigned char *)(0x200000) // location of upload area in SPI flash
+                #define UTASKER_APP_START      0x1000                    // external SPI FLASH solution requires one FLASH block for the boot code because it needs both FLASH and SPI drivers
+                #define UTASK_APP_LENGTH       (40 * 1024)               // 40k
+            #else
+			#define NGRM_RELAY
+            #if defined NGRM_RELAY
+				#define MY_OFFSET 0x30000
+				#define UPLOAD_FILE_LOCATION (SIZE_OF_FLASH + MY_OFFSET)
+				#define SPI_FLASH_FIFO_DEPTH 1
+			#else
+				#define UPLOAD_FILE_LOCATION   (uFILE_SYSTEM_END + 0)    // start of SPI FLASH
+			#endif
+					#define UTASKER_APP_START      0x1000                    // external SPI FLASH solution requires one FLASH block for the boot code because it needs both FLASH and SPI drivers
+					#define UTASK_APP_LENGTH       (MAX_FILE_LENGTH)( SIZE_OF_FLASH - UTASKER_APP_START) //@modify
+            //					#define UTASK_APP_LENGTH       (MAX_FILE_LENGTH)(0x18000 - UTASKER_APP_START) // 92k
+            #endif
+        #elif defined CAPUCCINO_KL27 && defined DEV6
+            #define UTASKER_APP_START      0xc00
+            #define UPLOAD_FILE_LOCATION   (unsigned char *)uFILE_START  // location in internal FLASH
+            #define UTASK_APP_LENGTH       FILE_SYSTEM_SIZE
+            #define NO_UFILE_HEADER                                      // the uploaded file has no uFileSystem header
         #else
             #define UTASKER_APP_START      0x1000                        // internal FLASH solution requires one FLASH block for the boot code (slightly larger than 2k)
             #define UPLOAD_FILE_LOCATION   (unsigned char *)uFILE_START  // location in internal FLASH
-            #define UTASK_APP_LENGTH       FILE_SYSTEM_SIZE              // 128k
+            #define UTASK_APP_LENGTH       FILE_SYSTEM_SIZE
         #endif
 
-        static const unsigned char ucKey[] = {0xa7, 0x48, 0xb6, 0x53, 0x11, 0x24};
-      //#define _ENCRYPTED
-        #if defined _ENCRYPTED
+        #if defined KINETIS_K60 && defined DEV3
+            static const unsigned char ucKey[] = {0x85, 0xa3, 0xbb, 0x09, 0x10, 0xf5};
+            #define _ENCRYPTED
+            static const unsigned char ucDecrypt[] = {0x65, 0x23, 0x91, 0x32, 0x88, 0xaa, 0x09, 0xa5, 0x98, 0xfd}; // must be even in length (dividable by unsigned short)
+            #define KEY_PRIME               0x76a5                       // never set to 0
+            #define CODE_OFFSET             0x109b
+            #define VALID_VERSION_MAGIC_NUMBER  0x5432
+        #elif defined KINETIS_K12 && defined DEV2
+            static const unsigned char ucKey[] = {0xb7, 0x48, 0xb6, 0x53, 0x11, 0x24};
+            #define _ENCRYPTED
             static const unsigned char ucDecrypt[] = {0xff, 0x25, 0xa7, 0x88, 0xf2, 0xe6, 0x81, 0x33, 0x87, 0x77}; // must be even in length (dividable by unsigned short)
-            #define KEY_PRIME               0xafe1                       // never set to 0
-            #define CODE_OFFSET             0x226a
-            #define VALID_VERSION_MAGIC_NUMBER  0x1235
+            #define KEY_PRIME               0xafe1                   // never set to 0
+            #define CODE_OFFSET             0xc298
+            #define VALID_VERSION_MAGIC_NUMBER  0xe020
+        #elif defined CAPUCCINO_KL27 && defined DEV5
+            static const unsigned char ucKey[] = {0x88, 0x2e, 0x4b, 0xd7, 0x02, 0xba};
+            #define _ENCRYPTED
+            #if defined _ENCRYPTED
+                static const unsigned char ucDecrypt[] = {0x99, 0x37, 0xe6, 0x50, 0x09, 0x82, 0xca, 0xa4, 0x2c, 0xed}; // must be even in length (dividable by unsigned short)
+                #define KEY_PRIME               0x0086                       // never set to 0
+                #define CODE_OFFSET             0x5ade
+                #define VALID_VERSION_MAGIC_NUMBER  0x1357
+            #else
+                #define VALID_VERSION_MAGIC_NUMBER  0x1234               // ensure encrypted version has different magic number
+            #endif
+        #elif defined CAPUCCINO_KL27 && defined DEV6
+            static const unsigned char ucKey[] = {0x62, 0x12, 0x9a, 0x12, 0x1c, 0x29};
+            #undef _ENCRYPTED
+            #define VALID_VERSION_MAGIC_NUMBER  0x5a43                   // ensure encrypted version has different magic number
         #else
-            #define VALID_VERSION_MAGIC_NUMBER  0x1234                   // ensure encrypted version has different magic number
+            static const unsigned char ucKey[] = {0xa7, 0x48, 0xb6, 0x53, 0x11, 0x24};
+          //#define _ENCRYPTED
+            #if defined _ENCRYPTED
+                static const unsigned char ucDecrypt[] = {0xff, 0x25, 0xa7, 0x88, 0xf2, 0xe6, 0x81, 0x33, 0x87, 0x77}; // must be even in length (dividable by unsigned short)
+                #define KEY_PRIME               0xafe1                   // never set to 0
+                #define CODE_OFFSET             0xc298
+                #define VALID_VERSION_MAGIC_NUMBER  0x1235
+            #else
+                #define VALID_VERSION_MAGIC_NUMBER  0x1234               // ensure encrypted version has different magic number
+            #endif
         #endif
     #endif
 #elif defined (_HW_SAM7X)
@@ -274,18 +432,29 @@
         #define UTASKER_APP_START      0x3000                            // location of application
         #define UTASK_APP_LENGTH       (MAX_FILE_LENGTH)(116 * 1024)     // 119k
     #else
-        #define UPLOAD_FILE_LOCATION   (unsigned char *)0x28400          // location in internal FLASH
-        #define UTASKER_APP_START      0x800                             // internal FLASH solution requires two 1k FLASH blocks for the boot code
-        #define UTASK_APP_LENGTH       (MAX_FILE_LENGTH)(94 * 1024)      // 94k
+        #if defined _DEV1
+            #define UPLOAD_FILE_LOCATION   (unsigned char *)0x28400      // location in internal FLASH
+            #define UTASKER_APP_START      0x1000                        // 4 x 1k FLASH blocks for the boot code
+            #define UTASK_APP_LENGTH       (MAX_FILE_LENGTH)(92 * 1024)  // 92k
+            #define _ENCRYPTED                                           // use encrypted loading
+        #else
+            #define UPLOAD_FILE_LOCATION   (unsigned char *)0x28400      // location in internal FLASH
+            #define UTASKER_APP_START      0x800                         // internal FLASH solution requires two 1k FLASH blocks for the boot code
+            #define UTASK_APP_LENGTH       (MAX_FILE_LENGTH)(94 * 1024)  // 94k
+          //#define _ENCRYPTED
+        #endif
     #endif
 
     static const unsigned char ucKey[] = {0x88, 0x26, 0x3b, 0x62, 0x90, 0xa1};
-    #define _ENCRYPTED
     #if defined _ENCRYPTED
         static const unsigned char ucDecrypt[] = {0xff, 0x25, 0xa7, 0x88, 0xf2, 0xe6, 0x81, 0x33, 0x87, 0x77};   // {2} - must be even in length (dividable by unsigned short)
         #define KEY_PRIME               0xafe1                           // never set to 0
         #define CODE_OFFSET             0x226a
-        #define VALID_VERSION_MAGIC_NUMBER  0x1235
+        #if defined _DEV1
+            #define VALID_VERSION_MAGIC_NUMBER  0xe002
+        #else
+            #define VALID_VERSION_MAGIC_NUMBER  0x1235
+        #endif
     #else
         #define VALID_VERSION_MAGIC_NUMBER  0x72ca                       // ensure encrypted version has different magic number
     #endif
@@ -338,13 +507,52 @@
     #if !defined _WINDOWS
         #define uTaskerBoot        uTaskerBoot                           // main calls this routine
     #endif
+#elif defined _STM32
+    #if defined FLASH_GRANULARITY_BOOT                                   // F2/F4 reserve first boot sector for boot loader and start the application after it
+        #if defined PT_427
+            #define UTASKER_APP_START  (0x08020000)
+        #else
+            #define UTASKER_APP_START  (FLASH_START_ADDRESS + (3 * FLASH_GRANULARITY_BOOT)) // 48k - 0xc000 from start of flash (after boot loader plus 2 swap block sectors)
+        #endif
+    #else
+        #define UTASKER_APP_START  (FLASH_START_ADDRESS + FLASH_GRANULARITY) // F1 devices reserve first sector in flash for boot loader and start the application after it
+    #endif
+    #if defined PT_427
+        #define uFILE_START        (unsigned char *)(0x08140000)         // the address where the new application is located when present
+        #define FILE_SYSTEM_SIZE   (4 * FLASH_GRANULARITY)               // maximum size of new application (384k)
+        #define NO_SECRET_KEY
+        #define VALID_VERSION_MAGIC_NUMBER  0x56ab                       // magic number
+    #else
+        #if defined SPI_SW_UPLOAD  
+            #define uFILE_START    (unsigned char *)(FLASH_START_ADDRESS + SIZE_OF_FLASH) // the address where the new application is located when present
+        #else
+            #define uFILE_START    (unsigned char *)(FLASH_START_ADDRESS + 0x60000) // the address where the new application is located when present
+        #endif
+        #define FILE_SYSTEM_SIZE   (128 * 1024)                          // maximum size of new application
+        static const unsigned char ucKey[] = { 0x62, 0x23, 0x19, 0xde, 0x22, 0xb1 };
+      //#define _ENCRYPTED
+        #if defined _ENCRYPTED
+            static const unsigned char ucDecrypt[] = {0xee, 0x23, 0xa9, 0xa1, 0x98, 0xa9, 0x00, 0x21, 0xba, 0x2a};   // must be even in length (dividable by unsigned short)
+            #define KEY_PRIME               0x8862                           // never set to 0
+            #define CODE_OFFSET             0x3cde
+            #define VALID_VERSION_MAGIC_NUMBER  0x9876
+        #else
+            #define VALID_VERSION_MAGIC_NUMBER  0x5432                       // ensure encrypted version has different magic number
+        #endif
+    #endif
+    #define FILE_GRANULARITY       (1 * FLASH_GRANULARITY)
+    #define UPLOAD_FILE_LOCATION   uFILE_START
+    #define UTASK_APP_LENGTH       FILE_SYSTEM_SIZE
+    #if !defined _WINDOWS
+        #define uTaskerBoot        uTaskerBoot                           // main calls this routine
+    #endif
 #endif
 #if !defined UTASKER_CODE_START
     #define UTASKER_CODE_START UTASKER_APP_START
 #endif
 
 
-#define BLOCK_SIZE 1024                                                  // the code is etrached and programmed in blocks of this size
+#define BLOCK_SIZE 1024                                                  // the code is extracted and programmed in blocks of this size
 
 /***********************************************************************/
 
@@ -379,7 +587,7 @@ typedef struct stUPLOAD_HEADER
 #if defined MULTIPLE_INTERMEDIATE_CODE_LOCATIONS                         // {24}
     #define _UTASK_APP2_LENGTH    file_header.ulCodeLength
     #define _UPLOAD_FILE_LOCATION file_header->ptrCodeLocation->ptrCodeAddress
-    #define _LOCATION             file_header.ptrCodeLocation
+    #define _LOCATION             , file_header.ptrCodeLocation
 #else
     #define _UTASK_APP2_LENGTH    UTASK_APP2_LENGTH
     #define _UPLOAD_FILE_LOCATION UPLOAD_FILE_LOCATION
@@ -391,40 +599,61 @@ typedef struct stUPLOAD_HEADER
 /* =================================================================== */
 
 #if defined MULTIPLE_INTERMEDIATE_CODE_LOCATIONS                         // {24}
-    #if defined SPI_SW_UPLOAD
-        #define UPLOAD_START_IN_SPI_FLASH 0x113fc0                       // 464k from end of SPI Flash
-        #define SPI_FLASH_LOCATIONS       8                              // number of possible code locations in SPI flash
-    #else
-        #define SPI_FLASH_LOCATIONS       0
-    #endif
-    #define INTERNAL_FLASH_LOCATIONS      6                              // number of possible code locations in internal flash
-    #define FIRST_INTERNAL_FLASH_ENTRY    SPI_FLASH_LOCATIONS            // index to the first location in internal flash
+    #if defined CAPUCCINO_KL27 && defined DEV5
+        #if defined SPI_SW_UPLOAD
+            #define UPLOAD_START_IN_SPI_FLASH 0x200000                   // upload location in SPI Flash
+            #define SPI_FLASH_LOCATIONS       1                          // number of possible code locations in SPI flash
+        #else
+            #define SPI_FLASH_LOCATIONS       0
+        #endif
+        #define INTERNAL_FLASH_LOCATIONS      1                          // number of possible code locations in internal flash
+        #define FIRST_INTERNAL_FLASH_ENTRY    SPI_FLASH_LOCATIONS        // index to the first location in internal flash
 
-    CODE_LOCATIONS cCodeLocations[SPI_FLASH_LOCATIONS + INTERNAL_FLASH_LOCATIONS + 1] = {
-    #if defined SPI_SW_UPLOAD
-        {(unsigned char *)(UPLOAD_START_IN_SPI_FLASH),                     (464 * 1024)}, // SPI flash locations
-        {(unsigned char *)((UPLOAD_START_IN_SPI_FLASH) + (1 * 64 * 1056)), (400 * 1024)},
-        {(unsigned char *)((UPLOAD_START_IN_SPI_FLASH) + (2 * 64 * 1056)), (336 * 1024)},
-        {(unsigned char *)((UPLOAD_START_IN_SPI_FLASH) + (3 * 64 * 1056)), (272 * 1024)},
-        {(unsigned char *)((UPLOAD_START_IN_SPI_FLASH) + (4 * 64 * 1056)), (208 * 1024)},
-        {(unsigned char *)((UPLOAD_START_IN_SPI_FLASH) + (5 * 64 * 1056)), (144 * 1024)},
-        {(unsigned char *)((UPLOAD_START_IN_SPI_FLASH) + (6 * 64 * 1056)), (80  * 1024)},
-        {(unsigned char *)((UPLOAD_START_IN_SPI_FLASH) + (7 * 64 * 1056)), (16  * 1024)},
+        CODE_LOCATIONS cCodeLocations[SPI_FLASH_LOCATIONS + INTERNAL_FLASH_LOCATIONS + 1] = {
+        #if defined SPI_SW_UPLOAD
+            {(unsigned char *)(0x200000),  (40 * 1024)},                 // SPI flash locations
+
+        #endif
+            {(unsigned char *)(0x35800), (40 * 1024)},                   // internal flash locations
+            {0, 0}                                                       // end of the list
+        };
+    #else
+        #if defined SPI_SW_UPLOAD
+            #define UPLOAD_START_IN_SPI_FLASH 0x113fc0                   // 44k from end of SPI Flash
+            #define SPI_FLASH_LOCATIONS       8                          // number of possible code locations in SPI flash
+        #else
+            #define SPI_FLASH_LOCATIONS       0
+        #endif
+        #define INTERNAL_FLASH_LOCATIONS      6                          // number of possible code locations in internal flash
+        #define FIRST_INTERNAL_FLASH_ENTRY    SPI_FLASH_LOCATIONS        // index to the first location in internal flash
+
+        CODE_LOCATIONS cCodeLocations[SPI_FLASH_LOCATIONS + INTERNAL_FLASH_LOCATIONS + 1] = {
+        #if defined SPI_SW_UPLOAD
+            {(unsigned char *)(UPLOAD_START_IN_SPI_FLASH),                     (464 * 1024)}, // SPI flash locations
+            {(unsigned char *)((UPLOAD_START_IN_SPI_FLASH) + (1 * 64 * 1056)), (400 * 1024)},
+            {(unsigned char *)((UPLOAD_START_IN_SPI_FLASH) + (2 * 64 * 1056)), (336 * 1024)},
+            {(unsigned char *)((UPLOAD_START_IN_SPI_FLASH) + (3 * 64 * 1056)), (272 * 1024)},
+            {(unsigned char *)((UPLOAD_START_IN_SPI_FLASH) + (4 * 64 * 1056)), (208 * 1024)},
+            {(unsigned char *)((UPLOAD_START_IN_SPI_FLASH) + (5 * 64 * 1056)), (144 * 1024)},
+            {(unsigned char *)((UPLOAD_START_IN_SPI_FLASH) + (6 * 64 * 1056)), (80  * 1024)},
+            {(unsigned char *)((UPLOAD_START_IN_SPI_FLASH) + (7 * 64 * 1056)), (16  * 1024)},
+        #endif
+            {(unsigned char *)(288 * 1024), (224 * 1024)},               // internal flash locations
+            {(unsigned char *)(320 * 1024), (192 * 1024)},
+            {(unsigned char *)(352 * 1024), (160 * 1024)},
+            {(unsigned char *)(384 * 1024), (128 * 1024)},
+            {(unsigned char *)(416 * 1024), (96  * 1024)},
+            {(unsigned char *)(448 * 1024), (64  * 1024)},
+            {0, 0}                                                       // end of the list
+        };
     #endif
-        {(unsigned char *)(288 * 1024), (224 * 1024)},                   // internal flash locations
-        {(unsigned char *)(320 * 1024), (192 * 1024)},
-        {(unsigned char *)(352 * 1024), (160 * 1024)},
-        {(unsigned char *)(384 * 1024), (128 * 1024)},
-        {(unsigned char *)(416 * 1024), (96  * 1024)},
-        {(unsigned char *)(448 * 1024), (64  * 1024)},
-        {0, 0}                                                           // end of the list
-    };
 #endif
 
 /* =================================================================== */
 /*                 local function prototype declarations               */
 /* =================================================================== */
 
+#if !defined iMX_BOOTLOADER
 #if defined SUPPORT_VERIFY_APP_BEFORE_START
     static int  fnCheckValidCode(void);
 #endif
@@ -436,12 +665,20 @@ static int fnCheckNewCode(UPLOAD_HEADER *file_header);
 static void fnCopyNewCode(UPLOAD_HEADER *file_header);
 static int fnCheckCopiedCode(UPLOAD_HEADER *file_header);
 #if defined MULTIPLE_INTERMEDIATE_CODE_LOCATIONS                         // {24}
-    static void fnDeleteCodeCopy(CODE_LOCATIONS *ptrCodeLocation);
+    static void fnDeleteCodeCopy(UPLOAD_HEADER *ptr_file_header, CODE_LOCATIONS *ptrCodeLocation);
 #else
-    static void fnDeleteCodeCopy(void);
+    static void fnDeleteCodeCopy(UPLOAD_HEADER *ptr_file_header);
 #endif
 #if defined _ENCRYPTED
     static unsigned short fnDecrypt(unsigned short usPRNG, unsigned char *ptrData, unsigned short usBlockSize);
+#endif
+
+
+#if defined _iMX && defined USB_MSD_DEVICE_LOADER
+    static FILE_OBJECT_INFO fileObjInfo = {0};
+#endif
+#if defined AUTOMATE_UFILE_HEADER                                        // {29}
+    static int iHeaderDetection = 0;
 #endif
 
 
@@ -470,9 +707,9 @@ extern MAIN_FUNCTION_TYPE uTaskerBoot(void)
     do {                                                                 // for each possible code location in the table
 #endif
 #if defined SPI_SW_UPLOAD && !defined MULTIPLE_INTERMEDIATE_CODE_LOCATIONS
-        if (!(fnConfigSPIFileSystem()) && (fnCheckNewCode(&file_header)))// configure SPI interface for maximum speed {3} and see whether waiting code is valid
+        if ((fnConfigSPIFileSystem() == 0) && (fnCheckNewCode(&file_header))) // configure SPI interface for maximum speed {3} and see whether waiting code is valid
 #else
-        if (fnCheckNewCode(&file_header))                                // see whether waiting code is valid
+        if (fnCheckNewCode(&file_header) != 0)                           // see whether waiting code is valid
 #endif
         {
 #if defined ADAPTABLE_PARAMETERS                                         // {22}
@@ -483,13 +720,27 @@ extern MAIN_FUNCTION_TYPE uTaskerBoot(void)
                 uFileErase((unsigned char *)UTASKER_APP_START, UTASK_APP_LENGTH); // valid code is waiting to be loaded so first delete the old code
             }
 #else
+    #if defined _STM32 && defined FLASH_PROGRAMMING_OPTION_SETTING
+        #if defined FLASH_PROGRAMMING_OPTION_SETTING_1 && defined FLASH_OPTCR1
+            fnSetFlashOption(FLASH_PROGRAMMING_OPTION_SETTING, FLASH_PROGRAMMING_OPTION_SETTING_1, FLASH_PROGRAMMING_OPTION_MASK);
+        #elif defined FLASH_OPTCR1
+            fnSetFlashOption(FLASH_PROGRAMMING_OPTION_SETTING, DEFAULT_FLASH_OPTION_SETTING_1, FLASH_PROGRAMMING_OPTION_MASK);
+        #else
+            fnSetFlashOption(FLASH_PROGRAMMING_OPTION_SETTING, 0, FLASH_PROGRAMMING_OPTION_MASK);
+        #endif
+    #endif
             uFileErase((unsigned char *)UTASKER_APP_START, UTASK_APP_LENGTH); // valid code is waiting to be loaded so first delete the old code
 #endif
             fnCopyNewCode(&file_header);                                 // now copy the new code to the uTasker application position
             if (fnCheckCopiedCode(&file_header) != 0) {                  // now verify that the new code is correct and delete its copy
-                fnDeleteCodeCopy(_LOCATION);
+#if defined _iMX && defined USB_MSD_DEVICE_LOADER
+                fileObjInfo.ptrShortFileName = "OTA_FW__BIN";
+                fileObjInfo.ptrLastAddress = (unsigned char *)(_UTASKER_APP_START_ + file_header.ulCodeLength + SIZE_OF_UPLOAD_HEADER);
+                fnAddSREC_file(&fileObjInfo);                            // add file object
+#endif
+                fnDeleteCodeCopy(&file_header _LOCATION);                // delete the intermediate image
             }
-            fnResetBoard();
+            fnResetBoard();                                              // restart in order to execute the new code
         }
 #if defined MULTIPLE_INTERMEDIATE_CODE_LOCATIONS                         // {24}
     } while ((++(file_header.ptrCodeLocation))->ptrCodeAddress != 0);    // check through all possible intermediate code locations
@@ -516,10 +767,8 @@ extern MAIN_FUNCTION_TYPE uTaskerBoot(void)
     #if !defined _WINDOWS
     main_call();                                                         // call code
     #endif
-#elif defined _HW_AVR32 || defined _RX6XX || defined _KINETIS || defined _LM3SXXXX || defined _LPC17XX || (defined _M5223X && (defined _GNU || defined _COMPILE_IAR)) // {14}{17}{19}{20}{21}
-    #if !defined _WINDOWS
+#elif defined _STM32 || defined _HW_AVR32 || defined _RX6XX || defined _KINETIS || defined _LM3SXXXX || defined _LPC17XX || (defined _M5223X && (defined _GNU || defined _COMPILE_IAR)) // {14}{17}{19}{20}{21}
     start_application(UTASKER_CODE_START);                               // jump to the application
-    #endif
 #endif
 #if defined _COMPILE_KEIL || ((defined _LPC23XX || defined _LPC17XX || defined _HW_AVR32 || defined _HW_SAM7X) && defined _GNU)
     return 0;
@@ -532,13 +781,13 @@ extern MAIN_FUNCTION_TYPE uTaskerBoot(void)
 static void fnCopyNewCode(UPLOAD_HEADER *file_header)
 {
 #if defined _ENCRYPTED
-    #if defined NO_UFILE_HEADER                                          // {26}
+    #if defined NO_UFILE_HEADER && !defined AUTOMATE_UFILE_HEADER        // {26}{29}
     unsigned char *ptrFile = (_UPLOAD_FILE_LOCATION + CODE_OFFSET + SIZE_OF_UPLOAD_HEADER);
     #else
     unsigned char *ptrFile = (_UPLOAD_FILE_LOCATION + CODE_OFFSET + SIZE_OF_UPLOAD_HEADER + FILE_HEADER);
     #endif
 #else
-    unsigned char *ptrFile = _UPLOAD_FILE_LOCATION;
+    unsigned char *ptrFile = (unsigned char *)_UPLOAD_FILE_LOCATION;
 #endif
     unsigned char *ptrNewFile;
     unsigned char ucCodeBlock[BLOCK_SIZE];
@@ -546,20 +795,29 @@ static void fnCopyNewCode(UPLOAD_HEADER *file_header)
     MAX_FILE_LENGTH file_length = (MAX_FILE_LENGTH)file_header->ulCodeLength;
 #if defined _ENCRYPTED                                                   // {2}
     unsigned short usPRNG = KEY_PRIME;                                   // prime the random generator from the key pattern
-    #if defined NO_UFILE_HEADER                                          // {26}
-    unsigned char *ptrEnd = ((UPLOAD_FILE_LOCATION + SIZE_OF_UPLOAD_HEADER) + file_length);
+    #if defined NO_UFILE_HEADER && !defined AUTOMATE_UFILE_HEADER        // {26}{29}
+    unsigned char *ptrEnd = ((_UPLOAD_FILE_LOCATION + SIZE_OF_UPLOAD_HEADER) + file_length);
     #else
-    unsigned char *ptrEnd = ((UPLOAD_FILE_LOCATION + SIZE_OF_UPLOAD_HEADER + FILE_HEADER) + file_length);
+    unsigned char *ptrEnd = ((_UPLOAD_FILE_LOCATION + SIZE_OF_UPLOAD_HEADER + FILE_HEADER) + file_length);
     #endif
     while (ptrFile >= ptrEnd) {                                          // {23}
         ptrFile -= file_length;
     }
 #else
-    #if defined NO_UFILE_HEADER                                          // {26}
+    #if defined NO_UFILE_HEADER && !defined AUTOMATE_UFILE_HEADER        // {26}{29}
     ptrFile += SIZE_OF_UPLOAD_HEADER;
     #else
-    ptrFile += SIZE_OF_UPLOAD_HEADER + FILE_HEADER;
+    ptrFile += (SIZE_OF_UPLOAD_HEADER + FILE_HEADER);
     #endif
+#endif
+#if defined AUTOMATE_UFILE_HEADER                                        // {29}
+    if (iHeaderDetection > 1) {                                          // if no file header is being used
+        ptrFile -= FILE_HEADER;                                          // compensate the start of the content
+    }
+#endif
+#if defined _iMX
+    ptrFile -= SIZE_OF_UPLOAD_HEADER;
+    file_length += SIZE_OF_UPLOAD_HEADER;
 #endif
 #if defined ADAPTABLE_PARAMETERS                                         // {22}
     if (file_header->usDestinationType == 2) {
@@ -571,17 +829,22 @@ static void fnCopyNewCode(UPLOAD_HEADER *file_header)
 #else
     ptrNewFile = (unsigned char *)UTASKER_APP_START;
 #endif
-
-    while (file_length) {
+#if defined _iMX
+    ptrNewFile += 0x100;
+#endif
+    while (file_length != 0) {
         if (file_length < BLOCK_SIZE) {
             usBlockSize = (unsigned short)file_length;                   // last block smaller than full block size
+        }
+        else {
+            fnRetriggerWatchdog();                                       // {27} retrigger the watchdog during programming
         }
 #if defined _ENCRYPTED
         if ((ptrFile + usBlockSize) >= ptrEnd) {
             unsigned short usSubBlockSize = (ptrEnd - ptrFile);
             fnGetPars(ptrFile, ucCodeBlock, usSubBlockSize);
-            fnGetPars((UPLOAD_FILE_LOCATION + SIZE_OF_UPLOAD_HEADER + FILE_HEADER), &ucCodeBlock[usSubBlockSize], (usBlockSize - usSubBlockSize));
-            ptrFile = (UPLOAD_FILE_LOCATION + SIZE_OF_UPLOAD_HEADER + FILE_HEADER) - usSubBlockSize;
+            fnGetPars((_UPLOAD_FILE_LOCATION + SIZE_OF_UPLOAD_HEADER + FILE_HEADER), &ucCodeBlock[usSubBlockSize], (usBlockSize - usSubBlockSize));
+            ptrFile = (_UPLOAD_FILE_LOCATION + SIZE_OF_UPLOAD_HEADER + FILE_HEADER) - usSubBlockSize;
         }
         else {
             fnGetPars(ptrFile, ucCodeBlock, usBlockSize);
@@ -605,23 +868,29 @@ static void fnCopyNewCode(UPLOAD_HEADER *file_header)
 // Delete the backup of the new application code
 //
 #if defined MULTIPLE_INTERMEDIATE_CODE_LOCATIONS                         // {24}
-static void fnDeleteCodeCopy(CODE_LOCATIONS *ptrCodeLocation)
+static void fnDeleteCodeCopy(UPLOAD_HEADER *ptr_file_header, CODE_LOCATIONS *ptrCodeLocation)
 #else
-static void fnDeleteCodeCopy(void)
+static void fnDeleteCodeCopy(UPLOAD_HEADER *ptr_file_header)
 #endif
 {
 #if defined MULTIPLE_INTERMEDIATE_CODE_LOCATIONS                         // {24}
     unsigned char *ptrFile = ptrCodeLocation->ptrCodeAddress;
 #else
-    unsigned char *ptrFile = UPLOAD_FILE_LOCATION;
+    unsigned char *ptrFile = (unsigned char *)_UPLOAD_FILE_LOCATION;
 #endif
-    MAX_FILE_LENGTH file_length = uGetFileLength(ptrFile);
-#if defined NO_UFILE_HEADER
-    uFileErase(ptrFile, (MAX_FILE_LENGTH)(file_length + SIZE_OF_UPLOAD_HEADER));
+    MAX_FILE_LENGTH file_length = ptr_file_header->ulCodeLength;
+#if defined NO_UFILE_HEADER && !defined AUTOMATE_UFILE_HEADER            // {29}
+    file_length += SIZE_OF_UPLOAD_HEADER;
 #else
-    uFileErase(ptrFile, (MAX_FILE_LENGTH)(file_length + FILE_HEADER));
+    file_length += (SIZE_OF_UPLOAD_HEADER + FILE_HEADER);
 #endif
-#if defined SPI_SW_UPLOAD                                                 // {8} the erase of SPI FLASH can take some time. Wait until complete before starting the application.
+#if defined AUTOMATE_UFILE_HEADER                                        // {29}
+    if (iHeaderDetection > 1) {                                          // if no file header is being used
+        file_length -= FILE_HEADER;                                      // compensate the length of the content
+    }
+#endif
+    uFileErase(ptrFile, file_length);
+#if defined SPI_SW_UPLOAD                                                // {8} the erase of SPI FLASH can take some time. Wait until complete before starting the application.
     uGetFileLength(ptrFile);                                             // this automatically waits for the SPI FLASH to be ready again
 #endif
 }
@@ -646,7 +915,10 @@ static int fnCheckCopiedCode(UPLOAD_HEADER *file_header)
 #else
     ptrFile = (unsigned char *)UTASKER_APP_START;
 #endif
-    while (file_length) {
+#if defined _iMX
+    ptrFile += (SIZE_OF_UPLOAD_HEADER + 0x100);
+#endif
+    while (file_length != 0) {
         if (file_length < BLOCK_SIZE) {
             usBlockSize = (unsigned short)file_length;
         }
@@ -668,9 +940,9 @@ static int fnCheckCopiedCode(UPLOAD_HEADER *file_header)
     #endif
 #endif
 #if defined _ENCRYPTED
-    return (usCRC == file_header->usRAWCRC);
+    return (usCRC == file_header->usRAWCRC);                             // if the copy was good this will be true
 #else
-    return (usCRC == file_header->usCRC);
+    return (usCRC == file_header->usCRC);                                // if the copy was good this will be true
 #endif
 }
 
@@ -736,7 +1008,7 @@ extern int uFileErase(MEMORY_RANGE_POINTER ptrFile, MAX_FILE_LENGTH FileLength) 
 //
 extern MAX_FILE_LENGTH uGetFileLength(unsigned char *ptrfile)
 {
-    MAX_FILE_LENGTH FileLength;
+    MAX_FILE_LENGTH FileLength = 0;
 
     fnGetPars(ptrfile, (unsigned char *)&FileLength, sizeof(MAX_FILE_LENGTH));
 
@@ -760,7 +1032,7 @@ extern MAX_FILE_LENGTH uGetFileLength(unsigned char *ptrfile)
 
 
 #if defined (_WINDOWS) || defined (_LITTLE_ENDIAN)
-static void fnHeaderToLittleEndian(UPLOAD_HEADER *file_header)
+extern void fnHeaderToLittleEndian(UPLOAD_HEADER *file_header)
 {
     unsigned short usShort;
     unsigned long  ulLong;
@@ -791,40 +1063,51 @@ static void fnHeaderToLittleEndian(UPLOAD_HEADER *file_header)
 //
 static int fnCheckNewCode(UPLOAD_HEADER *file_header)
 {
-#if defined NO_UFILE_HEADER                                              // {26}
-    #if defined MULTIPLE_INTERMEDIATE_CODE_LOCATIONS                     // {24}
-    unsigned char *ptrFile = (file_header->ptrCodeLocation->ptrCodeAddress + SIZE_OF_UPLOAD_HEADER);
-    #else
-    unsigned char *ptrFile = (UPLOAD_FILE_LOCATION + SIZE_OF_UPLOAD_HEADER);
-    #endif
+#if defined NO_UFILE_HEADER && !defined AUTOMATE_UFILE_HEADER            // {26}{29}
+    unsigned char *ptrFile = (unsigned char *)(_UPLOAD_FILE_LOCATION + SIZE_OF_UPLOAD_HEADER);
 #else
-    #if defined MULTIPLE_INTERMEDIATE_CODE_LOCATIONS                     // {24}
-    unsigned char *ptrFile = (file_header->ptrCodeLocation->ptrCodeAddress + FILE_HEADER + SIZE_OF_UPLOAD_HEADER);
-    #else
-    unsigned char *ptrFile = (UPLOAD_FILE_LOCATION + FILE_HEADER + SIZE_OF_UPLOAD_HEADER);
-    #endif
+    unsigned char *ptrFile = (unsigned char *)(_UPLOAD_FILE_LOCATION + FILE_HEADER + SIZE_OF_UPLOAD_HEADER);
 #endif
-    MAX_FILE_LENGTH file_length = uGetFileLength(UPLOAD_FILE_LOCATION);
+    MAX_FILE_LENGTH file_length = uGetFileLength((unsigned char *)_UPLOAD_FILE_LOCATION);
     unsigned short usCRC;
     unsigned char ucCodeBlock[BLOCK_SIZE];
     unsigned short usBlockSize;
-#if defined NO_UFILE_HEADER                                              // {26}
-    fnGetPars(UPLOAD_FILE_LOCATION, (unsigned char*)file_header, SIZE_OF_UPLOAD_HEADER);
+#if defined AUTOMATE_UFILE_HEADER                                        // {29}
+    FOREVER_LOOP() {
+    if (iHeaderDetection++ == 1) {                                       // if the code doesn't match using a uFileHeader try without the header
+        ptrFile = (unsigned char *)(_UPLOAD_FILE_LOCATION + SIZE_OF_UPLOAD_HEADER);
+    }
+    else if (iHeaderDetection > 2) {
+        return 0;                                                        // no valid code present
+    }
+#endif
+#if defined NO_UFILE_HEADER && !defined AUTOMATE_UFILE_HEADER            // {26}{29}
+    fnGetPars(_UPLOAD_FILE_LOCATION, (unsigned char*)file_header, SIZE_OF_UPLOAD_HEADER);
 #else
     fnGetPars((ptrFile - SIZE_OF_UPLOAD_HEADER), (unsigned char*)file_header, SIZE_OF_UPLOAD_HEADER);
 #endif
 #if defined (_WINDOWS) || defined (_LITTLE_ENDIAN)                       // {1}
     fnHeaderToLittleEndian(file_header);
+    //@modify code inserted since the size is being read in correctly apart from the front which is all ff's
+//    file_header->ulCodeLength &= 0x00ffffff; //improper reading of an ff with the file size, should never need first byte filled
 #endif
-
-    if ((file_header->usMagicNumber != VALID_VERSION_MAGIC_NUMBER)) {    // first test that the header version (magic number) is correct
+#if defined _iMX
+    if ((file_header->usMagicNumber & ~(BOOT_LOADER_TYPE_MASK)) != VALID_VERSION_MAGIC_NUMBER) // first test that the header version (magic number) is correct
+#else
+    if (file_header->usMagicNumber != VALID_VERSION_MAGIC_NUMBER)        // first test that the header version (magic number) is correct
+#endif
+    {
 #if defined ADAPTABLE_PARAMETERS                                         // {22}
         if ((file_header->usMagicNumber != VALID_VERSION_MAGIC_NUMBER_2)) { // check whether second code destination
             return 0;                                                    // no match found
         }
         file_header->usDestinationType = 2;                              // second destination
 #else
+    #if defined AUTOMATE_UFILE_HEADER                                    // {29}
+        continue;
+    #else
         return 0;                                                        // magic number doesn't match so ignore
+    #endif
 #endif
     }
 #if defined ADAPTABLE_PARAMETERS                                         // {22}
@@ -833,12 +1116,17 @@ static int fnCheckNewCode(UPLOAD_HEADER *file_header)
     }
 #endif
 #if !defined NO_UFILE_HEADER                                             // {26}
-    if (file_header->ulCodeLength != (file_length - SIZE_OF_UPLOAD_HEADER)) { // now test that the file length and data length correspond
+    #if defined AUTOMATE_UFILE_HEADER                                    // {29}
+    if ((iHeaderDetection == 1) &&(file_header->ulCodeLength != (file_length - SIZE_OF_UPLOAD_HEADER))) // now test that the file length and data length correspond
+    #else
+    if (file_header->ulCodeLength != (file_length - SIZE_OF_UPLOAD_HEADER)) // now test that the file length and data length correspond
+    #endif
+    {
         return 0;
     }
 #endif
 #if defined ADAPTABLE_PARAMETERS                                         // {22}
-    if (!file_header->ulCodeLength) {                                    // ignore zero contents or if too large
+    if (file_header->ulCodeLength == 0) {                                // ignore zero contents or if too large
         return 0;
     }
     if (file_header->usDestinationType == 2) {
@@ -858,14 +1146,14 @@ static int fnCheckNewCode(UPLOAD_HEADER *file_header)
         }
     }
 #else
-    if (!file_header->ulCodeLength || (file_header->ulCodeLength > UTASK_APP_LENGTH)) { // ignore zero contents or if too large
+    if ((file_header->ulCodeLength == 0) || (file_header->ulCodeLength > UTASK_APP_LENGTH)) { // ignore zero contents or if too large
         return 0; 
     }
 #endif
     file_length = (MAX_FILE_LENGTH)file_header->ulCodeLength;            // finally check the check sum of the code
     usBlockSize = BLOCK_SIZE;                                            // check in blocks of this size
     usCRC = 0;
-    while (file_length) {
+    while (file_length != 0) {
         if (file_length < BLOCK_SIZE) {
             usBlockSize = (unsigned short)file_length;
         }
@@ -886,7 +1174,14 @@ static int fnCheckNewCode(UPLOAD_HEADER *file_header)
     usCRC = fnCRC16(usCRC, (unsigned char *)ucKey, sizeof(ucKey));       // add the secret key
     #endif
 #endif
+#if defined AUTOMATE_UFILE_HEADER                                        // {29}
+    if ((usCRC == file_header->usCRC)) {
+        return 1;                                                        // code is valid
+    }
+    }
+#else
     return (usCRC == file_header->usCRC);                                // the code is valid if the CRC is correct
+#endif
 }
 
 
@@ -906,4 +1201,5 @@ static int fnCheckForceBoot(void)
 {
     return 0;
 }
+#endif
 #endif

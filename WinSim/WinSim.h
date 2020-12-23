@@ -11,7 +11,7 @@
     File:      WinSim.h
     Project:   uTasker project
     ---------------------------------------------------------------------
-    Copyright (C) M.J.Butcher Consulting 2004..2019
+    Copyright (C) M.J.Butcher Consulting 2004..2020
     *********************************************************************
     28.04.2007 Add function fnGetEEPROMSize(void)                        {1}
     11.08.2007 Add fnInitSPI_DataFlash(), fnGetDataFlashStart(), fnGetDataFlashSize() and fnSimAT45DBXXX() {2}
@@ -70,6 +70,9 @@
     28.02.2017 Add UARTs 6 and 7                                         {52}
     18.05.2017 Add fnLogRx()                                             {53}
     03.08.2018 Add fnInitI2C_FRAM(), fnGetI2CFRAMStart() and fnGetI2CFRAMSize() {54}
+    15.02.2019 Add fnInjectCAN() and fnSimulateCanIn()                   {55}
+    24.04.2020 Add secodn HS USB interrupt flag                          {56}
+    16.11.2020 I2C simulation adds I2C bus parameter                     {57}
  
 */
  
@@ -119,6 +122,8 @@
 #define SIM_I2C_OUT          65                                          // {51}
 #define SIM_I2C_OUT_REPEATED 66
 
+#define SIM_CAN_MESSAGE      70
+
 #define SIM_TEST_ENUM        80
 #define SIM_TEST_DISCONNECT  81
 #define SIM_USB_OUT          82
@@ -147,9 +152,10 @@
 #define INPUT_TOGGLE_POS_ANALOG  202
 #define INPUT_TOGGLE_ANALOG      203
 
+#define USB1_FLAG            0x40000000
 #define USB_SETUP_FLAG       0x80000000                                  // {22}
 
-#define ANALOGUE_SWITCH_INPUT 0x80000000
+#define ANALOGUE_SWITCH_INPUT (int)0x80000000
 #define POSITIVE_SWITCH_INPUT 0x40000000
 #define SWITCH_PORT_REF_MASK  ~(ANALOGUE_SWITCH_INPUT | POSITIVE_SWITCH_INPUT)
 
@@ -236,6 +242,7 @@
 #define CHANNEL_2_EXT_SERIAL_INT 0x00100000
 #define CHANNEL_3_EXT_SERIAL_INT 0x00200000
 #define USBHS_INT                0x00400000                              // {46}
+#define USBHS1_INT               0x00800000                              // {56}
 
 #define CHANNEL_0_SPI_INT    0x01000000
 #define CHANNEL_1_SPI_INT    0x02000000
@@ -350,6 +357,8 @@ extern void fnInjectI2C(unsigned char *ptrInputData, unsigned short usLength, in
 
 extern void fnConfigSimI2C(QUEUE_HANDLE Channel, unsigned long ulSpeed); // {9}
 
+extern void fnInjectCAN(unsigned char *ptrData, unsigned long ulCanID, int iRTR, unsigned char ucLength, int iCAN_controller); // {55}
+
 extern void fnSetProjectDetails(signed char **);
 
 extern void fnConfigSimSCI(QUEUE_HANDLE Channel, unsigned long ulSpeed, TTYTABLE *pars); 
@@ -420,6 +429,10 @@ extern void fnSimulateBreak(int iPort);                                  // {20}
 
 extern unsigned long _fnSimExtSCI(QUEUE_HANDLE Channel, unsigned char ucAddress, unsigned char ucData); // {32}
 
+// CAN
+//
+extern void fnSimulateCanIn(int iChannel, unsigned long ilID, int iRTR, unsigned char *ptrData, unsigned char ucDLC); // {55}
+
 // Special Hardware
 //
 extern void fnSimFPGAPeriod(void);
@@ -475,7 +488,7 @@ extern void fnUpdateIPConfig(void);
 // USB interface
 //
 #if defined USB_INTERFACE
-    extern int fnSimulateUSB(int iDevice, int iEndPoint, unsigned char ucPID, unsigned char *ptrDebugIn, unsigned short usLenEvent);
+    extern int fnSimulateUSB(int iChannel, int iDevice, int iEndPoint, unsigned char ucPID, unsigned char *ptrDebugIn, unsigned short usLenEvent);
       #define USB_RESET_CMD             0x0001
       #define USB_SLEEP_CMD             0x0002
       #define USB_RESUME_CMD            0x0004
@@ -487,15 +500,16 @@ extern void fnUpdateIPConfig(void);
       #define USB_STALL_SUCCESS         0x0100                           // {22}
       #define USB_SOF_EVENT             0x0200
       #define USB_HIGHSPEED_ATTACH_CMD  0x0400
-    extern void fnSimUSB(int iType, int iEndpoint, USB_HW *ptrUSB_HW);
+    extern void fnSimUSB(int iChannel, int iType, int iEndpoint, USB_HW *ptrUSB_HW);
       #define USB_SIM_TX           1
       #define USB_SIM_RESET        2
       #define USB_SIM_ENUMERATED   3
       #define USB_SIM_STALL        4
       #define USB_SIM_SUSPEND      5
       #define USB_SIM_SOF          6                                     // {47}
+      #define USB_SIM_WAIT         7
     extern unsigned short fnGetEndpointInfo(int iEndpoint);
-    extern void fnCheckUSBOut(int iDevice, int iEndPoint);
+    extern void fnCheckUSBOut(int iChannel, int iDevice, int iEndPoint);
     extern void fnLogUSB(int iEndpoint, unsigned char ucToken, unsigned short usLength, unsigned char *ptrUSBData, int iDataToggle); // {48}
 #endif
 
@@ -511,7 +525,7 @@ extern signed char fnGetCANOwner(int iChannel, int i);                   // {41}
 
 
 extern void fnInitTime(char *argv[]);
-extern void fnSimPorts(void);
+extern void fnSimPorts(int);
 extern int  fnSimTimers(void);
 extern int  fnPortChanges(int);                                          // {28}
 extern unsigned long fnGetPresentPortState(int);
@@ -541,7 +555,7 @@ extern int fnPutSimDiskData(unsigned char *ptrBuffer, unsigned char ucLUN, unsig
 
 // I2C devices
 //
-extern unsigned char fnSimI2C_devices(unsigned char ucType, unsigned char ucData);
+extern unsigned char fnSimI2C_devices(int iBus, unsigned char ucType, unsigned char ucData); // {57}
     #define I2C_ADDRESS         0x00
     #define I2C_TX_DATA         0x01
     #define I2C_RX_DATA         0x02
@@ -578,27 +592,28 @@ extern unsigned char fnSimM95xxx(int iSimType, unsigned char ucTxByte, unsigned 
 extern void fnInitSPI_DataFlash(void);                                   // {2}
 extern unsigned char *fnGetDataFlashStart(void);
 extern unsigned long fnGetDataFlashSize(void);
-extern unsigned char fnSimAT45DBXXX(int iSimType, unsigned char ucTxByte); // {14}
+extern unsigned char fnSimSPI_Flash(int iSimType, unsigned char ucTxByte);
+//extern unsigned char fnSimAT45DBXXX(int iSimType, unsigned char ucTxByte); // {14}
     #define AT45DBXXX_READ     0
     #define AT45DBXXX_WRITE    1
     #define AT45DBXXX_CHECK_SS 2
 
-extern unsigned char fnSimSTM25Pxxx(int iSimType, unsigned char ucTxByte); // {13}{14}
+//extern unsigned char fnSimSTM25Pxxx(int iSimType, unsigned char ucTxByte); // {13}{14}
     #define STM25PXXX_READ     0
     #define STM25PXXX_WRITE    1
     #define STM25PXXX_CHECK_SS 2
 
-extern unsigned char fnSimSST25(int iSimType, unsigned char ucTxByte);   // {16}
+//extern unsigned char fnSimSST25(int iSimType, unsigned char ucTxByte);   // {16}
     #define SST25_READ         0
     #define SST25_WRITE        1
     #define SST25_CHECK_SS     2
 
-extern unsigned char fnSimW25Qxx(int iSimType, unsigned char ucTxByte);
+//extern unsigned char fnSimW25Qxx(int iSimType, unsigned char ucTxByte);
     #define W25Q_READ          0
     #define W25Q_WRITE         1
     #define W25Q_CHECK_SS      2
 
-extern unsigned char fnSimS25FL1_K(int iSimType, unsigned char ucTxByte);
+//extern unsigned char fnSimS25FL1_K(int iSimType, unsigned char ucTxByte);
     #define S25FL1_K_READ      0
     #define S25FL1_K_WRITE     1
     #define S25FL1_K_CHECK_SS  2

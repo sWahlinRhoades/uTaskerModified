@@ -11,7 +11,7 @@
     File:      types.h
     Project:   Single Chip Embedded Internet
     ---------------------------------------------------------------------
-    Copyright (C) M.J.Butcher Consulting 2004..2019
+    Copyright (C) M.J.Butcher Consulting 2004..2020
     *********************************************************************
     01.03.2007 Increased SAM7 file system dimensions {1} to allow boot loader to operate
     15.09.2007 Add support for Luminary LM3SXXXX
@@ -33,6 +33,7 @@
     06.03.2014 Add USER_INFO_MASK and USER_INFO_SHIFT                    {11}
     13.04.2014 Add USOCKET configuration for two networks                {12}
     04.07.2018 Add package definition includes here                      {13}
+    26.12.2018 Add iMX                                                   {14}
 
 */
 
@@ -48,16 +49,22 @@ typedef unsigned long     UTASK_TICK;                                    // tick
 typedef unsigned char     CONFIG_LIMIT;                                  // up to 255 configurations possible
 typedef unsigned char     NETWORK_LIMIT;                                 // up to 255 nodes possible
 typedef unsigned char     TASK_LIMIT;                                    // the system supports up to 255 tasks
-typedef unsigned short    STACK_REQUIREMENTS;                            // the system supports up to 64k heap
-typedef unsigned short    HEAP_REQUIREMENTS;                             // the system supports up to 64k heap
+typedef unsigned long     STACK_REQUIREMENTS;                            // the system supports > 64k stack
+#if defined MIMXRT1060 || defined MIMXRT1064
+    typedef unsigned long     HEAP_REQUIREMENTS;                         // the system supports > 64k heap
+    typedef unsigned long     MAX_MALLOC;                                // > 64k heap chunks
+#else
+    typedef unsigned short    HEAP_REQUIREMENTS;                         // the system supports up to 64k heap
+    typedef unsigned short    MAX_MALLOC;                                    // up to 64k heap chunks
+#endif
 typedef unsigned char     TIMER_LIMIT;                                   // the system supports up to 255 timers
 typedef   signed char     UTASK_TASK;                                    // task reference
 typedef unsigned char     QUEUE_LIMIT;                                   // the system supports up to 255 queues
 #define QUEUE_HANDLE      QUEUE_LIMIT                                    // as many queue handles as there are queues
 typedef unsigned short    QUEUE_TRANSFER;                                // the system supports transfers to 64k bytes
 typedef unsigned char     PHYSICAL_Q_LIMIT;                              // the system supports up to 255 physical queues
-typedef unsigned short    DELAY_LIMIT;                                   // delays up to 64k TICKs
-typedef unsigned short    MAX_MALLOC;                                    // upto 64k heap chunks
+typedef unsigned long     DELAY_LIMIT;                                   // delays up to 4G TICKs (1ms tick gives maximum 47.7 days)
+//typedef unsigned short  DELAY_LIMIT;                                   // delays up to 64k TICKs (50ms tick gives maximum 54.6 minutes)
 typedef unsigned short    LENGTH_CHUNK_COUNT;                            // http string insertion and chunk counter for dynamic generation
 #if !defined _HW_NE64                                                    // {1}
     typedef unsigned long   MAX_FILE_LENGTH;                             // over 64k file lengths
@@ -154,7 +161,7 @@ typedef unsigned short    LENGTH_CHUNK_COUNT;                            // http
             typedef signed short         USOCKET;                        // socket support from 0..63 (negative values are errors)
             #define SOCKET_NUMBER_MASK   0x001f                          // socket mask for 0..31
             #define INTERFACE_SHIFT      5                               // interface bit location
-            #define INTERFACE_MASK       0x0f                            // four interfaces possible
+            #define INTERFACE_MASK       ((1 << IP_INTERFACE_COUNT) - 1) // interfaces possible (2 = 0x03, 3 = 0x07, 4 = 0x0f)
         #else
             typedef signed char          USOCKET;                        // socket support from 0..63 (negative values are errors)
             #define SOCKET_NUMBER_MASK   0x3f                            // default when using a single network and interface (USOCKET can be single byte width)
@@ -165,6 +172,7 @@ typedef unsigned short    LENGTH_CHUNK_COUNT;                            // http
     #define NETWORK_SHIFT            0                                   // single network
     #define NETWORK_MASK             0
 #endif
+
 // UART mode
 //
 #define UART_EXTENDED_MODE
@@ -189,7 +197,11 @@ typedef unsigned short    LENGTH_CHUNK_COUNT;                            // http
 
 // General variable types for portability
 //
-typedef char              CHAR;
+#if defined _COMPILE_KEIL
+    typedef signed char CHAR;
+#else
+    typedef char        CHAR;
+#endif
 
 #define STRING_OPTIMISATION                                              // activate to optimise return pointers from string output functions. This is not fully compatible with existing project use
 
@@ -227,6 +239,9 @@ typedef unsigned int size_t;
 #if defined _KINETIS
     #include "app_hw_kinetis.h"                                          // {9}
 #endif
+#if defined _iMX
+    #include "app_hw_iMX.h"                                              // {14}
+#endif
 #if defined _LPC23XX
     #include "app_hw_lpc23xx.h"
 #endif
@@ -244,5 +259,3 @@ typedef unsigned int size_t;
 #endif
 
 #endif                                                                   // end not defined __TYPES__
-
-

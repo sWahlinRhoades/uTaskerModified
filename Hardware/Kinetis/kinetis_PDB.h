@@ -11,8 +11,9 @@
     File:      kinetis_PDB.h
     Project:   Single Chip Embedded Internet
     ---------------------------------------------------------------------
-    Copyright (C) M.J.Butcher Consulting 2004..2016
+    Copyright (C) M.J.Butcher Consulting 2004..2018
     *********************************************************************
+    19.11.2013 Add DAC triggering via PDB                                {1}
 
 */
 
@@ -32,12 +33,11 @@ static __interrupt void _pdb_Interrupt(void)
 #endif
 
 
-
 #if defined _PDB_CONFIG_CODE
         {
             PDB_SETUP *ptr_pdb_setup = (PDB_SETUP *)ptrSettings;
             unsigned long ulMode = ((ptr_pdb_setup->prescaler >> 4) | (((ptr_pdb_setup->prescaler << 12) & PDB_SC_PRESCALER_128) | (ptr_pdb_setup->pdb_trigger << 8)) | PDB_SC_MULT_1 | PDB_SC_LDMOD_IMM | PDB_SC_PDBEN);
-            POWER_UP(6, SIM_SCGC6_PDB);                                  // power up the programmable delay block
+            POWER_UP_ATOMIC(6, PDB0);                                    // power up the programmable delay block
 
             PDB0_MOD = ptr_pdb_setup->period;                            // set cycle period - warning: note that the value is not read back from the register until PDB_SC_LDOK has been set
 
@@ -77,11 +77,11 @@ static __interrupt void _pdb_Interrupt(void)
         #endif
     #endif
             PDB0_CH0S = 0;                                               // reset error status
-            if (ptr_pdb_setup->pdb_mode & PDB_PERIODIC_DMA) {
+            if ((ptr_pdb_setup->pdb_mode & PDB_PERIODIC_DMA) != 0) {
                 ulMode |= (PDB_SC_DMAEN | PDB_SC_CONT);                  // continuous mode with DMA
             }
             else {
-                if (ptr_pdb_setup->pdb_mode & PDB_PERIODIC_INTERRUPT) {
+                if ((ptr_pdb_setup->pdb_mode & PDB_PERIODIC_INTERRUPT) != 0) {
                     ulMode |= PDB_SC_CONT;                               // continuous mode with optional interrupt
                 }
                 else {
@@ -89,12 +89,12 @@ static __interrupt void _pdb_Interrupt(void)
                 }
                 if (ptr_pdb_setup->int_handler != 0) {                   // if an interrupt handler is defined
                     pdb_interrupt_handler = ptr_pdb_setup->int_handler;  // enter the user's handler
-                    fnEnterInterrupt(irq_PDB_ID, ptr_pdb_setup->int_priority, (void (*)(void))_pdb_Interrupt); // enter interrupt handler
+                    fnEnterInterrupt(irq_PDB0_ID, ptr_pdb_setup->int_priority, (void (*)(void))_pdb_Interrupt); // enter interrupt handler
                     ulMode |= PDB_SC_PDBIE;                              // enable interrupt
                 }
             }
-    #if defined SUPPORT_DAC && !defined KINETIS_KE                       // {61}
-            if (ptr_pdb_setup->pdb_mode & PDB_TRIGGER_DAC0) {
+    #if defined SUPPORT_DAC && !defined KINETIS_KE                       // {1}
+            if ((ptr_pdb_setup->pdb_mode & PDB_TRIGGER_DAC0) != 0) {
                 if (ptr_pdb_setup->dac0_delay_0 == 0) {
                     PDB0_DACINT0 = 0;
                 }

@@ -11,14 +11,14 @@
     File:      glcd_st7565.h
     Project:   uTasker project
     ---------------------------------------------------------------------
-    Copyright (C) M.J.Butcher Consulting 2004..2016
+    Copyright (C) M.J.Butcher Consulting 2004..2019
     *********************************************************************
     With thanks to ELZET80 for development
     *********************************************************************
        
 */
 
-#if defined ST7565S_GLCD_MODE && !defined SAMSUNG_GLCD_MODE && !defined OLED_GLCD_MODE && !defined TFT_GLCD_MODE && !defined CGLCD_GLCD_MODE && !defined KITRONIX_GLCD_MODE && !defined MB785_GLCD_MODE && !defined TFT2N0369_GLCD_MODE
+#if defined ST7565S_GLCD_MODE && !defined SAMSUNG_GLCD_MODE && !defined OLED_GLCD_MODE && !defined TFT_GLCD_MODE && !defined CGLCD_GLCD_MODE && !defined KITRONIX_GLCD_MODE && !defined MB785_GLCD_MODE && !defined TFT2N0369_GLCD_MODE && !defined ST7789S_GLCD_MODE && !defined ILI9341_GLCD_MODE
     #if !defined _GLCD_ST7565S_DEFINES
         #if defined SPI_LCD                                              // SPI interface without read support
             #define GLCD_BUSY()                  0

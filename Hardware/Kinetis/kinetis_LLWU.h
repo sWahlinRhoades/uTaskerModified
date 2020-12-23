@@ -11,8 +11,10 @@
     File:      kinetis_LLWU.h
     Project:   Single Chip Embedded Internet
     ---------------------------------------------------------------------
-    Copyright (C) M.J.Butcher Consulting 2004..2016
+    Copyright (C) M.J.Butcher Consulting 2004..2020
     *********************************************************************
+    02.02.2017 Clear pending interrupt at LPTMR after module wakeup event {1}
+    12.07.2018 Add option to use single callback per port, with pin reference as callback parameter (PORT_INTERRUPT_USER_DISPATCHER)
 
 */
 
@@ -33,7 +35,6 @@ static const unsigned char cWakeupPorts[PORTS_AVAILABLE][PORT_WIDTH] = { // warn
     // PTB0..PTB31
     //
     { LLWU_P4, NO_WAKEUP, LLWU_P5, NO_WAKEUP, LLWU_P6, NO_WAKEUP, NO_WAKEUP, NO_WAKEUP, NO_WAKEUP, NO_WAKEUP, NO_WAKEUP, NO_WAKEUP, NO_WAKEUP, LLWU_P4, NO_WAKEUP, NO_WAKEUP, NO_WAKEUP, NO_WAKEUP, NO_WAKEUP, NO_WAKEUP, NO_WAKEUP, NO_WAKEUP, NO_WAKEUP, NO_WAKEUP, NO_WAKEUP, NO_WAKEUP, NO_WAKEUP, NO_WAKEUP, NO_WAKEUP, NO_WAKEUP, NO_WAKEUP, NO_WAKEUP },
-
     #elif defined KINETIS_KL46
     // PTA0..PTA31
     //
@@ -142,7 +143,11 @@ static const unsigned char cWakeupPorts[PORTS_AVAILABLE][PORT_WIDTH] = { // warn
 
 #define WAKEUP_SOURCES   (WAKEUP_SOURCES_0_7 + WAKEUP_SOURCES_8_15 + WAKEUP_SOURCES_MODULES)
 
-static void (*wakeup_handlers[WAKEUP_SOURCES])(void) = {0};              // support a user wakeup handler of each wakeup pin and module source
+#if defined PORT_INTERRUPT_USER_DISPATCHER
+    static void (*wakeup_handler)(int) = 0;                              // general user wakeup handler with wakeup source reference parameter
+#else
+    static void (*wakeup_handlers[WAKEUP_SOURCES])(void) = {0};          // support a user wakeup handler of each wakeup pin and module source
+#endif
 
 static void fnHandleWakeupSources(volatile unsigned char *prtFlagRegister, int iSouceStart)
 {
@@ -163,13 +168,14 @@ static void fnHandleWakeupSources(volatile unsigned char *prtFlagRegister, int i
     ucBit = 0x01;
     while (ucFlags != 0) {                                               // while sources are flagged
         if ((ucFlags & ucBit) != 0) {
-            ucFlags &= ~ucBit;
+            ucFlags &= ~ucBit;                                           // source handled
             if (iSouceStart >= (WAKEUP_SOURCES_0_7 + WAKEUP_SOURCES_8_15)) { // wakeup module interrupts
     #if !defined KINETIS_WITHOUT_RTC
-                switch (1 << (iSouceStart - (WAKEUP_SOURCES_0_7 + WAKEUP_SOURCES_8_15))) { // wakeup module interrupts must be cleard at the source
+                switch (1 << (iSouceStart - (WAKEUP_SOURCES_0_7 + WAKEUP_SOURCES_8_15))) { // wakeup module interrupts must be cleared at the source
                 case MODULE_LPTMR0:
         #if defined TICK_USES_LPTMR
                     _RealTimeInterrupt();                                // call the TICK interrupt handler to clear the interrupt source
+                    fnClearPending(irq_LPTMR0_ID);                       // {1} clear pending interrupt at LPTMR so that it is not taken (even though the source has been cleared)
         #else
                     LPTMR0_CSR = LPTMR0_CSR;                             // clear pending interrupt
         #endif
@@ -204,11 +210,19 @@ static void fnHandleWakeupSources(volatile unsigned char *prtFlagRegister, int i
                 *prtFlagRegister = ucBit;                                // reset the interrupt flag (write '1' to clear)
     #endif
             }
+    #if defined PORT_INTERRUPT_USER_DISPATCHER
+            if (wakeup_handler != 0) {                                   // if there is a general user handler
+                uDisable_Interrupt();                                    // ensure interrupts remain blocked when user callback operates
+                    wakeup_handler(iSouceStart);
+                uEnable_Interrupt();
+            }
+    #else
             if (wakeup_handlers[iSouceStart] != 0) {                     // if there is a user handler for the source
                 uDisable_Interrupt();                                    // ensure interrupts remain blocked when user callback operates
                     wakeup_handlers[iSouceStart]();
                 uEnable_Interrupt();
             }
+    #endif
         }
         iSouceStart++;
         ucBit <<= 1;
@@ -249,7 +263,7 @@ static __interrupt void _wakeup_isr(void)
     #if !defined KINETIS_KL03                                            // KL03 has no module wakeup support
                 // The wakeup interrupts are now mapped to modules
                 //
-                if (wakeup_interrupt->int_port_bits & ~(WAKEUP_MODULES)) {
+                if ((wakeup_interrupt->int_port_bits & ~(WAKEUP_MODULES)) != 0) {
                     _EXCEPTION("Invalid wakeup module being selected!");
                 }
                 LLWU_ME = (LLWU_ME & (unsigned char)(~(wakeup_interrupt->int_port_bits))); // disable the wakeup functionality
@@ -258,8 +272,12 @@ static __interrupt void _wakeup_isr(void)
                 LLWU_F3 = 0;
         #endif
                 while (ulPortBits != 0) {                                // handle each module
-                    if (wakeup_interrupt->int_port_bits & ulBit) {       // if the module wakeup is to be enabled
+                    if ((wakeup_interrupt->int_port_bits & ulBit) != 0) {// if the module wakeup is to be enabled
+        #if defined PORT_INTERRUPT_USER_DISPATCHER
+                        wakeup_handler = wakeup_interrupt->int_handler; // enter the general user interrupt handler
+        #else
                         wakeup_handlers[iBitRef + (WAKEUP_SOURCES_0_7 + WAKEUP_SOURCES_8_15)] = wakeup_interrupt->int_handler; // enter the user interrupt handler for this wakeup input
+        #endif
                         ulPortBits &= ~ulBit;
                     }
                     ulBit <<= 1;
@@ -286,18 +304,22 @@ static __interrupt void _wakeup_isr(void)
                     ucInterruptType = LLWU_PE_WUPE_OFF;
                     break;
                 }
-                if (wakeup_interrupt->int_port_sense & PULLUP_ON) {
+                if ((wakeup_interrupt->int_port_sense & PULLUP_ON) != 0) {
                     ulCharacteristics |= (PORT_PS_UP_ENABLE | PORT_PSEUDO_FLAG_SET_ONLY_PULLS);
                 }
-                else if (wakeup_interrupt->int_port_sense & PULLDOWN_ON) {
+                else if ((wakeup_interrupt->int_port_sense & PULLDOWN_ON) != 0) {
                     ulCharacteristics |= (PORT_PS_DOWN_ENABLE | PORT_PSEUDO_FLAG_SET_ONLY_PULLS);
                 }
-                if ((ulCharacteristics != 0) || (ENABLE_PORT_MODE & wakeup_interrupt->int_port_sense)) { // if a pull-up / down is specified or port enable desired
+                if ((ulCharacteristics != 0) || ((ENABLE_PORT_MODE & wakeup_interrupt->int_port_sense) != 0)) { // if a pull-up / down is specified or port enable desired
                     if (wakeup_interrupt->int_port >= PORTS_AVAILABLE) {
                         _EXCEPTION("Invalid port!!");
                         return;
                     }
-                    POWER_UP(5, (SIM_SCGC5_PORTA << wakeup_interrupt->int_port)); // ensure that the port is powered
+    #if defined KINETIS_WITH_PCC
+                    *(PCC_PORT_ADDR + wakeup_interrupt->int_port) |= PCC_CGC; // ensure that the particular port is powered
+    #else
+                    POWER_UP(5, (SIM_SCGC5_PORTA << wakeup_interrupt->int_port)); // ensure that the particular port is powered
+    #endif
                     if ((ENABLE_PORT_MODE & wakeup_interrupt->int_port_sense) != 0) {
                         ulCharacteristics &= ~(PORT_PSEUDO_FLAG_SET_ONLY_PULLS);
                         ulCharacteristics |= (PORT_MUX_GPIO);
@@ -307,18 +329,19 @@ static __interrupt void _wakeup_isr(void)
                 // The port inputs are now mapped to available LLWU pins (pins that do not have LLWU functionality will not be configured)
                 //
                 while (ulPortBits != 0) {                                // handle each bit on the port
-                    if (wakeup_interrupt->int_port_bits & ulBit) {       // if the port bit is to be enabled
+                    if ((wakeup_interrupt->int_port_bits & ulBit) != 0) {// if the port bit is to be enabled
                         if (cWakeupPorts[wakeup_interrupt->int_port][iBitRef] != NO_WAKEUP) {
-                            int iShift = ((cWakeupPorts[wakeup_interrupt->int_port][iBitRef]%4) * LLWU_PE_WUPE_SHIFT);
+                            int iShift = ((cWakeupPorts[wakeup_interrupt->int_port][iBitRef] % 4) * LLWU_PE_WUPE_SHIFT);
                             volatile unsigned char *ptrFlagRegister = (LLWU_FLAG_ADDRESS + (cWakeupPorts[wakeup_interrupt->int_port][iBitRef]/8));
                             unsigned char *ptrWakeupEnable = (unsigned char *)LLWU_BLOCK + (cWakeupPorts[wakeup_interrupt->int_port][iBitRef]/4); // set the enable register pointer
                             unsigned char ucValueMask = (LLWU_PE_WUPE_MASK << iShift); // set the mask in the enable register
                             *ptrWakeupEnable &= ~ucValueMask;            // disable the wakeup functionality
+    #if defined PORT_INTERRUPT_USER_DISPATCHER
+                            wakeup_handler = wakeup_interrupt->int_handler; // enter the general user interrupt handler
+    #else
                             wakeup_handlers[cWakeupPorts[wakeup_interrupt->int_port][iBitRef]] = wakeup_interrupt->int_handler; // enter the user interrupt handler for this wakeup input
-                            *ptrFlagRegister = (LLWU_F_WUF0 << (cWakeupPorts[wakeup_interrupt->int_port][iBitRef]%8)); // reset pending flags (the pending flag is cleared before enabling the interrupt source due to the fact that it may still be pending due to a wakeup from VLLSx, which entered via reset)
-    #if defined _WINDOWS
-                            *ptrFlagRegister = 0;
     #endif
+                            WRITE_ONE_TO_CLEAR(*ptrFlagRegister, (LLWU_F_WUF0 << (cWakeupPorts[wakeup_interrupt->int_port][iBitRef] % 8))); // reset pending flags (the pending flag is cleared before enabling the interrupt source due to the fact that it may still be pending due to a wakeup from VLLSx, which entered via reset)
                             fnEnterInterrupt(irq_LL_wakeup_ID, wakeup_interrupt->int_priority, _wakeup_isr); // ensure that the handler is entered
                             *ptrWakeupEnable |= (ucInterruptType << iShift); // set/enable the type required
                         }

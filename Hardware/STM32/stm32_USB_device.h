@@ -11,7 +11,7 @@
     File:      stm32_USB_device.h
     Project:   Single Chip Embedded Internet
     ---------------------------------------------------------------------
-    Copyright (C) M.J.Butcher Consulting 2004..2019
+    Copyright (C) M.J.Butcher Consulting 2004..2020
     *********************************************************************
 
 */
@@ -47,10 +47,17 @@ extern int fnConsumeUSB_out(unsigned char ucEndpointRef)
 
 // Return USB error counters
 //
-extern unsigned long fnUSB_error_counters(int iValue)                    // {24}
+extern unsigned long fnUSB_error_counters(int iChannel, int iValue)      // {24}
 {
-    // No error counters supported 
+    // Single counters supported 
     //
+    switch (iValue) {
+    case USB_ERRORS_RESET:
+        USB_errors = 0;
+        break;
+    default:
+        break;
+    }
     return USB_errors;
 }
 
@@ -71,7 +78,7 @@ extern void fnPutToFIFO(int iLength, volatile unsigned long *ptrTxFIFO, unsigned
     #endif
         iLength -= 4;
     } while (iLength > 0);
-    _SIM_USB(USB_SIM_TX, 0, 0);
+    _SIM_USB(0, USB_SIM_TX, 0, 0);
 }
 
 
@@ -157,7 +164,7 @@ extern void fnActivateHWEndpoint(unsigned char ucEndpointType, unsigned char ucE
     #else
     *ptr_ulEndpointCtrl = ulEndpoint_config;                             // set endpoint configuration
     #endif
-    _SIM_USB(USB_SIM_ENUMERATED, 0, 0);                                  // inform the simulator that USB enumeration has completed
+    _SIM_USB(0, USB_SIM_ENUMERATED, 0, 0);                               // inform the simulator that USB enumeration has completed
 }
 
 
@@ -256,7 +263,7 @@ extern void fnSendUSB_data(unsigned char *pData, unsigned short Len, int iEndpoi
     #else
     *ptrEndpointControl = (((*ptrEndpointControl & ~(USB_EPR_CTR_DTOG_RX | USB_EPR_CTR_STAT_RX_MASK | USB_EPR_CTR_CTR_TX | USB_EPR_CTR_DTOG_TX)) ^ (USB_EPR_CTR_STAT_TX_VALID))/* | USB_EPR_CTR_DTOG_TX*/); // start transmission
     #endif
-    _SIM_USB(USB_SIM_TX, iEndpoint, ptrUSB_HW);
+    _SIM_USB(0, USB_SIM_TX, iEndpoint, ptrUSB_HW);
 }
 
 // Send a zero data frame
@@ -354,7 +361,7 @@ static int fnProcessInput(int iEndpoint_ref, unsigned char ucFrameType)
     case STALL_ENDPOINT:                                                 // send stall
         ptrEndpointControl = USB_EP0R_ADD;
         if (iEndpoint_ref != 0) {
-            iEndpoint_ref = fnGetPairedIN(iEndpoint_ref);                // get the paired IN endpoint reference
+            iEndpoint_ref = fnGetPairedIN(iEndpoint_ref, 0);             // get the paired IN endpoint reference
             ptrEndpointControl += iEndpoint_ref;
         }
 #if defined _WINDOWS
@@ -363,8 +370,8 @@ static int fnProcessInput(int iEndpoint_ref, unsigned char ucFrameType)
 #else
         *ptrEndpointControl = (((*ptrEndpointControl & ~(USB_EPR_CTR_DTOG_RX | USB_EPR_CTR_STAT_RX_MASK | USB_EPR_CTR_DTOG_TX)) ^ USB_EPR_CTR_STAT_TX_STALL) | USB_EPR_CTR_STAT_TX_NAK); // stall control endpoint
 #endif
-        fnSetUSBEndpointState(iEndpoint_ref, USB_ENDPOINT_STALLED);
-        _SIM_USB(USB_SIM_STALL, iEndpoint_ref, &usb_hardware);
+        fnSetUSBEndpointState(iEndpoint_ref, USB_ENDPOINT_STALLED, 0);
+        _SIM_USB(0, USB_SIM_STALL, iEndpoint_ref, &usb_hardware);
         break;
     default:
         break;

@@ -11,7 +11,7 @@
     File:      usb_cdc_descriptors.h
     Project:   uTasker project
     ---------------------------------------------------------------------
-    Copyright (C) M.J.Butcher Consulting 2004..2017
+    Copyright (C) M.J.Butcher Consulting 2004..2020
     *********************************************************************
     01.12.2015 Add RNDIS support
     23.12.2015 Add RAW HID and Audio support
@@ -21,9 +21,9 @@
 
 #if defined INCLUDE_USB_DEFINES
     #define USB_PRODUCT_RELEASE_NUMBER      0x0100                       // V1.0 (binary coded decimal)
-    #if defined USB_HS_INTERFACE
-        #define CDC_DATA_ENDPOINT_SIZE      512                          // maximum high speed bulk endpoint size
-        #define RNDIS_DATA_ENDPOINT_SIZE    512                          // maximum high speed bulk endpoint size
+    #if defined USB_HS_INTERFACE && !defined USB_FS_INTERFACE
+        #define CDC_DATA_ENDPOINT_SIZE      512                          // maximum high speed bulk endpoint size (if the enumeration is with a FS device 64 will be the maximum)
+        #define RNDIS_DATA_ENDPOINT_SIZE    512                          // maximum high speed bulk endpoint size (if the enumeration is with a FS device 64 will be the maximum)
     #else
         #define CDC_DATA_ENDPOINT_SIZE      64                           // maximum full speed bulk endpoint size
         #define RNDIS_DATA_ENDPOINT_SIZE    64                           // maximum full speed bulk endpoint size
@@ -34,11 +34,7 @@
         #define USB_CDC_VCOM_COUNT          USB_CDC_COUNT
     #endif
 
-    #if defined USB_SIMPLEX_ENDPOINTS                                    // share endpoints for IN/OUT
-        #define NUMBER_OF_CDC_ENDPOINTS     (2 * USB_CDC_COUNT)          // each CDC interface uses 2 endpoints (1 interrupt IN and 1 bulk IN/OUT) in addition to the default control endpoint 0
-    #else
-        #define NUMBER_OF_CDC_ENDPOINTS     (3 * USB_CDC_COUNT)          // each CDC interface uses 3 endpoints (2 IN and 1 OUT) in addition to the default control endpoint 0
-    #endif
+    #define NUMBER_OF_CDC_ENDPOINTS        (CDC_ENDPOINT_COUNT * USB_CDC_COUNT) // each CDC interface uses 1,2,or 3 endpoints (1 interrupt IN and 1 bulk IN/OUT) in addition to the default control endpoint 0
     #if defined USE_USB_MSD                                              // CDC with MSD composite
         #define USB_MSD_INTERFACE_COUNT     1
         #define USB_MSD_ENDPOINT_COUNT      2
@@ -58,7 +54,7 @@
     #if defined USE_USB_HID_MOUSE                                        // CDC with HID mouse
         #define USB_HID_MOUSE_INTERFACE_COUNT 1
         #define USB_HID_MOUSE_ENDPOINT_COUNT  1
-        #define USB_MOUSE_INTERFACE_NUMBER    ((USB_CDC_COUNT * 2) + 1  + USB_MSD_INTERFACE_COUNT)
+        #define USB_MOUSE_INTERFACE_NUMBER    ((USB_CDC_COUNT * CDC_INTERFACE_COUNT) + 1  + USB_MSD_INTERFACE_COUNT)
     #else
         #define USB_HID_MOUSE_INTERFACE_COUNT 0
         #define USB_HID_MOUSE_ENDPOINT_COUNT  0
@@ -67,7 +63,7 @@
     #if defined USE_USB_HID_KEYBOARD                                     // CDC with HID keyboard
         #define USB_HID_KB_INTERFACE_COUNT  1
         #define USB_HID_KB_ENDPOINT_COUNT   1
-        #define USB_KEYBOARD_INTERFACE_NUMBER  ((USB_CDC_COUNT * 2) + 1 + USB_MSD_INTERFACE_COUNT + USB_HID_MOUSE_INTERFACE_COUNT)
+        #define USB_KEYBOARD_INTERFACE_NUMBER  ((USB_CDC_COUNT * CDC_INTERFACE_COUNT) + 1 + USB_MSD_INTERFACE_COUNT + USB_HID_MOUSE_INTERFACE_COUNT)
     #else
         #define USB_HID_KB_INTERFACE_COUNT  0
         #define USB_HID_KB_ENDPOINT_COUNT   0
@@ -80,29 +76,28 @@
         #define USB_HID_RAW_INTERFACE_COUNT 0
         #define USB_HID_RAW_ENDPOINT_COUNT  0
     #endif
-    #define USB_AUDIO_OUT_ENDPOINT_NUMBER (USB_HID_RAW_IN_ENDPOINT_NUMBER + USB_HID_RAW_INTERFACE_COUNT)
-    #if defined USB_SIMPLEX_ENDPOINTS
-        #define USB_AUDIO_IN_ENDPOINT_NUMBER USB_AUDIO_OUT_ENDPOINT_NUMBER
-    #else
-        #define USB_AUDIO_IN_ENDPOINT_NUMBER (USB_AUDIO_OUT_ENDPOINT_NUMBER + 1)
-    #endif
     #if defined USE_USB_AUDIO                                            // CDC with audio class
+        #define USB_AUDIO_OUT_ENDPOINT_NUMBER (USB_HID_RAW_IN_ENDPOINT_NUMBER + USB_HID_RAW_INTERFACE_COUNT)
+        #if defined USB_SIMPLEX_ENDPOINTS
+            #define USB_AUDIO_IN_ENDPOINT_NUMBER USB_AUDIO_OUT_ENDPOINT_NUMBER
+        #else
+            #define USB_AUDIO_IN_ENDPOINT_NUMBER (USB_AUDIO_OUT_ENDPOINT_NUMBER + 1)
+        #endif
         #define USB_AUDIO_INTERFACE_COUNT   3
         #if defined USB_SIMPLEX_ENDPOINTS
             #define USB_AUDIO_ENDPOINT_COUNT    1
         #else
             #define USB_AUDIO_ENDPOINT_COUNT    2
         #endif
+        #define AUDIO_CONTROL_INTERFACE  ((USB_CDC_COUNT * CDC_INTERFACE_COUNT) + USB_MSD_INTERFACE_COUNT + USB_HID_MOUSE_INTERFACE_COUNT + USB_HID_KB_INTERFACE_COUNT + USB_HID_RAW_INTERFACE_COUNT)
+        #define AUDIO_SINK_INTERFACE     (AUDIO_CONTROL_INTERFACE + 1)
+        #define AUDIO_SOURCE_INTERFACE   (AUDIO_SINK_INTERFACE + 1)
     #else
         #define USB_AUDIO_INTERFACE_COUNT   0
         #define USB_AUDIO_ENDPOINT_COUNT    0
     #endif
-    #define AUDIO_CONTROL_INTERFACE  ((USB_CDC_COUNT * 2) + USB_MSD_INTERFACE_COUNT + USB_HID_MOUSE_INTERFACE_COUNT + USB_HID_KB_INTERFACE_COUNT + USB_HID_RAW_INTERFACE_COUNT)
-    #define AUDIO_SINK_INTERFACE     (AUDIO_CONTROL_INTERFACE + 1)
-    #define AUDIO_SOURCE_INTERFACE   (AUDIO_SINK_INTERFACE + 1)
 
-
-    #define USB_INTERFACE_COUNT  ((2 * USB_CDC_COUNT) + USB_MSD_INTERFACE_COUNT + USB_HID_MOUSE_INTERFACE_COUNT + USB_HID_KB_INTERFACE_COUNT + USB_HID_RAW_INTERFACE_COUNT + USB_AUDIO_INTERFACE_COUNT) // configuration number (2 interfaces for each CDC plus 1 each for available MSD, mouse and keyboard, and 3 for audio)
+    #define USB_INTERFACE_COUNT  ((CDC_INTERFACE_COUNT * USB_CDC_COUNT) + USB_MSD_INTERFACE_COUNT + USB_HID_MOUSE_INTERFACE_COUNT + USB_HID_KB_INTERFACE_COUNT + USB_HID_RAW_INTERFACE_COUNT + USB_AUDIO_INTERFACE_COUNT) // configuration number (2 interfaces for each CDC plus 1 each for available MSD, mouse and keyboard, and 3 for audio)
     #define NUMBER_OF_ENDPOINTS  (NUMBER_OF_CDC_ENDPOINTS + USB_MSD_ENDPOINT_COUNT + USB_HID_MOUSE_ENDPOINT_COUNT + USB_HID_KB_ENDPOINT_COUNT + USB_HID_RAW_ENDPOINT_COUNT + USB_AUDIO_ENDPOINT_COUNT)
 
     #if defined _M5223X || defined _KINETIS
@@ -116,7 +111,7 @@
         #else
             #define USB_PRODUCT_ID          0x0044                       // uTasker Freescale development CDC product ID
         #endif
-    #elif defined _LM3SXXXX
+    #elif defined _LM3SXXXX || defined _STM32
         #define USB_VENDOR_ID               0x1cbe                       // {3} Luminary Micro, Inc. vendor ID
         #define USB_PRODUCT_ID              0x0101                       // {6} uTasker Luminary development CDC product ID
     #elif defined _HW_SAM7X || defined _HW_AVR32
@@ -127,7 +122,7 @@
         #define USB_PRODUCT_ID              0x1221                       // non-official test CDC PID
     #endif
 
-    #if defined USB_STRING_OPTION                                        // if our project supports strings
+    #if defined USB_STRING_OPTION && !defined _DEV2                      // if our project supports strings
         #define MANUFACTURER_STRING_INDEX       1                        // index must match with order in the string list
         #define PRODUCT_STRING_INDEX            2                        // to remove a particular string from the list set to zero
         #define SERIAL_NUMBER_STRING_INDEX      3
@@ -212,7 +207,7 @@ static const REMOTE_NDIS_RESPONSE_AVAILABLE ResponseAvailable = {
         #define USB_CDC_RNDIS_COUNT      0
     #endif
 #define FIRST_CDC_RNDIS_INTERFACE        0                               // RNDIS virtual network adapter interfaces are always at the start
-#define FIRST_CDC_INTERFACE              USB_CDC_RNDIS_COUNT             // CDC virtual COM interfaces follow
+#define FIRST_CDC_INTERFACE_HANDLE       USB_CDC_RNDIS_COUNT             // CDC virtual COM interfaces follow
 typedef struct _PACK stUSB_CONFIGURATION_DESCRIPTOR_COLLECTION
 {
     USB_CONFIGURATION_DESCRIPTOR               config_desc_cdc;          // compulsory configuration descriptor
@@ -226,7 +221,9 @@ typedef struct _PACK stUSB_CONFIGURATION_DESCRIPTOR_COLLECTION
         USB_CDC_FUNCTIONAL_DESCRIPTOR_CALL_MAN CDC_call_management_0;
         USB_CDC_FUNCTIONAL_DESCRIPTOR_ABSTRACT_CONTROL  CDC_abstract_control_0;
         USB_CDC_FUNCTIONAL_DESCRIPTOR_UNION    CDC_union_0;
+    #if !defined CDC_WITHOUT_INTERRUPT_ENDPOINT
     USB_ENDPOINT_DESCRIPTOR                    endpoint_3;               // endpoint of first interface
+    #endif
 
     USB_INTERFACE_DESCRIPTOR                   interface_desc_1;         // second interface descriptor
     USB_ENDPOINT_DESCRIPTOR                    endpoint_1;               // endpoints of second interface
@@ -239,7 +236,9 @@ typedef struct _PACK stUSB_CONFIGURATION_DESCRIPTOR_COLLECTION
         USB_CDC_FUNCTIONAL_DESCRIPTOR_CALL_MAN CDC_call_management_1;
         USB_CDC_FUNCTIONAL_DESCRIPTOR_ABSTRACT_CONTROL  CDC_abstract_control_1;
         USB_CDC_FUNCTIONAL_DESCRIPTOR_UNION    CDC_union_1;
+        #if !defined CDC_WITHOUT_INTERRUPT_ENDPOINT
     USB_ENDPOINT_DESCRIPTOR                    endpoint_6;               // endpoint of this interface
+        #endif
 
     USB_INTERFACE_DESCRIPTOR                   interface_desc_3;         // second interface descriptor for second connection
     USB_ENDPOINT_DESCRIPTOR                    endpoint_4;               // endpoints of second interface
@@ -253,7 +252,9 @@ typedef struct _PACK stUSB_CONFIGURATION_DESCRIPTOR_COLLECTION
         USB_CDC_FUNCTIONAL_DESCRIPTOR_CALL_MAN CDC_call_management_2;
         USB_CDC_FUNCTIONAL_DESCRIPTOR_ABSTRACT_CONTROL  CDC_abstract_control_2;
         USB_CDC_FUNCTIONAL_DESCRIPTOR_UNION    CDC_union_2;
+        #if !defined CDC_WITHOUT_INTERRUPT_ENDPOINT
     USB_ENDPOINT_DESCRIPTOR                    endpoint_9;               // endpoint of this interface
+        #endif
 
     USB_INTERFACE_DESCRIPTOR                   interface_desc_5;         // second interface descriptor for third connection
     USB_ENDPOINT_DESCRIPTOR                    endpoint_7;               // endpoints of third interface
@@ -267,7 +268,9 @@ typedef struct _PACK stUSB_CONFIGURATION_DESCRIPTOR_COLLECTION
         USB_CDC_FUNCTIONAL_DESCRIPTOR_CALL_MAN CDC_call_management_3;
         USB_CDC_FUNCTIONAL_DESCRIPTOR_ABSTRACT_CONTROL  CDC_abstract_control_3;
         USB_CDC_FUNCTIONAL_DESCRIPTOR_UNION    CDC_union_3;
+        #if !defined CDC_WITHOUT_INTERRUPT_ENDPOINT
     USB_ENDPOINT_DESCRIPTOR                    endpoint_12;              // endpoint of this interface
+        #endif
 
     USB_INTERFACE_DESCRIPTOR                   interface_desc_7;         // second interface descriptor for fourth connection
     USB_ENDPOINT_DESCRIPTOR                    endpoint_10;              // endpoints of fourth interface
@@ -281,26 +284,175 @@ typedef struct _PACK stUSB_CONFIGURATION_DESCRIPTOR_COLLECTION
         USB_CDC_FUNCTIONAL_DESCRIPTOR_CALL_MAN CDC_call_management_4;
         USB_CDC_FUNCTIONAL_DESCRIPTOR_ABSTRACT_CONTROL  CDC_abstract_control_4;
         USB_CDC_FUNCTIONAL_DESCRIPTOR_UNION    CDC_union_4;
+        #if !defined CDC_WITHOUT_INTERRUPT_ENDPOINT
     USB_ENDPOINT_DESCRIPTOR                    endpoint_15;              // endpoint of this interface
+        #endif
 
     USB_INTERFACE_DESCRIPTOR                   interface_desc_9;         // second interface descriptor for fifth connection
     USB_ENDPOINT_DESCRIPTOR                    endpoint_13;              // endpoints of fifth interface
     USB_ENDPOINT_DESCRIPTOR                    endpoint_14;
     #endif
 
-    #if USB_CDC_COUNT > 5
+    #if (USB_CDC_COUNT > 5) && (defined USB_SIMPLEX_ENDPOINTS || defined CDC_WITHOUT_INTERRUPT_ENDPOINT)
     USB_INTERFACE_ASSOCIATION_DESCRIPTOR       cdc_interface_5;
     USB_INTERFACE_DESCRIPTOR                   interface_desc_10;        // first interface descriptor for sixth connection
         USB_CDC_FUNCTIONAL_DESCRIPTOR_HEADER   CDC_func_header_6;        // CDC function descriptors due to class used
         USB_CDC_FUNCTIONAL_DESCRIPTOR_CALL_MAN CDC_call_management_5;
         USB_CDC_FUNCTIONAL_DESCRIPTOR_ABSTRACT_CONTROL  CDC_abstract_control_5;
         USB_CDC_FUNCTIONAL_DESCRIPTOR_UNION    CDC_union_5;
+        #if !defined CDC_WITHOUT_INTERRUPT_ENDPOINT
     USB_ENDPOINT_DESCRIPTOR                    endpoint_18;              // endpoint of this interface
+        #endif
 
     USB_INTERFACE_DESCRIPTOR                   interface_desc_11;        // second interface descriptor for sixth connection
     USB_ENDPOINT_DESCRIPTOR                    endpoint_16;              // endpoints of sixth interface
     USB_ENDPOINT_DESCRIPTOR                    endpoint_17;
     #endif
+
+    #if (USB_CDC_COUNT > 6) && (defined USB_SIMPLEX_ENDPOINTS || defined CDC_WITHOUT_INTERRUPT_ENDPOINT)
+    USB_INTERFACE_ASSOCIATION_DESCRIPTOR       cdc_interface_6;
+    USB_INTERFACE_DESCRIPTOR                   interface_desc_12;        // first interface descriptor for seventh connection
+        USB_CDC_FUNCTIONAL_DESCRIPTOR_HEADER   CDC_func_header_7;        // CDC function descriptors due to class used
+        USB_CDC_FUNCTIONAL_DESCRIPTOR_CALL_MAN CDC_call_management_6;
+        USB_CDC_FUNCTIONAL_DESCRIPTOR_ABSTRACT_CONTROL  CDC_abstract_control_6;
+        USB_CDC_FUNCTIONAL_DESCRIPTOR_UNION    CDC_union_6;
+        #if !defined CDC_WITHOUT_INTERRUPT_ENDPOINT
+    USB_ENDPOINT_DESCRIPTOR                    endpoint_21;              // endpoint of this interface
+        #endif
+
+    USB_INTERFACE_DESCRIPTOR                   interface_desc_13;        // second interface descriptor for seventh connection
+    USB_ENDPOINT_DESCRIPTOR                    endpoint_19;              // endpoints of seventh interface
+    USB_ENDPOINT_DESCRIPTOR                    endpoint_20;
+    #endif
+
+    #if (USB_CDC_COUNT > 7) && (defined USB_SIMPLEX_ENDPOINTS && defined CDC_WITHOUT_INTERRUPT_ENDPOINT)
+    USB_INTERFACE_ASSOCIATION_DESCRIPTOR       cdc_interface_7;
+    USB_INTERFACE_DESCRIPTOR                   interface_desc_14;        // first interface descriptor for seventh connection
+        USB_CDC_FUNCTIONAL_DESCRIPTOR_HEADER   CDC_func_header_8;        // CDC function descriptors due to class used
+        USB_CDC_FUNCTIONAL_DESCRIPTOR_CALL_MAN CDC_call_management_7;
+        USB_CDC_FUNCTIONAL_DESCRIPTOR_ABSTRACT_CONTROL  CDC_abstract_control_7;
+        USB_CDC_FUNCTIONAL_DESCRIPTOR_UNION    CDC_union_7;
+        #if !defined CDC_WITHOUT_INTERRUPT_ENDPOINT
+    USB_ENDPOINT_DESCRIPTOR                    endpoint_24;              // endpoint of this interface
+        #endif
+
+    USB_INTERFACE_DESCRIPTOR                   interface_desc_15;        // second interface descriptor for seventh connection
+    USB_ENDPOINT_DESCRIPTOR                    endpoint_22;              // endpoints of seventh interface
+    USB_ENDPOINT_DESCRIPTOR                    endpoint_23;
+    #endif
+
+    #if (USB_CDC_COUNT > 8) && (defined USB_SIMPLEX_ENDPOINTS && defined CDC_WITHOUT_INTERRUPT_ENDPOINT)
+    USB_INTERFACE_ASSOCIATION_DESCRIPTOR       cdc_interface_8;
+    USB_INTERFACE_DESCRIPTOR                   interface_desc_16;        // first interface descriptor for seventh connection
+        USB_CDC_FUNCTIONAL_DESCRIPTOR_HEADER   CDC_func_header_9;        // CDC function descriptors due to class used
+        USB_CDC_FUNCTIONAL_DESCRIPTOR_CALL_MAN CDC_call_management_8;
+        USB_CDC_FUNCTIONAL_DESCRIPTOR_ABSTRACT_CONTROL  CDC_abstract_control_8;
+        USB_CDC_FUNCTIONAL_DESCRIPTOR_UNION    CDC_union_8;
+        #if !defined CDC_WITHOUT_INTERRUPT_ENDPOINT
+    USB_ENDPOINT_DESCRIPTOR                    endpoint_27;              // endpoint of this interface
+        #endif
+
+    USB_INTERFACE_DESCRIPTOR                   interface_desc_17;        // second interface descriptor for seventh connection
+    USB_ENDPOINT_DESCRIPTOR                    endpoint_25;              // endpoints of seventh interface
+    USB_ENDPOINT_DESCRIPTOR                    endpoint_26;
+    #endif
+
+    #if (USB_CDC_COUNT > 9) && (defined USB_SIMPLEX_ENDPOINTS && defined CDC_WITHOUT_INTERRUPT_ENDPOINT)
+    USB_INTERFACE_ASSOCIATION_DESCRIPTOR       cdc_interface_9;
+    USB_INTERFACE_DESCRIPTOR                   interface_desc_18;        // first interface descriptor for seventh connection
+        USB_CDC_FUNCTIONAL_DESCRIPTOR_HEADER   CDC_func_header_10;       // CDC function descriptors due to class used
+        USB_CDC_FUNCTIONAL_DESCRIPTOR_CALL_MAN CDC_call_management_9;
+        USB_CDC_FUNCTIONAL_DESCRIPTOR_ABSTRACT_CONTROL  CDC_abstract_control_9;
+        USB_CDC_FUNCTIONAL_DESCRIPTOR_UNION    CDC_union_9;
+        #if !defined CDC_WITHOUT_INTERRUPT_ENDPOINT
+    USB_ENDPOINT_DESCRIPTOR                    endpoint_30;              // endpoint of this interface
+        #endif
+
+    USB_INTERFACE_DESCRIPTOR                   interface_desc_19;        // second interface descriptor for seventh connection
+    USB_ENDPOINT_DESCRIPTOR                    endpoint_28;              // endpoints of seventh interface
+    USB_ENDPOINT_DESCRIPTOR                    endpoint_29;
+    #endif
+
+    #if (USB_CDC_COUNT > 10) && (defined USB_SIMPLEX_ENDPOINTS && defined CDC_WITHOUT_INTERRUPT_ENDPOINT)
+    USB_INTERFACE_ASSOCIATION_DESCRIPTOR       cdc_interface_10;
+    USB_INTERFACE_DESCRIPTOR                   interface_desc_20;        // first interface descriptor for seventh connection
+        USB_CDC_FUNCTIONAL_DESCRIPTOR_HEADER   CDC_func_header_11;       // CDC function descriptors due to class used
+        USB_CDC_FUNCTIONAL_DESCRIPTOR_CALL_MAN CDC_call_management_10;
+        USB_CDC_FUNCTIONAL_DESCRIPTOR_ABSTRACT_CONTROL  CDC_abstract_control_10;
+        USB_CDC_FUNCTIONAL_DESCRIPTOR_UNION    CDC_union_10;
+        #if !defined CDC_WITHOUT_INTERRUPT_ENDPOINT
+    USB_ENDPOINT_DESCRIPTOR                    endpoint_33;              // endpoint of this interface
+        #endif
+
+    USB_INTERFACE_DESCRIPTOR                   interface_desc_21;        // second interface descriptor for seventh connection
+    USB_ENDPOINT_DESCRIPTOR                    endpoint_31;              // endpoints of seventh interface
+    USB_ENDPOINT_DESCRIPTOR                    endpoint_32;
+    #endif
+
+    #if (USB_CDC_COUNT > 11) && (defined USB_SIMPLEX_ENDPOINTS && defined CDC_WITHOUT_INTERRUPT_ENDPOINT)
+    USB_INTERFACE_ASSOCIATION_DESCRIPTOR       cdc_interface_11;
+    USB_INTERFACE_DESCRIPTOR                   interface_desc_22;        // first interface descriptor for seventh connection
+        USB_CDC_FUNCTIONAL_DESCRIPTOR_HEADER   CDC_func_header_12;       // CDC function descriptors due to class used
+        USB_CDC_FUNCTIONAL_DESCRIPTOR_CALL_MAN CDC_call_management_11;
+        USB_CDC_FUNCTIONAL_DESCRIPTOR_ABSTRACT_CONTROL  CDC_abstract_control_11;
+        USB_CDC_FUNCTIONAL_DESCRIPTOR_UNION    CDC_union_11;
+        #if !defined CDC_WITHOUT_INTERRUPT_ENDPOINT
+    USB_ENDPOINT_DESCRIPTOR                    endpoint_36;              // endpoint of this interface
+        #endif
+
+    USB_INTERFACE_DESCRIPTOR                   interface_desc_23;        // second interface descriptor for seventh connection
+    USB_ENDPOINT_DESCRIPTOR                    endpoint_34;              // endpoints of seventh interface
+    USB_ENDPOINT_DESCRIPTOR                    endpoint_35;
+    #endif
+
+    #if (USB_CDC_COUNT > 12) && (defined USB_SIMPLEX_ENDPOINTS && defined CDC_WITHOUT_INTERRUPT_ENDPOINT)
+    USB_INTERFACE_ASSOCIATION_DESCRIPTOR       cdc_interface_12;
+    USB_INTERFACE_DESCRIPTOR                   interface_desc_24;        // first interface descriptor for seventh connection
+        USB_CDC_FUNCTIONAL_DESCRIPTOR_HEADER   CDC_func_header_13;       // CDC function descriptors due to class used
+        USB_CDC_FUNCTIONAL_DESCRIPTOR_CALL_MAN CDC_call_management_12;
+        USB_CDC_FUNCTIONAL_DESCRIPTOR_ABSTRACT_CONTROL  CDC_abstract_control_12;
+        USB_CDC_FUNCTIONAL_DESCRIPTOR_UNION    CDC_union_12;
+        #if !defined CDC_WITHOUT_INTERRUPT_ENDPOINT
+    USB_ENDPOINT_DESCRIPTOR                    endpoint_39;              // endpoint of this interface
+        #endif
+
+    USB_INTERFACE_DESCRIPTOR                   interface_desc_25;        // second interface descriptor for seventh connection
+    USB_ENDPOINT_DESCRIPTOR                    endpoint_37;              // endpoints of seventh interface
+    USB_ENDPOINT_DESCRIPTOR                    endpoint_38;
+    #endif
+
+    #if (USB_CDC_COUNT > 13) && (defined USB_SIMPLEX_ENDPOINTS && defined CDC_WITHOUT_INTERRUPT_ENDPOINT)
+    USB_INTERFACE_ASSOCIATION_DESCRIPTOR       cdc_interface_13;
+    USB_INTERFACE_DESCRIPTOR                   interface_desc_26;        // first interface descriptor for seventh connection
+        USB_CDC_FUNCTIONAL_DESCRIPTOR_HEADER   CDC_func_header_14;       // CDC function descriptors due to class used
+        USB_CDC_FUNCTIONAL_DESCRIPTOR_CALL_MAN CDC_call_management_13;
+        USB_CDC_FUNCTIONAL_DESCRIPTOR_ABSTRACT_CONTROL  CDC_abstract_control_13;
+        USB_CDC_FUNCTIONAL_DESCRIPTOR_UNION    CDC_union_13;
+        #if !defined CDC_WITHOUT_INTERRUPT_ENDPOINT
+    USB_ENDPOINT_DESCRIPTOR                    endpoint_42;              // endpoint of this interface
+        #endif
+
+    USB_INTERFACE_DESCRIPTOR                   interface_desc_27;        // second interface descriptor for seventh connection
+    USB_ENDPOINT_DESCRIPTOR                    endpoint_40;              // endpoints of seventh interface
+    USB_ENDPOINT_DESCRIPTOR                    endpoint_41;
+    #endif
+
+    #if (USB_CDC_COUNT > 14) && (defined USB_SIMPLEX_ENDPOINTS && defined CDC_WITHOUT_INTERRUPT_ENDPOINT)
+    USB_INTERFACE_ASSOCIATION_DESCRIPTOR       cdc_interface_14;
+    USB_INTERFACE_DESCRIPTOR                   interface_desc_28;        // first interface descriptor for seventh connection
+        USB_CDC_FUNCTIONAL_DESCRIPTOR_HEADER   CDC_func_header_15;       // CDC function descriptors due to class used
+        USB_CDC_FUNCTIONAL_DESCRIPTOR_CALL_MAN CDC_call_management_14;
+        USB_CDC_FUNCTIONAL_DESCRIPTOR_ABSTRACT_CONTROL  CDC_abstract_control_14;
+        USB_CDC_FUNCTIONAL_DESCRIPTOR_UNION    CDC_union_14;
+        #if !defined CDC_WITHOUT_INTERRUPT_ENDPOINT
+    USB_ENDPOINT_DESCRIPTOR                    endpoint_45;              // endpoint of this interface
+        #endif
+
+    USB_INTERFACE_DESCRIPTOR                   interface_desc_29;        // second interface descriptor for seventh connection
+    USB_ENDPOINT_DESCRIPTOR                    endpoint_43;              // endpoints of seventh interface
+    USB_ENDPOINT_DESCRIPTOR                    endpoint_44;
+    #endif
+
     #if defined USE_USB_MSD
     USB_INTERFACE_DESCRIPTOR                   interface_desc_msd;       // USB-MSD interface descriptor
     USB_ENDPOINT_DESCRIPTOR                    msd_endpoint_1;           // endpoints of USB-MSD interface
@@ -405,7 +557,11 @@ static const USB_CONFIGURATION_DESCRIPTOR_COLLECTION config_descriptor = {
     DESCRIPTOR_TYPE_INTERFACE,                                           // 0x04
     0,                                                                   // interface number 0
     0,                                                                   // alternative setting 0
+    #if defined CDC_WITHOUT_INTERRUPT_ENDPOINT
+    0,                                                                   // no endpoint used
+    #else
     1,                                                                   // number of endpoints in addition to EP0
+    #endif
     USB_CLASS_COMMUNICATION_CONTROL,                                     // interface class (0x02)
     USB_ABSTRACT_LINE_CONTROL_MODEL,                                     // interface sub-class (0x02)
     #if defined USB_CDC_RNDIS
@@ -462,28 +618,30 @@ static const USB_CONFIGURATION_DESCRIPTOR_COLLECTION config_descriptor = {
     1                                                                    // subordinate interface
     },                                                                   // end of function descriptors
 
+    #if !defined CDC_WITHOUT_INTERRUPT_ENDPOINT
     // Interrupt endpoint descriptor for first CDC - control interface
     //
     {                                                                    // interrupt endpoint descriptor for first interface
     DESCRIPTOR_TYPE_ENDPOINT_LENGTH,                                     // descriptor size in bytes (0x07)
     DESCRIPTOR_TYPE_ENDPOINT,                                            // endpoint descriptor (0x05)
-    #if defined _LPC23XX || defined _LPC17XX                             // {14}
+        #if defined _LPC23XX || defined _LPC17XX                         // {14}
     (IN_ENDPOINT | 0x04),                                                // direction and address of endpoint (endpoint 4 is interrupt)
-    #else
-        #if defined USB_SIMPLEX_ENDPOINTS
-    (IN_ENDPOINT | 0x02),                                                // direction and address of endpoint
         #else
+            #if defined USB_SIMPLEX_ENDPOINTS
+    (IN_ENDPOINT | 0x02),                                                // direction and address of endpoint
+            #else
     (IN_ENDPOINT | 0x03),                                                // direction and address of endpoint
+            #endif
         #endif
-    #endif
     ENDPOINT_INTERRUPT,                                                  // endpoint attributes
-    #if defined USB_CDC_RNDIS
+        #if defined USB_CDC_RNDIS
     {LITTLE_SHORT_WORD_BYTES(16)},                                       // endpoint FIFO size (little-endian)
-    #else
+        #else
     {LITTLE_SHORT_WORD_BYTES(64)},                                       // endpoint FIFO size (little-endian)
-    #endif
+        #endif
     10                                                                   // polling interval in ms
     },                                                                   // end of endpoint descriptor
+    #endif
 
     // Interface descriptor for first CDC - data interface
     //
@@ -562,7 +720,11 @@ static const USB_CONFIGURATION_DESCRIPTOR_COLLECTION config_descriptor = {
     DESCRIPTOR_TYPE_INTERFACE,                                           // 0x04
     2,                                                                   // interface number 2
     0,                                                                   // alternative setting 0
+        #if defined CDC_WITHOUT_INTERRUPT_ENDPOINT
+    0,                                                                   // no endpoint used
+        #else
     1,                                                                   // number of endpoints in addition to EP0
+        #endif
     USB_CLASS_COMMUNICATION_CONTROL,                                     // interface class (0x02)
     USB_ABSTRACT_LINE_CONTROL_MODEL,                                     // interface sub-class (0x02)
     0,                                                                   // interface protocol
@@ -602,20 +764,22 @@ static const USB_CONFIGURATION_DESCRIPTOR_COLLECTION config_descriptor = {
     1                                                                    // subordinate interface
     },                                                                   // end of function descriptors
 
+        #if !defined CDC_WITHOUT_INTERRUPT_ENDPOINT
     // Interrupt endpoint descriptor for second CDC - control interface
     //
     {                                                                    // interrupt endpoint descriptor for first interface
     DESCRIPTOR_TYPE_ENDPOINT_LENGTH,                                     // descriptor size in bytes (0x07)
     DESCRIPTOR_TYPE_ENDPOINT,                                            // endpoint descriptor (0x05)
-        #if defined USB_SIMPLEX_ENDPOINTS
+            #if defined USB_SIMPLEX_ENDPOINTS
     (IN_ENDPOINT | 0x04),                                                // direction and address of endpoint
-        #else
+            #else
     (IN_ENDPOINT | 0x06),                                                // direction and address of endpoint
-        #endif
+            #endif
     ENDPOINT_INTERRUPT,                                                  // endpoint attributes
     {LITTLE_SHORT_WORD_BYTES(64)},                                       // endpoint FIFO size (little-endian)
     10                                                                   // polling interval in ms
     },                                                                   // end of endpoint descriptor
+        #endif
 
     // Interface descriptor for second CDC - data interface
     //
@@ -641,9 +805,17 @@ static const USB_CONFIGURATION_DESCRIPTOR_COLLECTION config_descriptor = {
     DESCRIPTOR_TYPE_ENDPOINT_LENGTH,                                     // descriptor size in bytes (0x07)
     DESCRIPTOR_TYPE_ENDPOINT,                                            // endpoint descriptor (0x05)
         #if defined USB_SIMPLEX_ENDPOINTS
+            #if defined CDC_WITHOUT_INTERRUPT_ENDPOINT
+    (OUT_ENDPOINT | 0x02),                                               // direction and address of endpoint
+            #else
     (OUT_ENDPOINT | 0x03),                                               // direction and address of endpoint
+            #endif
         #else
+            #if defined CDC_WITHOUT_INTERRUPT_ENDPOINT
+    (OUT_ENDPOINT | 0x03),                                               // direction and address of endpoint
+            #else
     (OUT_ENDPOINT | 0x04),                                               // direction and address of endpoint
+            #endif
         #endif
     ENDPOINT_BULK,                                                       // endpoint attributes
     {LITTLE_SHORT_WORD_BYTES(CDC_DATA_ENDPOINT_SIZE)},                   // endpoint FIFO size (little-endian)
@@ -654,9 +826,17 @@ static const USB_CONFIGURATION_DESCRIPTOR_COLLECTION config_descriptor = {
     DESCRIPTOR_TYPE_ENDPOINT_LENGTH,                                     // descriptor size in bytes (0x07)
     DESCRIPTOR_TYPE_ENDPOINT,                                            // endpoint descriptor (0x05)
         #if defined USB_SIMPLEX_ENDPOINTS
+            #if defined CDC_WITHOUT_INTERRUPT_ENDPOINT
+    (IN_ENDPOINT | 0x02),                                                // direction and address of endpoint
+            #else
     (IN_ENDPOINT | 0x03),                                                // direction and address of endpoint
+            #endif
         #else
+            #if defined CDC_WITHOUT_INTERRUPT_ENDPOINT
+    (IN_ENDPOINT | 0x04),                                                // direction and address of endpoint
+            #else
     (IN_ENDPOINT | 0x05),                                                // direction and address of endpoint
+            #endif
         #endif
     ENDPOINT_BULK,                                                       // endpoint attributes
     {LITTLE_SHORT_WORD_BYTES(CDC_DATA_ENDPOINT_SIZE)},                   // endpoint FIFO size (little-endian)
@@ -664,6 +844,8 @@ static const USB_CONFIGURATION_DESCRIPTOR_COLLECTION config_descriptor = {
     },
     #endif
     #if USB_CDC_COUNT > 2                                                // {33}
+    // Interface association descriptor for third CDC interface
+    //
     {                                                                    // interface association descriptor
     DESCRIPTOR_TYPE_INTERFACE_ASSOCIATION_LENGTH,                        // 0x08
     DESCRIPTOR_TYPE_INTERFACE_ASSOCIATION,                               // 0x0b
@@ -672,13 +854,18 @@ static const USB_CONFIGURATION_DESCRIPTOR_COLLECTION config_descriptor = {
     DEVICE_CLASS_COMMUNICATION_AND_CONTROL,
     0                                                                    // string reference
     },
-
+    // Interface descriptor for third CDC - control interface
+    //
     {                                                                    // interface descriptor
     DESCRIPTOR_TYPE_INTERFACE_LENGTH,                                    // length (0x09)
     DESCRIPTOR_TYPE_INTERFACE,                                           // 0x04
     4,                                                                   // interface number 4
     0,                                                                   // alternative setting 0
+        #if defined CDC_WITHOUT_INTERRUPT_ENDPOINT
+    0,                                                                   // no endpoint used
+        #else
     1,                                                                   // number of endpoints in addition to EP0
+        #endif
     USB_CLASS_COMMUNICATION_CONTROL,                                     // interface class (0x02)
     USB_ABSTRACT_LINE_CONTROL_MODEL,                                     // interface sub-class (0x02)
     0,                                                                   // interface protocol
@@ -688,7 +875,8 @@ static const USB_CONFIGURATION_DESCRIPTOR_COLLECTION config_descriptor = {
     0,                                                                   // zero when strings are not supported
         #endif
     },                                                                   // end of interface descriptor
-
+    // Function descriptors for third CDC - control interface
+    //
     {                                                                    // function descriptors
     USB_CDC_FUNCTIONAL_DESCRIPTOR_HEADER_LENGTH,                         // descriptor size in bytes (0x05)
     CS_INTERFACE,                                                        // type field (0x24)
@@ -718,7 +906,7 @@ static const USB_CONFIGURATION_DESCRIPTOR_COLLECTION config_descriptor = {
     0,                                                                   // control interface
     1                                                                    // subordinate interface
     },                                                                   // end of function descriptors
-
+    #if !defined CDC_WITHOUT_INTERRUPT_ENDPOINT
     {                                                                    // interrupt endpoint descriptor for first interface
     DESCRIPTOR_TYPE_ENDPOINT_LENGTH,                                     // descriptor size in bytes (0x07)
     DESCRIPTOR_TYPE_ENDPOINT,                                            // endpoint descriptor (0x05)
@@ -731,6 +919,7 @@ static const USB_CONFIGURATION_DESCRIPTOR_COLLECTION config_descriptor = {
     {LITTLE_SHORT_WORD_BYTES(64)},                                       // endpoint FIFO size (little-endian)
     10                                                                   // polling interval in ms
     },                                                                   // end of endpoint descriptor
+    #endif
 
     {                                                                    // the second interface
     DESCRIPTOR_TYPE_INTERFACE_LENGTH,                                    // descriptor size in bytes (0x09)
@@ -752,9 +941,17 @@ static const USB_CONFIGURATION_DESCRIPTOR_COLLECTION config_descriptor = {
     DESCRIPTOR_TYPE_ENDPOINT_LENGTH,                                     // descriptor size in bytes (0x07)
     DESCRIPTOR_TYPE_ENDPOINT,                                            // endpoint descriptor (0x05)
         #if defined USB_SIMPLEX_ENDPOINTS
+            #if defined CDC_WITHOUT_INTERRUPT_ENDPOINT
+    (OUT_ENDPOINT | 0x03),                                               // direction and address of endpoint
+            #else
     (OUT_ENDPOINT | 0x05),                                               // direction and address of endpoint
+            #endif
         #else
+            #if defined CDC_WITHOUT_INTERRUPT_ENDPOINT
+    (OUT_ENDPOINT | 0x05),                                               // direction and address of endpoint
+            #else
     (OUT_ENDPOINT | 0x07),                                               // direction and address of endpoint
+            #endif
         #endif
     ENDPOINT_BULK,                                                       // endpoint attributes
     {LITTLE_SHORT_WORD_BYTES(CDC_DATA_ENDPOINT_SIZE)},                   // endpoint FIFO size (little-endian)
@@ -765,9 +962,17 @@ static const USB_CONFIGURATION_DESCRIPTOR_COLLECTION config_descriptor = {
     DESCRIPTOR_TYPE_ENDPOINT_LENGTH,                                     // descriptor size in bytes (0x07)
     DESCRIPTOR_TYPE_ENDPOINT,                                            // endpoint descriptor (0x05)
         #if defined USB_SIMPLEX_ENDPOINTS
+            #if defined CDC_WITHOUT_INTERRUPT_ENDPOINT
+    (IN_ENDPOINT | 0x03),                                                // direction and address of endpoint
+            #else
     (IN_ENDPOINT | 0x05),                                                // direction and address of endpoint
+            #endif
         #else
+            #if defined CDC_WITHOUT_INTERRUPT_ENDPOINT
+    (IN_ENDPOINT | 0x06),                                                // direction and address of endpoint
+            #else
     (IN_ENDPOINT | 0x08),                                                // direction and address of endpoint
+            #endif
         #endif
     ENDPOINT_BULK,                                                       // endpoint attributes
     {LITTLE_SHORT_WORD_BYTES(CDC_DATA_ENDPOINT_SIZE)},                   // endpoint FIFO size (little-endian)
@@ -775,6 +980,8 @@ static const USB_CONFIGURATION_DESCRIPTOR_COLLECTION config_descriptor = {
     },
     #endif
     #if USB_CDC_COUNT > 3                                                // {33}
+    // Interface association descriptor for fourth CDC interface
+    //
     {                                                                    // interface association descriptor
     DESCRIPTOR_TYPE_INTERFACE_ASSOCIATION_LENGTH,                        // 0x08
     DESCRIPTOR_TYPE_INTERFACE_ASSOCIATION,                               // 0x0b
@@ -783,13 +990,18 @@ static const USB_CONFIGURATION_DESCRIPTOR_COLLECTION config_descriptor = {
     DEVICE_CLASS_COMMUNICATION_AND_CONTROL,
     0                                                                    // string reference
     },
-
+    // Interface descriptor for fourth CDC - control interface
+    //
     {                                                                    // interface descriptor
     DESCRIPTOR_TYPE_INTERFACE_LENGTH,                                    // length (0x09)
     DESCRIPTOR_TYPE_INTERFACE,                                           // 0x04
     6,                                                                   // interface number 6
     0,                                                                   // alternative setting 0
+        #if defined CDC_WITHOUT_INTERRUPT_ENDPOINT
+    0,                                                                   // no endpoint used
+        #else
     1,                                                                   // number of endpoints in addition to EP0
+        #endif
     USB_CLASS_COMMUNICATION_CONTROL,                                     // interface class (0x02)
     USB_ABSTRACT_LINE_CONTROL_MODEL,                                     // interface sub-class (0x02)
     0,                                                                   // interface protocol
@@ -799,7 +1011,8 @@ static const USB_CONFIGURATION_DESCRIPTOR_COLLECTION config_descriptor = {
     0,                                                                   // zero when strings are not supported
         #endif
     },                                                                   // end of interface descriptor
-
+    // Function descriptors for fourth CDC - control interface
+    //
     {                                                                    // function descriptors
     USB_CDC_FUNCTIONAL_DESCRIPTOR_HEADER_LENGTH,                         // descriptor size in bytes (0x05)
     CS_INTERFACE,                                                        // type field (0x24)
@@ -829,7 +1042,7 @@ static const USB_CONFIGURATION_DESCRIPTOR_COLLECTION config_descriptor = {
     0,                                                                   // control interface
     1                                                                    // subordinate interface
     },                                                                   // end of function descriptors
-
+    #if !defined CDC_WITHOUT_INTERRUPT_ENDPOINT
     {                                                                    // interrupt endpoint descriptor for first interface
     DESCRIPTOR_TYPE_ENDPOINT_LENGTH,                                     // descriptor size in bytes (0x07)
     DESCRIPTOR_TYPE_ENDPOINT,                                            // endpoint descriptor (0x05)
@@ -842,7 +1055,7 @@ static const USB_CONFIGURATION_DESCRIPTOR_COLLECTION config_descriptor = {
     {LITTLE_SHORT_WORD_BYTES(64)},                                       // endpoint FIFO size (little-endian)
     10                                                                   // polling interval in ms
     },                                                                   // end of endpoint descriptor
-
+    #endif
     {                                                                    // the second interface
     DESCRIPTOR_TYPE_INTERFACE_LENGTH,                                    // descriptor size in bytes (0x09)
     DESCRIPTOR_TYPE_INTERFACE,                                           // interface descriptor (0x04)
@@ -863,9 +1076,17 @@ static const USB_CONFIGURATION_DESCRIPTOR_COLLECTION config_descriptor = {
     DESCRIPTOR_TYPE_ENDPOINT_LENGTH,                                     // descriptor size in bytes (0x07)
     DESCRIPTOR_TYPE_ENDPOINT,                                            // endpoint descriptor (0x05)
         #if defined USB_SIMPLEX_ENDPOINTS
+            #if defined CDC_WITHOUT_INTERRUPT_ENDPOINT
+    (OUT_ENDPOINT | 0x04),                                               // direction and address of endpoint
+            #else
     (OUT_ENDPOINT | 0x07),                                               // direction and address of endpoint
+            #endif
         #else
+            #if defined CDC_WITHOUT_INTERRUPT_ENDPOINT
+    (OUT_ENDPOINT | 0x07),                                               // direction and address of endpoint
+            #else
     (OUT_ENDPOINT | 0x0a),                                               // direction and address of endpoint
+            #endif
         #endif
     ENDPOINT_BULK,                                                       // endpoint attributes
     {LITTLE_SHORT_WORD_BYTES(CDC_DATA_ENDPOINT_SIZE)},                   // endpoint FIFO size (little-endian)
@@ -876,9 +1097,17 @@ static const USB_CONFIGURATION_DESCRIPTOR_COLLECTION config_descriptor = {
     DESCRIPTOR_TYPE_ENDPOINT_LENGTH,                                     // descriptor size in bytes (0x07)
     DESCRIPTOR_TYPE_ENDPOINT,                                            // endpoint descriptor (0x05)
         #if defined USB_SIMPLEX_ENDPOINTS
+            #if defined CDC_WITHOUT_INTERRUPT_ENDPOINT
+    (IN_ENDPOINT | 0x04),                                                // direction and address of endpoint
+            #else
     (IN_ENDPOINT | 0x07),                                                // direction and address of endpoint
+            #endif
         #else
+            #if defined CDC_WITHOUT_INTERRUPT_ENDPOINT
+    (IN_ENDPOINT | 0x08),                                                // direction and address of endpoint
+            #else
     (IN_ENDPOINT | 0x0b),                                                // direction and address of endpoint
+            #endif
         #endif
     ENDPOINT_BULK,                                                       // endpoint attributes
     {LITTLE_SHORT_WORD_BYTES(CDC_DATA_ENDPOINT_SIZE)},                   // endpoint FIFO size (little-endian)
@@ -886,6 +1115,8 @@ static const USB_CONFIGURATION_DESCRIPTOR_COLLECTION config_descriptor = {
     },
     #endif
     #if USB_CDC_COUNT > 4
+    // Interface association descriptor for fifth CDC interface
+    //
     {                                                                    // interface association descriptor
     DESCRIPTOR_TYPE_INTERFACE_ASSOCIATION_LENGTH,                        // 0x08
     DESCRIPTOR_TYPE_INTERFACE_ASSOCIATION,                               // 0x0b
@@ -894,13 +1125,18 @@ static const USB_CONFIGURATION_DESCRIPTOR_COLLECTION config_descriptor = {
     DEVICE_CLASS_COMMUNICATION_AND_CONTROL,
     0                                                                    // string reference
     },
-
+    // Function descriptors for fifth CDC - control interface
+    //
     {                                                                    // interface descriptor
     DESCRIPTOR_TYPE_INTERFACE_LENGTH,                                    // length (0x09)
     DESCRIPTOR_TYPE_INTERFACE,                                           // 0x04
     8,                                                                   // interface number 8
     0,                                                                   // alternative setting 0
+        #if defined CDC_WITHOUT_INTERRUPT_ENDPOINT
+    0,                                                                   // no endpoint used
+        #else
     1,                                                                   // number of endpoints in addition to EP0
+        #endif
     USB_CLASS_COMMUNICATION_CONTROL,                                     // interface class (0x02)
     USB_ABSTRACT_LINE_CONTROL_MODEL,                                     // interface sub-class (0x02)
     0,                                                                   // interface protocol
@@ -940,7 +1176,7 @@ static const USB_CONFIGURATION_DESCRIPTOR_COLLECTION config_descriptor = {
     0,                                                                   // control interface
     1                                                                    // subordinate interface
     },                                                                   // end of function descriptors
-
+    #if !defined CDC_WITHOUT_INTERRUPT_ENDPOINT
     {                                                                    // interrupt endpoint descriptor for first interface
     DESCRIPTOR_TYPE_ENDPOINT_LENGTH,                                     // descriptor size in bytes (0x07)
     DESCRIPTOR_TYPE_ENDPOINT,                                            // endpoint descriptor (0x05)
@@ -953,6 +1189,7 @@ static const USB_CONFIGURATION_DESCRIPTOR_COLLECTION config_descriptor = {
     {LITTLE_SHORT_WORD_BYTES(64)},                                       // endpoint FIFO size (little-endian)
     10                                                                   // polling interval in ms
     },                                                                   // end of endpoint descriptor
+    #endif
 
     {                                                                    // the second interface
     DESCRIPTOR_TYPE_INTERFACE_LENGTH,                                    // descriptor size in bytes (0x09)
@@ -974,9 +1211,17 @@ static const USB_CONFIGURATION_DESCRIPTOR_COLLECTION config_descriptor = {
     DESCRIPTOR_TYPE_ENDPOINT_LENGTH,                                     // descriptor size in bytes (0x07)
     DESCRIPTOR_TYPE_ENDPOINT,                                            // endpoint descriptor (0x05)
         #if defined USB_SIMPLEX_ENDPOINTS
+            #if defined CDC_WITHOUT_INTERRUPT_ENDPOINT
+    (OUT_ENDPOINT | 0x05),                                               // direction and address of endpoint
+            #else
     (OUT_ENDPOINT | 0x09),                                               // direction and address of endpoint
+            #endif
         #else
+            #if defined CDC_WITHOUT_INTERRUPT_ENDPOINT
+    (OUT_ENDPOINT | 0x09),                                               // direction and address of endpoint
+            #else
     (OUT_ENDPOINT | 0x0d),                                               // direction and address of endpoint
+            #endif
         #endif
     ENDPOINT_BULK,                                                       // endpoint attributes
     {LITTLE_SHORT_WORD_BYTES(CDC_DATA_ENDPOINT_SIZE)},                   // endpoint FIFO size (little-endian)
@@ -987,16 +1232,27 @@ static const USB_CONFIGURATION_DESCRIPTOR_COLLECTION config_descriptor = {
     DESCRIPTOR_TYPE_ENDPOINT_LENGTH,                                     // descriptor size in bytes (0x07)
     DESCRIPTOR_TYPE_ENDPOINT,                                            // endpoint descriptor (0x05)
         #if defined USB_SIMPLEX_ENDPOINTS
+            #if defined CDC_WITHOUT_INTERRUPT_ENDPOINT
+    (IN_ENDPOINT | 0x05),                                                // direction and address of endpoint
+            #else
     (IN_ENDPOINT | 0x09),                                                // direction and address of endpoint
+            #endif
         #else
+            #if defined CDC_WITHOUT_INTERRUPT_ENDPOINT
+    (IN_ENDPOINT | 0x0a),                                                // direction and address of endpoint
+            #else
     (IN_ENDPOINT | 0x0e),                                                // direction and address of endpoint
+            #endif
         #endif
     ENDPOINT_BULK,                                                       // endpoint attributes
     {LITTLE_SHORT_WORD_BYTES(CDC_DATA_ENDPOINT_SIZE)},                   // endpoint FIFO size (little-endian)
     0                                                                    // polling interval in ms - ignored for bulk
     },
     #endif
-    #if (USB_CDC_COUNT > 5) && defined USB_SIMPLEX_ENDPOINTS             // 6 CDC interfaces are only possible when using the bulk IN/OUT on a single endpoint
+
+    #if (USB_CDC_COUNT > 5) && (defined USB_SIMPLEX_ENDPOINTS || defined CDC_WITHOUT_INTERRUPT_ENDPOINT) // 6 CDC interfaces are only possible when using the bulk IN/OUT on a single endpoint, or when using no interrupt endpoint
+    // Interface association descriptor for sixth CDC interface
+    //
     {                                                                    // interface association descriptor
     DESCRIPTOR_TYPE_INTERFACE_ASSOCIATION_LENGTH,                        // 0x08
     DESCRIPTOR_TYPE_INTERFACE_ASSOCIATION,                               // 0x0b
@@ -1005,13 +1261,18 @@ static const USB_CONFIGURATION_DESCRIPTOR_COLLECTION config_descriptor = {
     DEVICE_CLASS_COMMUNICATION_AND_CONTROL,
     0                                                                    // string reference
     },
-
+    // Function descriptors for sixth CDC - control interface
+    //
     {                                                                    // interface descriptor
     DESCRIPTOR_TYPE_INTERFACE_LENGTH,                                    // length (0x09)
     DESCRIPTOR_TYPE_INTERFACE,                                           // 0x04
     10,                                                                  // interface number 10
     0,                                                                   // alternative setting 0
+        #if defined CDC_WITHOUT_INTERRUPT_ENDPOINT
+    0,                                                                   // no endpoint used
+        #else
     1,                                                                   // number of endpoints in addition to EP0
+        #endif
     USB_CLASS_COMMUNICATION_CONTROL,                                     // interface class (0x02)
     USB_ABSTRACT_LINE_CONTROL_MODEL,                                     // interface sub-class (0x02)
     0,                                                                   // interface protocol
@@ -1051,16 +1312,20 @@ static const USB_CONFIGURATION_DESCRIPTOR_COLLECTION config_descriptor = {
     0,                                                                   // control interface
     1                                                                    // subordinate interface
     },                                                                   // end of function descriptors
-
+    #if !defined CDC_WITHOUT_INTERRUPT_ENDPOINT
     {                                                                    // interrupt endpoint descriptor for first interface
     DESCRIPTOR_TYPE_ENDPOINT_LENGTH,                                     // descriptor size in bytes (0x07)
     DESCRIPTOR_TYPE_ENDPOINT,                                            // endpoint descriptor (0x05)
+        #if defined USB_SIMPLEX_ENDPOINTS
     (IN_ENDPOINT | 0x0c),                                                // direction and address of endpoint
+        #else
+    (IN_ENDPOINT | 0x12),                                                // direction and address of endpoint
+        #endif
     ENDPOINT_INTERRUPT,                                                  // endpoint attributes
     {LITTLE_SHORT_WORD_BYTES(64)},                                       // endpoint FIFO size (little-endian)
     10                                                                   // polling interval in ms
     },                                                                   // end of endpoint descriptor
-
+    #endif
     {                                                                    // the second interface
     DESCRIPTOR_TYPE_INTERFACE_LENGTH,                                    // descriptor size in bytes (0x09)
     DESCRIPTOR_TYPE_INTERFACE,                                           // interface descriptor (0x04)
@@ -1080,7 +1345,19 @@ static const USB_CONFIGURATION_DESCRIPTOR_COLLECTION config_descriptor = {
     {                                                                    // bulk out endpoint descriptor for the second interface
     DESCRIPTOR_TYPE_ENDPOINT_LENGTH,                                     // descriptor size in bytes (0x07)
     DESCRIPTOR_TYPE_ENDPOINT,                                            // endpoint descriptor (0x05)
+        #if defined USB_SIMPLEX_ENDPOINTS
+            #if defined CDC_WITHOUT_INTERRUPT_ENDPOINT
+    (OUT_ENDPOINT | 0x06),                                               // direction and address of endpoint
+            #else
     (OUT_ENDPOINT | 0x0b),                                               // direction and address of endpoint
+            #endif
+        #else
+            #if defined CDC_WITHOUT_INTERRUPT_ENDPOINT
+    (OUT_ENDPOINT | 0x0b),                                               // direction and address of endpoint
+            #else
+    (OUT_ENDPOINT | 0x10),                                               // direction and address of endpoint
+            #endif
+        #endif
     ENDPOINT_BULK,                                                       // endpoint attributes
     {LITTLE_SHORT_WORD_BYTES(CDC_DATA_ENDPOINT_SIZE)},                   // endpoint FIFO size (little-endian)
     0                                                                    // polling interval in ms - ignored for bulk
@@ -1089,12 +1366,1240 @@ static const USB_CONFIGURATION_DESCRIPTOR_COLLECTION config_descriptor = {
     {                                                                    // bulk in endpoint descriptor for the second interface
     DESCRIPTOR_TYPE_ENDPOINT_LENGTH,                                     // descriptor size in bytes (0x07)
     DESCRIPTOR_TYPE_ENDPOINT,                                            // endpoint descriptor (0x05)
+        #if defined USB_SIMPLEX_ENDPOINTS
+            #if defined CDC_WITHOUT_INTERRUPT_ENDPOINT
+    (IN_ENDPOINT | 0x06),                                                // direction and address of endpoint
+            #else
     (IN_ENDPOINT | 0x0b),                                                // direction and address of endpoint
+            #endif
+        #else
+            #if defined CDC_WITHOUT_INTERRUPT_ENDPOINT
+    (IN_ENDPOINT | 0x0c),                                                // direction and address of endpoint
+            #else
+    (IN_ENDPOINT | 0x11),                                                // direction and address of endpoint
+            #endif
+        #endif
     ENDPOINT_BULK,                                                       // endpoint attributes
     {LITTLE_SHORT_WORD_BYTES(CDC_DATA_ENDPOINT_SIZE)},                   // endpoint FIFO size (little-endian)
     0                                                                    // polling interval in ms - ignored for bulk
     },
     #endif
+
+    #if (USB_CDC_COUNT > 6) && (defined USB_SIMPLEX_ENDPOINTS || defined CDC_WITHOUT_INTERRUPT_ENDPOINT) // 7 CDC interfaces are only possible when using the bulk IN/OUT on a single endpoint, or when using no interrupt endpoint
+    // Interface association descriptor for seventh CDC interface
+    //
+    {                                                                    // interface association descriptor
+    DESCRIPTOR_TYPE_INTERFACE_ASSOCIATION_LENGTH,                        // 0x08
+    DESCRIPTOR_TYPE_INTERFACE_ASSOCIATION,                               // 0x0b
+    12,                                                                  // first interface number
+    2,                                                                   // interface count
+    DEVICE_CLASS_COMMUNICATION_AND_CONTROL,
+    0                                                                    // string reference
+    },
+    // Function descriptors for seventh CDC - control interface
+    //
+    {                                                                    // interface descriptor
+    DESCRIPTOR_TYPE_INTERFACE_LENGTH,                                    // length (0x09)
+    DESCRIPTOR_TYPE_INTERFACE,                                           // 0x04
+    12,                                                                  // interface number 12
+    0,                                                                   // alternative setting 0
+        #if defined CDC_WITHOUT_INTERRUPT_ENDPOINT
+    0,                                                                   // no endpoint used
+        #else
+    1,                                                                   // number of endpoints in addition to EP0
+        #endif
+    USB_CLASS_COMMUNICATION_CONTROL,                                     // interface class (0x02)
+    USB_ABSTRACT_LINE_CONTROL_MODEL,                                     // interface sub-class (0x02)
+    0,                                                                   // interface protocol
+        #if defined USB_STRING_OPTION
+    INTERFACE_STRING_INDEX,                                              // string index for interface
+        #else
+    0,                                                                   // zero when strings are not supported
+        #endif
+    },                                                                   // end of interface descriptor
+
+    {                                                                    // function descriptors
+    USB_CDC_FUNCTIONAL_DESCRIPTOR_HEADER_LENGTH,                         // descriptor size in bytes (0x05)
+    CS_INTERFACE,                                                        // type field (0x24)
+    HEADER_FUNCTION_DESCRIPTOR,                                          // header descriptor (0x00)
+    {LITTLE_SHORT_WORD_BYTES(CDC_SPEC_VERSION)}                          // {4} specification version
+    },
+
+    {
+    USB_CDC_FUNCTIONAL_DESCRIPTOR_CALL_MAN_LENGTH,                       // descriptor size in bytes (0x05)
+    CS_INTERFACE,                                                        // type field (0x24)
+    CALL_MAN_FUNCTIONAL_DESCRIPTOR,                                      // call management function descriptor (0x01)
+    CALL_MAN_FUNCTIONAL_CAPABILITY_HANDLES_CALL_MANAGEMENT,              // capabilities
+    0                                                                    // data interface
+    },                                                                   // end of function descriptors
+
+    {
+    USB_CDC_FUNCTIONAL_DESCRIPTOR_ABSTRACT_CONTROL_LENGTH,               // descriptor size in bytes (0x04)
+    CS_INTERFACE,                                                        // type field (0x24)
+    ABSTRACT_CONTROL_FUNCTION_DESCRIPTOR,                                // abstract control descriptor (0x02)
+    ABSTRACT_CONTROL_FUNCTION_CAPABILITY_LINE_STATE_CODING               // capabilities
+    },
+
+    {
+    USB_CDC_FUNCTIONAL_DESCRIPTOR_UNION_LENGTH,                          // descriptor size in bytes (0x05)
+    CS_INTERFACE,                                                        // type field (0x24)
+    UNION_FUNCTIONAL_DESCRIPTOR,                                         // union function descriptor (0x06)
+    0,                                                                   // control interface
+    1                                                                    // subordinate interface
+    },                                                                   // end of function descriptors
+    #if !defined CDC_WITHOUT_INTERRUPT_ENDPOINT
+    {                                                                    // interrupt endpoint descriptor for first interface
+    DESCRIPTOR_TYPE_ENDPOINT_LENGTH,                                     // descriptor size in bytes (0x07)
+    DESCRIPTOR_TYPE_ENDPOINT,                                            // endpoint descriptor (0x05)
+        #if defined USB_SIMPLEX_ENDPOINTS
+    (IN_ENDPOINT | 0x0e),                                                // direction and address of endpoint
+        #else
+    (IN_ENDPOINT | 0x15),                                                // direction and address of endpoint
+        #endif
+    ENDPOINT_INTERRUPT,                                                  // endpoint attributes
+    {LITTLE_SHORT_WORD_BYTES(64)},                                       // endpoint FIFO size (little-endian)
+    10                                                                   // polling interval in ms
+    },                                                                   // end of endpoint descriptor
+    #endif
+    {                                                                    // the second interface
+    DESCRIPTOR_TYPE_INTERFACE_LENGTH,                                    // descriptor size in bytes (0x09)
+    DESCRIPTOR_TYPE_INTERFACE,                                           // interface descriptor (0x04)
+    13,                                                                  // interface number 13
+    0,                                                                   // no alternative setting
+    2,                                                                   // 2 endpoints
+    INTERFACE_CLASS_COMMUNICATION_DATA,                                  // 0x0a
+    0,                                                                   // sub-class
+    0,                                                                   // interface protocol
+        #if defined USB_STRING_OPTION
+    INTERFACE_STRING_INDEX,                                              // string index for interface
+        #else
+    0                                                                    // zero when strings are not supported
+        #endif
+    },
+
+    {                                                                    // bulk out endpoint descriptor for the second interface
+    DESCRIPTOR_TYPE_ENDPOINT_LENGTH,                                     // descriptor size in bytes (0x07)
+    DESCRIPTOR_TYPE_ENDPOINT,                                            // endpoint descriptor (0x05)
+        #if defined USB_SIMPLEX_ENDPOINTS
+            #if defined CDC_WITHOUT_INTERRUPT_ENDPOINT
+    (OUT_ENDPOINT | 0x07),                                               // direction and address of endpoint
+            #else
+    (OUT_ENDPOINT | 0x0d),                                               // direction and address of endpoint
+            #endif
+        #else
+            #if defined CDC_WITHOUT_INTERRUPT_ENDPOINT
+    (OUT_ENDPOINT | 0x0d),                                               // direction and address of endpoint
+            #else
+    (OUT_ENDPOINT | 0x13),                                               // direction and address of endpoint
+            #endif
+        #endif
+    ENDPOINT_BULK,                                                       // endpoint attributes
+    {LITTLE_SHORT_WORD_BYTES(CDC_DATA_ENDPOINT_SIZE)},                   // endpoint FIFO size (little-endian)
+    0                                                                    // polling interval in ms - ignored for bulk
+    },
+
+    {                                                                    // bulk in endpoint descriptor for the second interface
+    DESCRIPTOR_TYPE_ENDPOINT_LENGTH,                                     // descriptor size in bytes (0x07)
+    DESCRIPTOR_TYPE_ENDPOINT,                                            // endpoint descriptor (0x05)
+        #if defined USB_SIMPLEX_ENDPOINTS
+            #if defined CDC_WITHOUT_INTERRUPT_ENDPOINT
+    (IN_ENDPOINT | 0x07),                                                // direction and address of endpoint
+            #else
+    (IN_ENDPOINT | 0x0d),                                                // direction and address of endpoint
+            #endif
+        #else
+            #if defined CDC_WITHOUT_INTERRUPT_ENDPOINT
+    (IN_ENDPOINT | 0x0e),                                                // direction and address of endpoint
+            #else
+    (IN_ENDPOINT | 0x14),                                                // direction and address of endpoint
+            #endif
+        #endif
+    ENDPOINT_BULK,                                                       // endpoint attributes
+    {LITTLE_SHORT_WORD_BYTES(CDC_DATA_ENDPOINT_SIZE)},                   // endpoint FIFO size (little-endian)
+    0                                                                    // polling interval in ms - ignored for bulk
+    },
+    #endif
+
+    #if (USB_CDC_COUNT > 7) && (defined USB_SIMPLEX_ENDPOINTS && defined CDC_WITHOUT_INTERRUPT_ENDPOINT) // 8 CDC interfaces are only possible when using the bulk IN/OUT on a single endpoint and when using no interrupt endpoint
+    // Interface association descriptor for eigth CDC interface
+    //
+    {                                                                    // interface association descriptor
+    DESCRIPTOR_TYPE_INTERFACE_ASSOCIATION_LENGTH,                        // 0x08
+    DESCRIPTOR_TYPE_INTERFACE_ASSOCIATION,                               // 0x0b
+    14,                                                                  // first interface number
+    2,                                                                   // interface count
+    DEVICE_CLASS_COMMUNICATION_AND_CONTROL,
+    0                                                                    // string reference
+    },
+    // Function descriptors for eigth CDC - control interface
+    //
+    {                                                                    // interface descriptor
+    DESCRIPTOR_TYPE_INTERFACE_LENGTH,                                    // length (0x09)
+    DESCRIPTOR_TYPE_INTERFACE,                                           // 0x04
+    14,                                                                  // interface number 14
+    0,                                                                   // alternative setting 0
+        #if defined CDC_WITHOUT_INTERRUPT_ENDPOINT
+    0,                                                                   // no endpoint used
+        #else
+    1,                                                                   // number of endpoints in addition to EP0
+        #endif
+    USB_CLASS_COMMUNICATION_CONTROL,                                     // interface class (0x02)
+    USB_ABSTRACT_LINE_CONTROL_MODEL,                                     // interface sub-class (0x02)
+    0,                                                                   // interface protocol
+        #if defined USB_STRING_OPTION
+    INTERFACE_STRING_INDEX,                                              // string index for interface
+        #else
+    0,                                                                   // zero when strings are not supported
+        #endif
+    },                                                                   // end of interface descriptor
+
+    {                                                                    // function descriptors
+    USB_CDC_FUNCTIONAL_DESCRIPTOR_HEADER_LENGTH,                         // descriptor size in bytes (0x05)
+    CS_INTERFACE,                                                        // type field (0x24)
+    HEADER_FUNCTION_DESCRIPTOR,                                          // header descriptor (0x00)
+    {LITTLE_SHORT_WORD_BYTES(CDC_SPEC_VERSION)}                          // {4} specification version
+    },
+
+    {
+    USB_CDC_FUNCTIONAL_DESCRIPTOR_CALL_MAN_LENGTH,                       // descriptor size in bytes (0x05)
+    CS_INTERFACE,                                                        // type field (0x24)
+    CALL_MAN_FUNCTIONAL_DESCRIPTOR,                                      // call management function descriptor (0x01)
+    CALL_MAN_FUNCTIONAL_CAPABILITY_HANDLES_CALL_MANAGEMENT,              // capabilities
+    0                                                                    // data interface
+    },                                                                   // end of function descriptors
+
+    {
+    USB_CDC_FUNCTIONAL_DESCRIPTOR_ABSTRACT_CONTROL_LENGTH,               // descriptor size in bytes (0x04)
+    CS_INTERFACE,                                                        // type field (0x24)
+    ABSTRACT_CONTROL_FUNCTION_DESCRIPTOR,                                // abstract control descriptor (0x02)
+    ABSTRACT_CONTROL_FUNCTION_CAPABILITY_LINE_STATE_CODING               // capabilities
+    },
+
+    {
+    USB_CDC_FUNCTIONAL_DESCRIPTOR_UNION_LENGTH,                          // descriptor size in bytes (0x05)
+    CS_INTERFACE,                                                        // type field (0x24)
+    UNION_FUNCTIONAL_DESCRIPTOR,                                         // union function descriptor (0x06)
+    0,                                                                   // control interface
+    1                                                                    // subordinate interface
+    },                                                                   // end of function descriptors
+    #if !defined CDC_WITHOUT_INTERRUPT_ENDPOINT
+    {                                                                    // interrupt endpoint descriptor for first interface
+    DESCRIPTOR_TYPE_ENDPOINT_LENGTH,                                     // descriptor size in bytes (0x07)
+    DESCRIPTOR_TYPE_ENDPOINT,                                            // endpoint descriptor (0x05)
+        #if defined USB_SIMPLEX_ENDPOINTS
+    (IN_ENDPOINT | 0x10),                                                // direction and address of endpoint
+        #else
+    (IN_ENDPOINT | 0x18),                                                // direction and address of endpoint
+        #endif
+    ENDPOINT_INTERRUPT,                                                  // endpoint attributes
+    {LITTLE_SHORT_WORD_BYTES(64)},                                       // endpoint FIFO size (little-endian)
+    10                                                                   // polling interval in ms
+    },                                                                   // end of endpoint descriptor
+    #endif
+    {                                                                    // the second interface
+    DESCRIPTOR_TYPE_INTERFACE_LENGTH,                                    // descriptor size in bytes (0x09)
+    DESCRIPTOR_TYPE_INTERFACE,                                           // interface descriptor (0x04)
+    15,                                                                  // interface number 15
+    0,                                                                   // no alternative setting
+    2,                                                                   // 2 endpoints
+    INTERFACE_CLASS_COMMUNICATION_DATA,                                  // 0x0a
+    0,                                                                   // sub-class
+    0,                                                                   // interface protocol
+        #if defined USB_STRING_OPTION
+    INTERFACE_STRING_INDEX,                                              // string index for interface
+        #else
+    0                                                                    // zero when strings are not supported
+        #endif
+    },
+
+    {                                                                    // bulk out endpoint descriptor for the second interface
+    DESCRIPTOR_TYPE_ENDPOINT_LENGTH,                                     // descriptor size in bytes (0x07)
+    DESCRIPTOR_TYPE_ENDPOINT,                                            // endpoint descriptor (0x05)
+        #if defined USB_SIMPLEX_ENDPOINTS
+            #if defined CDC_WITHOUT_INTERRUPT_ENDPOINT
+    (OUT_ENDPOINT | 0x08),                                               // direction and address of endpoint
+            #else
+    (OUT_ENDPOINT | 0x0f),                                               // direction and address of endpoint
+            #endif
+        #else
+            #if defined CDC_WITHOUT_INTERRUPT_ENDPOINT
+    (OUT_ENDPOINT | 0x0f),                                               // direction and address of endpoint
+            #else
+    (OUT_ENDPOINT | 0x16),                                               // direction and address of endpoint
+            #endif
+        #endif
+    ENDPOINT_BULK,                                                       // endpoint attributes
+    {LITTLE_SHORT_WORD_BYTES(CDC_DATA_ENDPOINT_SIZE)},                   // endpoint FIFO size (little-endian)
+    0                                                                    // polling interval in ms - ignored for bulk
+    },
+
+    {                                                                    // bulk in endpoint descriptor for the second interface
+    DESCRIPTOR_TYPE_ENDPOINT_LENGTH,                                     // descriptor size in bytes (0x07)
+    DESCRIPTOR_TYPE_ENDPOINT,                                            // endpoint descriptor (0x05)
+        #if defined USB_SIMPLEX_ENDPOINTS
+            #if defined CDC_WITHOUT_INTERRUPT_ENDPOINT
+    (IN_ENDPOINT | 0x08),                                                // direction and address of endpoint
+            #else
+    (IN_ENDPOINT | 0x0f),                                                // direction and address of endpoint
+            #endif
+        #else
+            #if defined CDC_WITHOUT_INTERRUPT_ENDPOINT
+    (IN_ENDPOINT | 0x10),                                                // direction and address of endpoint
+            #else
+    (IN_ENDPOINT | 0x17),                                                // direction and address of endpoint
+            #endif
+        #endif
+    ENDPOINT_BULK,                                                       // endpoint attributes
+    {LITTLE_SHORT_WORD_BYTES(CDC_DATA_ENDPOINT_SIZE)},                   // endpoint FIFO size (little-endian)
+    0                                                                    // polling interval in ms - ignored for bulk
+    },
+    #endif
+
+    #if (USB_CDC_COUNT > 8) && (defined USB_SIMPLEX_ENDPOINTS && defined CDC_WITHOUT_INTERRUPT_ENDPOINT) // 9 CDC interfaces are only possible when using the bulk IN/OUT on a single endpoint and when using no interrupt endpoint
+    // Interface association descriptor for ninth CDC interface
+    //
+    {                                                                    // interface association descriptor
+    DESCRIPTOR_TYPE_INTERFACE_ASSOCIATION_LENGTH,                        // 0x08
+    DESCRIPTOR_TYPE_INTERFACE_ASSOCIATION,                               // 0x0b
+    16,                                                                  // first interface number
+    2,                                                                   // interface count
+    DEVICE_CLASS_COMMUNICATION_AND_CONTROL,
+    0                                                                    // string reference
+    },
+    // Function descriptors for ninth CDC - control interface
+    //
+    {                                                                    // interface descriptor
+    DESCRIPTOR_TYPE_INTERFACE_LENGTH,                                    // length (0x09)
+    DESCRIPTOR_TYPE_INTERFACE,                                           // 0x04
+    16,                                                                  // interface number 16
+    0,                                                                   // alternative setting 0
+        #if defined CDC_WITHOUT_INTERRUPT_ENDPOINT
+    0,                                                                   // no endpoint used
+        #else
+    1,                                                                   // number of endpoints in addition to EP0
+        #endif
+    USB_CLASS_COMMUNICATION_CONTROL,                                     // interface class (0x02)
+    USB_ABSTRACT_LINE_CONTROL_MODEL,                                     // interface sub-class (0x02)
+    0,                                                                   // interface protocol
+        #if defined USB_STRING_OPTION
+    INTERFACE_STRING_INDEX,                                              // string index for interface
+        #else
+    0,                                                                   // zero when strings are not supported
+        #endif
+    },                                                                   // end of interface descriptor
+
+    {                                                                    // function descriptors
+    USB_CDC_FUNCTIONAL_DESCRIPTOR_HEADER_LENGTH,                         // descriptor size in bytes (0x05)
+    CS_INTERFACE,                                                        // type field (0x24)
+    HEADER_FUNCTION_DESCRIPTOR,                                          // header descriptor (0x00)
+    {LITTLE_SHORT_WORD_BYTES(CDC_SPEC_VERSION)}                          // {4} specification version
+    },
+
+    {
+    USB_CDC_FUNCTIONAL_DESCRIPTOR_CALL_MAN_LENGTH,                       // descriptor size in bytes (0x05)
+    CS_INTERFACE,                                                        // type field (0x24)
+    CALL_MAN_FUNCTIONAL_DESCRIPTOR,                                      // call management function descriptor (0x01)
+    CALL_MAN_FUNCTIONAL_CAPABILITY_HANDLES_CALL_MANAGEMENT,              // capabilities
+    0                                                                    // data interface
+    },                                                                   // end of function descriptors
+
+    {
+    USB_CDC_FUNCTIONAL_DESCRIPTOR_ABSTRACT_CONTROL_LENGTH,               // descriptor size in bytes (0x04)
+    CS_INTERFACE,                                                        // type field (0x24)
+    ABSTRACT_CONTROL_FUNCTION_DESCRIPTOR,                                // abstract control descriptor (0x02)
+    ABSTRACT_CONTROL_FUNCTION_CAPABILITY_LINE_STATE_CODING               // capabilities
+    },
+
+    {
+    USB_CDC_FUNCTIONAL_DESCRIPTOR_UNION_LENGTH,                          // descriptor size in bytes (0x05)
+    CS_INTERFACE,                                                        // type field (0x24)
+    UNION_FUNCTIONAL_DESCRIPTOR,                                         // union function descriptor (0x06)
+    0,                                                                   // control interface
+    1                                                                    // subordinate interface
+    },                                                                   // end of function descriptors
+    #if !defined CDC_WITHOUT_INTERRUPT_ENDPOINT
+    {                                                                    // interrupt endpoint descriptor for first interface
+    DESCRIPTOR_TYPE_ENDPOINT_LENGTH,                                     // descriptor size in bytes (0x07)
+    DESCRIPTOR_TYPE_ENDPOINT,                                            // endpoint descriptor (0x05)
+        #if defined USB_SIMPLEX_ENDPOINTS
+    (IN_ENDPOINT | 0x12),                                                // direction and address of endpoint
+        #else
+    (IN_ENDPOINT | 0x1b),                                                // direction and address of endpoint
+        #endif
+    ENDPOINT_INTERRUPT,                                                  // endpoint attributes
+    {LITTLE_SHORT_WORD_BYTES(64)},                                       // endpoint FIFO size (little-endian)
+    10                                                                   // polling interval in ms
+    },                                                                   // end of endpoint descriptor
+    #endif
+    {                                                                    // the second interface
+    DESCRIPTOR_TYPE_INTERFACE_LENGTH,                                    // descriptor size in bytes (0x09)
+    DESCRIPTOR_TYPE_INTERFACE,                                           // interface descriptor (0x04)
+    17,                                                                  // interface number 17
+    0,                                                                   // no alternative setting
+    2,                                                                   // 2 endpoints
+    INTERFACE_CLASS_COMMUNICATION_DATA,                                  // 0x0a
+    0,                                                                   // sub-class
+    0,                                                                   // interface protocol
+        #if defined USB_STRING_OPTION
+    INTERFACE_STRING_INDEX,                                              // string index for interface
+        #else
+    0                                                                    // zero when strings are not supported
+        #endif
+    },
+
+    {                                                                    // bulk out endpoint descriptor for the second interface
+    DESCRIPTOR_TYPE_ENDPOINT_LENGTH,                                     // descriptor size in bytes (0x07)
+    DESCRIPTOR_TYPE_ENDPOINT,                                            // endpoint descriptor (0x05)
+        #if defined USB_SIMPLEX_ENDPOINTS
+            #if defined CDC_WITHOUT_INTERRUPT_ENDPOINT
+    (OUT_ENDPOINT | 0x09),                                               // direction and address of endpoint
+            #else
+    (OUT_ENDPOINT | 0x11),                                               // direction and address of endpoint
+            #endif
+        #else
+            #if defined CDC_WITHOUT_INTERRUPT_ENDPOINT
+    (OUT_ENDPOINT | 0x11),                                               // direction and address of endpoint
+            #else
+    (OUT_ENDPOINT | 0x19),                                               // direction and address of endpoint
+            #endif
+        #endif
+    ENDPOINT_BULK,                                                       // endpoint attributes
+    {LITTLE_SHORT_WORD_BYTES(CDC_DATA_ENDPOINT_SIZE)},                   // endpoint FIFO size (little-endian)
+    0                                                                    // polling interval in ms - ignored for bulk
+    },
+
+    {                                                                    // bulk in endpoint descriptor for the second interface
+    DESCRIPTOR_TYPE_ENDPOINT_LENGTH,                                     // descriptor size in bytes (0x07)
+    DESCRIPTOR_TYPE_ENDPOINT,                                            // endpoint descriptor (0x05)
+        #if defined USB_SIMPLEX_ENDPOINTS
+            #if defined CDC_WITHOUT_INTERRUPT_ENDPOINT
+    (IN_ENDPOINT | 0x09),                                                // direction and address of endpoint
+            #else
+    (IN_ENDPOINT | 0x11),                                                // direction and address of endpoint
+            #endif
+        #else
+            #if defined CDC_WITHOUT_INTERRUPT_ENDPOINT
+    (IN_ENDPOINT | 0x12),                                                // direction and address of endpoint
+            #else
+    (IN_ENDPOINT | 0x1a),                                                // direction and address of endpoint
+            #endif
+        #endif
+    ENDPOINT_BULK,                                                       // endpoint attributes
+    {LITTLE_SHORT_WORD_BYTES(CDC_DATA_ENDPOINT_SIZE)},                   // endpoint FIFO size (little-endian)
+    0                                                                    // polling interval in ms - ignored for bulk
+    },
+    #endif
+
+    #if (USB_CDC_COUNT > 9) && (defined USB_SIMPLEX_ENDPOINTS && defined CDC_WITHOUT_INTERRUPT_ENDPOINT) // 10 CDC interfaces are only possible when using the bulk IN/OUT on a single endpoint and when using no interrupt endpoint
+    // Interface association descriptor for tenth CDC interface
+    //
+    {                                                                    // interface association descriptor
+    DESCRIPTOR_TYPE_INTERFACE_ASSOCIATION_LENGTH,                        // 0x08
+    DESCRIPTOR_TYPE_INTERFACE_ASSOCIATION,                               // 0x0b
+    18,                                                                  // first interface number
+    2,                                                                   // interface count
+    DEVICE_CLASS_COMMUNICATION_AND_CONTROL,
+    0                                                                    // string reference
+    },
+    // Function descriptors for tenth CDC - control interface
+    //
+    {                                                                    // interface descriptor
+    DESCRIPTOR_TYPE_INTERFACE_LENGTH,                                    // length (0x09)
+    DESCRIPTOR_TYPE_INTERFACE,                                           // 0x04
+    18,                                                                  // interface number 18
+    0,                                                                   // alternative setting 0
+        #if defined CDC_WITHOUT_INTERRUPT_ENDPOINT
+    0,                                                                   // no endpoint used
+        #else
+    1,                                                                   // number of endpoints in addition to EP0
+        #endif
+    USB_CLASS_COMMUNICATION_CONTROL,                                     // interface class (0x02)
+    USB_ABSTRACT_LINE_CONTROL_MODEL,                                     // interface sub-class (0x02)
+    0,                                                                   // interface protocol
+        #if defined USB_STRING_OPTION
+    INTERFACE_STRING_INDEX,                                              // string index for interface
+        #else
+    0,                                                                   // zero when strings are not supported
+        #endif
+    },                                                                   // end of interface descriptor
+
+    {                                                                    // function descriptors
+    USB_CDC_FUNCTIONAL_DESCRIPTOR_HEADER_LENGTH,                         // descriptor size in bytes (0x05)
+    CS_INTERFACE,                                                        // type field (0x24)
+    HEADER_FUNCTION_DESCRIPTOR,                                          // header descriptor (0x00)
+    {LITTLE_SHORT_WORD_BYTES(CDC_SPEC_VERSION)}                          // {4} specification version
+    },
+
+    {
+    USB_CDC_FUNCTIONAL_DESCRIPTOR_CALL_MAN_LENGTH,                       // descriptor size in bytes (0x05)
+    CS_INTERFACE,                                                        // type field (0x24)
+    CALL_MAN_FUNCTIONAL_DESCRIPTOR,                                      // call management function descriptor (0x01)
+    CALL_MAN_FUNCTIONAL_CAPABILITY_HANDLES_CALL_MANAGEMENT,              // capabilities
+    0                                                                    // data interface
+    },                                                                   // end of function descriptors
+
+    {
+    USB_CDC_FUNCTIONAL_DESCRIPTOR_ABSTRACT_CONTROL_LENGTH,               // descriptor size in bytes (0x04)
+    CS_INTERFACE,                                                        // type field (0x24)
+    ABSTRACT_CONTROL_FUNCTION_DESCRIPTOR,                                // abstract control descriptor (0x02)
+    ABSTRACT_CONTROL_FUNCTION_CAPABILITY_LINE_STATE_CODING               // capabilities
+    },
+
+    {
+    USB_CDC_FUNCTIONAL_DESCRIPTOR_UNION_LENGTH,                          // descriptor size in bytes (0x05)
+    CS_INTERFACE,                                                        // type field (0x24)
+    UNION_FUNCTIONAL_DESCRIPTOR,                                         // union function descriptor (0x06)
+    0,                                                                   // control interface
+    1                                                                    // subordinate interface
+    },                                                                   // end of function descriptors
+    #if !defined CDC_WITHOUT_INTERRUPT_ENDPOINT
+    {                                                                    // interrupt endpoint descriptor for first interface
+    DESCRIPTOR_TYPE_ENDPOINT_LENGTH,                                     // descriptor size in bytes (0x07)
+    DESCRIPTOR_TYPE_ENDPOINT,                                            // endpoint descriptor (0x05)
+        #if defined USB_SIMPLEX_ENDPOINTS
+    (IN_ENDPOINT | 0x14),                                                // direction and address of endpoint
+        #else
+    (IN_ENDPOINT | 0x1e),                                                // direction and address of endpoint
+        #endif
+    ENDPOINT_INTERRUPT,                                                  // endpoint attributes
+    {LITTLE_SHORT_WORD_BYTES(64)},                                       // endpoint FIFO size (little-endian)
+    10                                                                   // polling interval in ms
+    },                                                                   // end of endpoint descriptor
+    #endif
+    {                                                                    // the second interface
+    DESCRIPTOR_TYPE_INTERFACE_LENGTH,                                    // descriptor size in bytes (0x09)
+    DESCRIPTOR_TYPE_INTERFACE,                                           // interface descriptor (0x04)
+    19,                                                                  // interface number 19
+    0,                                                                   // no alternative setting
+    2,                                                                   // 2 endpoints
+    INTERFACE_CLASS_COMMUNICATION_DATA,                                  // 0x0a
+    0,                                                                   // sub-class
+    0,                                                                   // interface protocol
+        #if defined USB_STRING_OPTION
+    INTERFACE_STRING_INDEX,                                              // string index for interface
+        #else
+    0                                                                    // zero when strings are not supported
+        #endif
+    },
+
+    {                                                                    // bulk out endpoint descriptor for the second interface
+    DESCRIPTOR_TYPE_ENDPOINT_LENGTH,                                     // descriptor size in bytes (0x07)
+    DESCRIPTOR_TYPE_ENDPOINT,                                            // endpoint descriptor (0x05)
+        #if defined USB_SIMPLEX_ENDPOINTS
+            #if defined CDC_WITHOUT_INTERRUPT_ENDPOINT
+    (OUT_ENDPOINT | 0x0a),                                               // direction and address of endpoint
+            #else
+    (OUT_ENDPOINT | 0x13),                                               // direction and address of endpoint
+            #endif
+        #else
+            #if defined CDC_WITHOUT_INTERRUPT_ENDPOINT
+    (OUT_ENDPOINT | 0x13),                                               // direction and address of endpoint
+            #else
+    (OUT_ENDPOINT | 0x1c),                                               // direction and address of endpoint
+            #endif
+        #endif
+    ENDPOINT_BULK,                                                       // endpoint attributes
+    {LITTLE_SHORT_WORD_BYTES(CDC_DATA_ENDPOINT_SIZE)},                   // endpoint FIFO size (little-endian)
+    0                                                                    // polling interval in ms - ignored for bulk
+    },
+
+    {                                                                    // bulk in endpoint descriptor for the second interface
+    DESCRIPTOR_TYPE_ENDPOINT_LENGTH,                                     // descriptor size in bytes (0x07)
+    DESCRIPTOR_TYPE_ENDPOINT,                                            // endpoint descriptor (0x05)
+        #if defined USB_SIMPLEX_ENDPOINTS
+            #if defined CDC_WITHOUT_INTERRUPT_ENDPOINT
+    (IN_ENDPOINT | 0x0a),                                                // direction and address of endpoint
+            #else
+    (IN_ENDPOINT | 0x13),                                                // direction and address of endpoint
+            #endif
+        #else
+            #if defined CDC_WITHOUT_INTERRUPT_ENDPOINT
+    (IN_ENDPOINT | 0x14),                                                // direction and address of endpoint
+            #else
+    (IN_ENDPOINT | 0x1d),                                                // direction and address of endpoint
+            #endif
+        #endif
+    ENDPOINT_BULK,                                                       // endpoint attributes
+    {LITTLE_SHORT_WORD_BYTES(CDC_DATA_ENDPOINT_SIZE)},                   // endpoint FIFO size (little-endian)
+    0                                                                    // polling interval in ms - ignored for bulk
+    },
+    #endif
+
+    #if (USB_CDC_COUNT > 10) && (defined USB_SIMPLEX_ENDPOINTS && defined CDC_WITHOUT_INTERRUPT_ENDPOINT) // 11 CDC interfaces are only possible when using the bulk IN/OUT on a single endpoint and when using no interrupt endpoint
+    // Interface association descriptor for eleventh CDC interface
+    //
+    {                                                                    // interface association descriptor
+    DESCRIPTOR_TYPE_INTERFACE_ASSOCIATION_LENGTH,                        // 0x08
+    DESCRIPTOR_TYPE_INTERFACE_ASSOCIATION,                               // 0x0b
+    20,                                                                  // first interface number
+    2,                                                                   // interface count
+    DEVICE_CLASS_COMMUNICATION_AND_CONTROL,
+    0                                                                    // string reference
+    },
+    // Function descriptors for eleventh CDC - control interface
+    //
+    {                                                                    // interface descriptor
+    DESCRIPTOR_TYPE_INTERFACE_LENGTH,                                    // length (0x09)
+    DESCRIPTOR_TYPE_INTERFACE,                                           // 0x04
+    20,                                                                  // interface number 20
+    0,                                                                   // alternative setting 0
+        #if defined CDC_WITHOUT_INTERRUPT_ENDPOINT
+    0,                                                                   // no endpoint used
+        #else
+    1,                                                                   // number of endpoints in addition to EP0
+        #endif
+    USB_CLASS_COMMUNICATION_CONTROL,                                     // interface class (0x02)
+    USB_ABSTRACT_LINE_CONTROL_MODEL,                                     // interface sub-class (0x02)
+    0,                                                                   // interface protocol
+        #if defined USB_STRING_OPTION
+    INTERFACE_STRING_INDEX,                                              // string index for interface
+        #else
+    0,                                                                   // zero when strings are not supported
+        #endif
+    },                                                                   // end of interface descriptor
+
+    {                                                                    // function descriptors
+    USB_CDC_FUNCTIONAL_DESCRIPTOR_HEADER_LENGTH,                         // descriptor size in bytes (0x05)
+    CS_INTERFACE,                                                        // type field (0x24)
+    HEADER_FUNCTION_DESCRIPTOR,                                          // header descriptor (0x00)
+    {LITTLE_SHORT_WORD_BYTES(CDC_SPEC_VERSION)}                          // {4} specification version
+    },
+
+    {
+    USB_CDC_FUNCTIONAL_DESCRIPTOR_CALL_MAN_LENGTH,                       // descriptor size in bytes (0x05)
+    CS_INTERFACE,                                                        // type field (0x24)
+    CALL_MAN_FUNCTIONAL_DESCRIPTOR,                                      // call management function descriptor (0x01)
+    CALL_MAN_FUNCTIONAL_CAPABILITY_HANDLES_CALL_MANAGEMENT,              // capabilities
+    0                                                                    // data interface
+    },                                                                   // end of function descriptors
+
+    {
+    USB_CDC_FUNCTIONAL_DESCRIPTOR_ABSTRACT_CONTROL_LENGTH,               // descriptor size in bytes (0x04)
+    CS_INTERFACE,                                                        // type field (0x24)
+    ABSTRACT_CONTROL_FUNCTION_DESCRIPTOR,                                // abstract control descriptor (0x02)
+    ABSTRACT_CONTROL_FUNCTION_CAPABILITY_LINE_STATE_CODING               // capabilities
+    },
+
+    {
+    USB_CDC_FUNCTIONAL_DESCRIPTOR_UNION_LENGTH,                          // descriptor size in bytes (0x05)
+    CS_INTERFACE,                                                        // type field (0x24)
+    UNION_FUNCTIONAL_DESCRIPTOR,                                         // union function descriptor (0x06)
+    0,                                                                   // control interface
+    1                                                                    // subordinate interface
+    },                                                                   // end of function descriptors
+    #if !defined CDC_WITHOUT_INTERRUPT_ENDPOINT
+    {                                                                    // interrupt endpoint descriptor for first interface
+    DESCRIPTOR_TYPE_ENDPOINT_LENGTH,                                     // descriptor size in bytes (0x07)
+    DESCRIPTOR_TYPE_ENDPOINT,                                            // endpoint descriptor (0x05)
+        #if defined USB_SIMPLEX_ENDPOINTS
+    (IN_ENDPOINT | 0x16),                                                // direction and address of endpoint
+        #else
+    (IN_ENDPOINT | 0x22),                                                // direction and address of endpoint
+        #endif
+    ENDPOINT_INTERRUPT,                                                  // endpoint attributes
+    {LITTLE_SHORT_WORD_BYTES(64)},                                       // endpoint FIFO size (little-endian)
+    10                                                                   // polling interval in ms
+    },                                                                   // end of endpoint descriptor
+    #endif
+    {                                                                    // the second interface
+    DESCRIPTOR_TYPE_INTERFACE_LENGTH,                                    // descriptor size in bytes (0x09)
+    DESCRIPTOR_TYPE_INTERFACE,                                           // interface descriptor (0x04)
+    21,                                                                  // interface number 21
+    0,                                                                   // no alternative setting
+    2,                                                                   // 2 endpoints
+    INTERFACE_CLASS_COMMUNICATION_DATA,                                  // 0x0a
+    0,                                                                   // sub-class
+    0,                                                                   // interface protocol
+        #if defined USB_STRING_OPTION
+    INTERFACE_STRING_INDEX,                                              // string index for interface
+        #else
+    0                                                                    // zero when strings are not supported
+        #endif
+    },
+
+    {                                                                    // bulk out endpoint descriptor for the second interface
+    DESCRIPTOR_TYPE_ENDPOINT_LENGTH,                                     // descriptor size in bytes (0x07)
+    DESCRIPTOR_TYPE_ENDPOINT,                                            // endpoint descriptor (0x05)
+        #if defined USB_SIMPLEX_ENDPOINTS
+            #if defined CDC_WITHOUT_INTERRUPT_ENDPOINT
+    (OUT_ENDPOINT | 0x0b),                                               // direction and address of endpoint
+            #else
+    (OUT_ENDPOINT | 0x15),                                               // direction and address of endpoint
+            #endif
+        #else
+            #if defined CDC_WITHOUT_INTERRUPT_ENDPOINT
+    (OUT_ENDPOINT | 0x15),                                               // direction and address of endpoint
+            #else
+    (OUT_ENDPOINT | 0x1f),                                               // direction and address of endpoint
+            #endif
+        #endif
+    ENDPOINT_BULK,                                                       // endpoint attributes
+    {LITTLE_SHORT_WORD_BYTES(CDC_DATA_ENDPOINT_SIZE)},                   // endpoint FIFO size (little-endian)
+    0                                                                    // polling interval in ms - ignored for bulk
+    },
+
+    {                                                                    // bulk in endpoint descriptor for the second interface
+    DESCRIPTOR_TYPE_ENDPOINT_LENGTH,                                     // descriptor size in bytes (0x07)
+    DESCRIPTOR_TYPE_ENDPOINT,                                            // endpoint descriptor (0x05)
+        #if defined USB_SIMPLEX_ENDPOINTS
+            #if defined CDC_WITHOUT_INTERRUPT_ENDPOINT
+    (IN_ENDPOINT | 0x0b),                                                // direction and address of endpoint
+            #else
+    (IN_ENDPOINT | 0x15),                                                // direction and address of endpoint
+            #endif
+        #else
+            #if defined CDC_WITHOUT_INTERRUPT_ENDPOINT
+    (IN_ENDPOINT | 0x16),                                                // direction and address of endpoint
+            #else
+    (IN_ENDPOINT | 0x20),                                                // direction and address of endpoint
+            #endif
+        #endif
+    ENDPOINT_BULK,                                                       // endpoint attributes
+    {LITTLE_SHORT_WORD_BYTES(CDC_DATA_ENDPOINT_SIZE)},                   // endpoint FIFO size (little-endian)
+    0                                                                    // polling interval in ms - ignored for bulk
+    },
+    #endif
+
+    #if (USB_CDC_COUNT > 11) && (defined USB_SIMPLEX_ENDPOINTS && defined CDC_WITHOUT_INTERRUPT_ENDPOINT) // 12 CDC interfaces are only possible when using the bulk IN/OUT on a single endpoint and when using no interrupt endpoint
+    // Interface association descriptor for eleventh CDC interface
+    //
+    {                                                                    // interface association descriptor
+    DESCRIPTOR_TYPE_INTERFACE_ASSOCIATION_LENGTH,                        // 0x08
+    DESCRIPTOR_TYPE_INTERFACE_ASSOCIATION,                               // 0x0b
+    22,                                                                  // first interface number
+    2,                                                                   // interface count
+    DEVICE_CLASS_COMMUNICATION_AND_CONTROL,
+    0                                                                    // string reference
+    },
+    // Function descriptors for eleventh CDC - control interface
+    //
+    {                                                                    // interface descriptor
+    DESCRIPTOR_TYPE_INTERFACE_LENGTH,                                    // length (0x09)
+    DESCRIPTOR_TYPE_INTERFACE,                                           // 0x04
+    22,                                                                  // interface number 22
+    0,                                                                   // alternative setting 0
+        #if defined CDC_WITHOUT_INTERRUPT_ENDPOINT
+    0,                                                                   // no endpoint used
+        #else
+    1,                                                                   // number of endpoints in addition to EP0
+        #endif
+    USB_CLASS_COMMUNICATION_CONTROL,                                     // interface class (0x02)
+    USB_ABSTRACT_LINE_CONTROL_MODEL,                                     // interface sub-class (0x02)
+    0,                                                                   // interface protocol
+        #if defined USB_STRING_OPTION
+    INTERFACE_STRING_INDEX,                                              // string index for interface
+        #else
+    0,                                                                   // zero when strings are not supported
+        #endif
+    },                                                                   // end of interface descriptor
+
+    {                                                                    // function descriptors
+    USB_CDC_FUNCTIONAL_DESCRIPTOR_HEADER_LENGTH,                         // descriptor size in bytes (0x05)
+    CS_INTERFACE,                                                        // type field (0x24)
+    HEADER_FUNCTION_DESCRIPTOR,                                          // header descriptor (0x00)
+    {LITTLE_SHORT_WORD_BYTES(CDC_SPEC_VERSION)}                          // {4} specification version
+    },
+
+    {
+    USB_CDC_FUNCTIONAL_DESCRIPTOR_CALL_MAN_LENGTH,                       // descriptor size in bytes (0x05)
+    CS_INTERFACE,                                                        // type field (0x24)
+    CALL_MAN_FUNCTIONAL_DESCRIPTOR,                                      // call management function descriptor (0x01)
+    CALL_MAN_FUNCTIONAL_CAPABILITY_HANDLES_CALL_MANAGEMENT,              // capabilities
+    0                                                                    // data interface
+    },                                                                   // end of function descriptors
+
+    {
+    USB_CDC_FUNCTIONAL_DESCRIPTOR_ABSTRACT_CONTROL_LENGTH,               // descriptor size in bytes (0x04)
+    CS_INTERFACE,                                                        // type field (0x24)
+    ABSTRACT_CONTROL_FUNCTION_DESCRIPTOR,                                // abstract control descriptor (0x02)
+    ABSTRACT_CONTROL_FUNCTION_CAPABILITY_LINE_STATE_CODING               // capabilities
+    },
+
+    {
+    USB_CDC_FUNCTIONAL_DESCRIPTOR_UNION_LENGTH,                          // descriptor size in bytes (0x05)
+    CS_INTERFACE,                                                        // type field (0x24)
+    UNION_FUNCTIONAL_DESCRIPTOR,                                         // union function descriptor (0x06)
+    0,                                                                   // control interface
+    1                                                                    // subordinate interface
+    },                                                                   // end of function descriptors
+    #if !defined CDC_WITHOUT_INTERRUPT_ENDPOINT
+    {                                                                    // interrupt endpoint descriptor for first interface
+    DESCRIPTOR_TYPE_ENDPOINT_LENGTH,                                     // descriptor size in bytes (0x07)
+    DESCRIPTOR_TYPE_ENDPOINT,                                            // endpoint descriptor (0x05)
+        #if defined USB_SIMPLEX_ENDPOINTS
+    (IN_ENDPOINT | 0x18),                                                // direction and address of endpoint
+        #else
+    (IN_ENDPOINT | 0x25),                                                // direction and address of endpoint
+        #endif
+    ENDPOINT_INTERRUPT,                                                  // endpoint attributes
+    {LITTLE_SHORT_WORD_BYTES(64)},                                       // endpoint FIFO size (little-endian)
+    10                                                                   // polling interval in ms
+    },                                                                   // end of endpoint descriptor
+    #endif
+    {                                                                    // the second interface
+    DESCRIPTOR_TYPE_INTERFACE_LENGTH,                                    // descriptor size in bytes (0x09)
+    DESCRIPTOR_TYPE_INTERFACE,                                           // interface descriptor (0x04)
+    23,                                                                  // interface number 23
+    0,                                                                   // no alternative setting
+    2,                                                                   // 2 endpoints
+    INTERFACE_CLASS_COMMUNICATION_DATA,                                  // 0x0a
+    0,                                                                   // sub-class
+    0,                                                                   // interface protocol
+        #if defined USB_STRING_OPTION
+    INTERFACE_STRING_INDEX,                                              // string index for interface
+        #else
+    0                                                                    // zero when strings are not supported
+        #endif
+    },
+
+    {                                                                    // bulk out endpoint descriptor for the second interface
+    DESCRIPTOR_TYPE_ENDPOINT_LENGTH,                                     // descriptor size in bytes (0x07)
+    DESCRIPTOR_TYPE_ENDPOINT,                                            // endpoint descriptor (0x05)
+        #if defined USB_SIMPLEX_ENDPOINTS
+            #if defined CDC_WITHOUT_INTERRUPT_ENDPOINT
+    (OUT_ENDPOINT | 0x0c),                                               // direction and address of endpoint
+            #else
+    (OUT_ENDPOINT | 0x17),                                               // direction and address of endpoint
+            #endif
+        #else
+            #if defined CDC_WITHOUT_INTERRUPT_ENDPOINT
+    (OUT_ENDPOINT | 0x17),                                               // direction and address of endpoint
+            #else
+    (OUT_ENDPOINT | 0x22),                                               // direction and address of endpoint
+            #endif
+        #endif
+    ENDPOINT_BULK,                                                       // endpoint attributes
+    {LITTLE_SHORT_WORD_BYTES(CDC_DATA_ENDPOINT_SIZE)},                   // endpoint FIFO size (little-endian)
+    0                                                                    // polling interval in ms - ignored for bulk
+    },
+
+    {                                                                    // bulk in endpoint descriptor for the second interface
+    DESCRIPTOR_TYPE_ENDPOINT_LENGTH,                                     // descriptor size in bytes (0x07)
+    DESCRIPTOR_TYPE_ENDPOINT,                                            // endpoint descriptor (0x05)
+        #if defined USB_SIMPLEX_ENDPOINTS
+            #if defined CDC_WITHOUT_INTERRUPT_ENDPOINT
+    (IN_ENDPOINT | 0x0c),                                                // direction and address of endpoint
+            #else
+    (IN_ENDPOINT | 0x17),                                                // direction and address of endpoint
+            #endif
+        #else
+            #if defined CDC_WITHOUT_INTERRUPT_ENDPOINT
+    (IN_ENDPOINT | 0x18),                                                // direction and address of endpoint
+            #else
+    (IN_ENDPOINT | 0x23),                                                // direction and address of endpoint
+            #endif
+        #endif
+    ENDPOINT_BULK,                                                       // endpoint attributes
+    {LITTLE_SHORT_WORD_BYTES(CDC_DATA_ENDPOINT_SIZE)},                   // endpoint FIFO size (little-endian)
+    0                                                                    // polling interval in ms - ignored for bulk
+    },
+    #endif
+
+    #if (USB_CDC_COUNT > 12) && (defined USB_SIMPLEX_ENDPOINTS && defined CDC_WITHOUT_INTERRUPT_ENDPOINT) // 13 CDC interfaces are only possible when using the bulk IN/OUT on a single endpoint and when using no interrupt endpoint
+    // Interface association descriptor for twelfth CDC interface
+    //
+    {                                                                    // interface association descriptor
+    DESCRIPTOR_TYPE_INTERFACE_ASSOCIATION_LENGTH,                        // 0x08
+    DESCRIPTOR_TYPE_INTERFACE_ASSOCIATION,                               // 0x0b
+    24,                                                                  // first interface number
+    2,                                                                   // interface count
+    DEVICE_CLASS_COMMUNICATION_AND_CONTROL,
+    0                                                                    // string reference
+    },
+    // Function descriptors for twelfth CDC - control interface
+    //
+    {                                                                    // interface descriptor
+    DESCRIPTOR_TYPE_INTERFACE_LENGTH,                                    // length (0x09)
+    DESCRIPTOR_TYPE_INTERFACE,                                           // 0x04
+    24,                                                                  // interface number 24
+    0,                                                                   // alternative setting 0
+        #if defined CDC_WITHOUT_INTERRUPT_ENDPOINT
+    0,                                                                   // no endpoint used
+        #else
+    1,                                                                   // number of endpoints in addition to EP0
+        #endif
+    USB_CLASS_COMMUNICATION_CONTROL,                                     // interface class (0x02)
+    USB_ABSTRACT_LINE_CONTROL_MODEL,                                     // interface sub-class (0x02)
+    0,                                                                   // interface protocol
+        #if defined USB_STRING_OPTION
+    INTERFACE_STRING_INDEX,                                              // string index for interface
+        #else
+    0,                                                                   // zero when strings are not supported
+        #endif
+    },                                                                   // end of interface descriptor
+
+    {                                                                    // function descriptors
+    USB_CDC_FUNCTIONAL_DESCRIPTOR_HEADER_LENGTH,                         // descriptor size in bytes (0x05)
+    CS_INTERFACE,                                                        // type field (0x24)
+    HEADER_FUNCTION_DESCRIPTOR,                                          // header descriptor (0x00)
+    {LITTLE_SHORT_WORD_BYTES(CDC_SPEC_VERSION)}                          // {4} specification version
+    },
+
+    {
+    USB_CDC_FUNCTIONAL_DESCRIPTOR_CALL_MAN_LENGTH,                       // descriptor size in bytes (0x05)
+    CS_INTERFACE,                                                        // type field (0x24)
+    CALL_MAN_FUNCTIONAL_DESCRIPTOR,                                      // call management function descriptor (0x01)
+    CALL_MAN_FUNCTIONAL_CAPABILITY_HANDLES_CALL_MANAGEMENT,              // capabilities
+    0                                                                    // data interface
+    },                                                                   // end of function descriptors
+
+    {
+    USB_CDC_FUNCTIONAL_DESCRIPTOR_ABSTRACT_CONTROL_LENGTH,               // descriptor size in bytes (0x04)
+    CS_INTERFACE,                                                        // type field (0x24)
+    ABSTRACT_CONTROL_FUNCTION_DESCRIPTOR,                                // abstract control descriptor (0x02)
+    ABSTRACT_CONTROL_FUNCTION_CAPABILITY_LINE_STATE_CODING               // capabilities
+    },
+
+    {
+    USB_CDC_FUNCTIONAL_DESCRIPTOR_UNION_LENGTH,                          // descriptor size in bytes (0x05)
+    CS_INTERFACE,                                                        // type field (0x24)
+    UNION_FUNCTIONAL_DESCRIPTOR,                                         // union function descriptor (0x06)
+    0,                                                                   // control interface
+    1                                                                    // subordinate interface
+    },                                                                   // end of function descriptors
+    #if !defined CDC_WITHOUT_INTERRUPT_ENDPOINT
+    {                                                                    // interrupt endpoint descriptor for first interface
+    DESCRIPTOR_TYPE_ENDPOINT_LENGTH,                                     // descriptor size in bytes (0x07)
+    DESCRIPTOR_TYPE_ENDPOINT,                                            // endpoint descriptor (0x05)
+        #if defined USB_SIMPLEX_ENDPOINTS
+    (IN_ENDPOINT | 0x1a),                                                // direction and address of endpoint
+        #else
+    (IN_ENDPOINT | 0x28),                                                // direction and address of endpoint
+        #endif
+    ENDPOINT_INTERRUPT,                                                  // endpoint attributes
+    {LITTLE_SHORT_WORD_BYTES(64)},                                       // endpoint FIFO size (little-endian)
+    10                                                                   // polling interval in ms
+    },                                                                   // end of endpoint descriptor
+    #endif
+    {                                                                    // the second interface
+    DESCRIPTOR_TYPE_INTERFACE_LENGTH,                                    // descriptor size in bytes (0x09)
+    DESCRIPTOR_TYPE_INTERFACE,                                           // interface descriptor (0x04)
+    25,                                                                  // interface number 25
+    0,                                                                   // no alternative setting
+    2,                                                                   // 2 endpoints
+    INTERFACE_CLASS_COMMUNICATION_DATA,                                  // 0x0a
+    0,                                                                   // sub-class
+    0,                                                                   // interface protocol
+        #if defined USB_STRING_OPTION
+    INTERFACE_STRING_INDEX,                                              // string index for interface
+        #else
+    0                                                                    // zero when strings are not supported
+        #endif
+    },
+
+    {                                                                    // bulk out endpoint descriptor for the second interface
+    DESCRIPTOR_TYPE_ENDPOINT_LENGTH,                                     // descriptor size in bytes (0x07)
+    DESCRIPTOR_TYPE_ENDPOINT,                                            // endpoint descriptor (0x05)
+        #if defined USB_SIMPLEX_ENDPOINTS
+            #if defined CDC_WITHOUT_INTERRUPT_ENDPOINT
+    (OUT_ENDPOINT | 0x0d),                                               // direction and address of endpoint
+            #else
+    (OUT_ENDPOINT | 0x19),                                               // direction and address of endpoint
+            #endif
+        #else
+            #if defined CDC_WITHOUT_INTERRUPT_ENDPOINT
+    (OUT_ENDPOINT | 0x19),                                               // direction and address of endpoint
+            #else
+    (OUT_ENDPOINT | 0x25),                                               // direction and address of endpoint
+            #endif
+        #endif
+    ENDPOINT_BULK,                                                       // endpoint attributes
+    {LITTLE_SHORT_WORD_BYTES(CDC_DATA_ENDPOINT_SIZE)},                   // endpoint FIFO size (little-endian)
+    0                                                                    // polling interval in ms - ignored for bulk
+    },
+
+    {                                                                    // bulk in endpoint descriptor for the second interface
+    DESCRIPTOR_TYPE_ENDPOINT_LENGTH,                                     // descriptor size in bytes (0x07)
+    DESCRIPTOR_TYPE_ENDPOINT,                                            // endpoint descriptor (0x05)
+        #if defined USB_SIMPLEX_ENDPOINTS
+            #if defined CDC_WITHOUT_INTERRUPT_ENDPOINT
+    (IN_ENDPOINT | 0x0d),                                                // direction and address of endpoint
+            #else
+    (IN_ENDPOINT | 0x19),                                                // direction and address of endpoint
+            #endif
+        #else
+            #if defined CDC_WITHOUT_INTERRUPT_ENDPOINT
+    (IN_ENDPOINT | 0x1a),                                                // direction and address of endpoint
+            #else
+    (IN_ENDPOINT | 0x26),                                                // direction and address of endpoint
+            #endif
+        #endif
+    ENDPOINT_BULK,                                                       // endpoint attributes
+    {LITTLE_SHORT_WORD_BYTES(CDC_DATA_ENDPOINT_SIZE)},                   // endpoint FIFO size (little-endian)
+    0                                                                    // polling interval in ms - ignored for bulk
+    },
+    #endif
+
+    #if (USB_CDC_COUNT > 13) && (defined USB_SIMPLEX_ENDPOINTS && defined CDC_WITHOUT_INTERRUPT_ENDPOINT) // 14 CDC interfaces are only possible when using the bulk IN/OUT on a single endpoint and when using no interrupt endpoint
+    // Interface association descriptor for thirteenth CDC interface
+    //
+    {                                                                    // interface association descriptor
+    DESCRIPTOR_TYPE_INTERFACE_ASSOCIATION_LENGTH,                        // 0x08
+    DESCRIPTOR_TYPE_INTERFACE_ASSOCIATION,                               // 0x0b
+    26,                                                                  // first interface number
+    2,                                                                   // interface count
+    DEVICE_CLASS_COMMUNICATION_AND_CONTROL,
+    0                                                                    // string reference
+    },
+    // Function descriptors for thirteenth CDC - control interface
+    //
+    {                                                                    // interface descriptor
+    DESCRIPTOR_TYPE_INTERFACE_LENGTH,                                    // length (0x09)
+    DESCRIPTOR_TYPE_INTERFACE,                                           // 0x04
+    26,                                                                  // interface number 26
+    0,                                                                   // alternative setting 0
+        #if defined CDC_WITHOUT_INTERRUPT_ENDPOINT
+    0,                                                                   // no endpoint used
+        #else
+    1,                                                                   // number of endpoints in addition to EP0
+        #endif
+    USB_CLASS_COMMUNICATION_CONTROL,                                     // interface class (0x02)
+    USB_ABSTRACT_LINE_CONTROL_MODEL,                                     // interface sub-class (0x02)
+    0,                                                                   // interface protocol
+        #if defined USB_STRING_OPTION
+    INTERFACE_STRING_INDEX,                                              // string index for interface
+        #else
+    0,                                                                   // zero when strings are not supported
+        #endif
+    },                                                                   // end of interface descriptor
+
+    {                                                                    // function descriptors
+    USB_CDC_FUNCTIONAL_DESCRIPTOR_HEADER_LENGTH,                         // descriptor size in bytes (0x05)
+    CS_INTERFACE,                                                        // type field (0x24)
+    HEADER_FUNCTION_DESCRIPTOR,                                          // header descriptor (0x00)
+    {LITTLE_SHORT_WORD_BYTES(CDC_SPEC_VERSION)}                          // {4} specification version
+    },
+
+    {
+    USB_CDC_FUNCTIONAL_DESCRIPTOR_CALL_MAN_LENGTH,                       // descriptor size in bytes (0x05)
+    CS_INTERFACE,                                                        // type field (0x24)
+    CALL_MAN_FUNCTIONAL_DESCRIPTOR,                                      // call management function descriptor (0x01)
+    CALL_MAN_FUNCTIONAL_CAPABILITY_HANDLES_CALL_MANAGEMENT,              // capabilities
+    0                                                                    // data interface
+    },                                                                   // end of function descriptors
+
+    {
+    USB_CDC_FUNCTIONAL_DESCRIPTOR_ABSTRACT_CONTROL_LENGTH,               // descriptor size in bytes (0x04)
+    CS_INTERFACE,                                                        // type field (0x24)
+    ABSTRACT_CONTROL_FUNCTION_DESCRIPTOR,                                // abstract control descriptor (0x02)
+    ABSTRACT_CONTROL_FUNCTION_CAPABILITY_LINE_STATE_CODING               // capabilities
+    },
+
+    {
+    USB_CDC_FUNCTIONAL_DESCRIPTOR_UNION_LENGTH,                          // descriptor size in bytes (0x05)
+    CS_INTERFACE,                                                        // type field (0x24)
+    UNION_FUNCTIONAL_DESCRIPTOR,                                         // union function descriptor (0x06)
+    0,                                                                   // control interface
+    1                                                                    // subordinate interface
+    },                                                                   // end of function descriptors
+    #if !defined CDC_WITHOUT_INTERRUPT_ENDPOINT
+    {                                                                    // interrupt endpoint descriptor for first interface
+    DESCRIPTOR_TYPE_ENDPOINT_LENGTH,                                     // descriptor size in bytes (0x07)
+    DESCRIPTOR_TYPE_ENDPOINT,                                            // endpoint descriptor (0x05)
+        #if defined USB_SIMPLEX_ENDPOINTS
+    (IN_ENDPOINT | 0x1c),                                                // direction and address of endpoint
+        #else
+    (IN_ENDPOINT | 0x2b),                                                // direction and address of endpoint
+        #endif
+    ENDPOINT_INTERRUPT,                                                  // endpoint attributes
+    {LITTLE_SHORT_WORD_BYTES(64)},                                       // endpoint FIFO size (little-endian)
+    10                                                                   // polling interval in ms
+    },                                                                   // end of endpoint descriptor
+    #endif
+    {                                                                    // the second interface
+    DESCRIPTOR_TYPE_INTERFACE_LENGTH,                                    // descriptor size in bytes (0x09)
+    DESCRIPTOR_TYPE_INTERFACE,                                           // interface descriptor (0x04)
+    27,                                                                  // interface number 27
+    0,                                                                   // no alternative setting
+    2,                                                                   // 2 endpoints
+    INTERFACE_CLASS_COMMUNICATION_DATA,                                  // 0x0a
+    0,                                                                   // sub-class
+    0,                                                                   // interface protocol
+        #if defined USB_STRING_OPTION
+    INTERFACE_STRING_INDEX,                                              // string index for interface
+        #else
+    0                                                                    // zero when strings are not supported
+        #endif
+    },
+
+    {                                                                    // bulk out endpoint descriptor for the second interface
+    DESCRIPTOR_TYPE_ENDPOINT_LENGTH,                                     // descriptor size in bytes (0x07)
+    DESCRIPTOR_TYPE_ENDPOINT,                                            // endpoint descriptor (0x05)
+        #if defined USB_SIMPLEX_ENDPOINTS
+            #if defined CDC_WITHOUT_INTERRUPT_ENDPOINT
+    (OUT_ENDPOINT | 0x0e),                                               // direction and address of endpoint
+            #else
+    (OUT_ENDPOINT | 0x1b),                                               // direction and address of endpoint
+            #endif
+        #else
+            #if defined CDC_WITHOUT_INTERRUPT_ENDPOINT
+    (OUT_ENDPOINT | 0x1b),                                               // direction and address of endpoint
+            #else
+    (OUT_ENDPOINT | 0x28),                                               // direction and address of endpoint
+            #endif
+        #endif
+    ENDPOINT_BULK,                                                       // endpoint attributes
+    {LITTLE_SHORT_WORD_BYTES(CDC_DATA_ENDPOINT_SIZE)},                   // endpoint FIFO size (little-endian)
+    0                                                                    // polling interval in ms - ignored for bulk
+    },
+
+    {                                                                    // bulk in endpoint descriptor for the second interface
+    DESCRIPTOR_TYPE_ENDPOINT_LENGTH,                                     // descriptor size in bytes (0x07)
+    DESCRIPTOR_TYPE_ENDPOINT,                                            // endpoint descriptor (0x05)
+        #if defined USB_SIMPLEX_ENDPOINTS
+            #if defined CDC_WITHOUT_INTERRUPT_ENDPOINT
+    (IN_ENDPOINT | 0x0e),                                                // direction and address of endpoint
+            #else
+    (IN_ENDPOINT | 0x1b),                                                // direction and address of endpoint
+            #endif
+        #else
+            #if defined CDC_WITHOUT_INTERRUPT_ENDPOINT
+    (IN_ENDPOINT | 0x1c),                                                // direction and address of endpoint
+            #else
+    (IN_ENDPOINT | 0x29),                                                // direction and address of endpoint
+            #endif
+        #endif
+    ENDPOINT_BULK,                                                       // endpoint attributes
+    {LITTLE_SHORT_WORD_BYTES(CDC_DATA_ENDPOINT_SIZE)},                   // endpoint FIFO size (little-endian)
+    0                                                                    // polling interval in ms - ignored for bulk
+    },
+    #endif
+
+    #if (USB_CDC_COUNT > 14) && (defined USB_SIMPLEX_ENDPOINTS && defined CDC_WITHOUT_INTERRUPT_ENDPOINT) // 15 CDC interfaces are only possible when using the bulk IN/OUT on a single endpoint and when using no interrupt endpoint
+    // Interface association descriptor for thirteenth CDC interface
+    //
+    {                                                                    // interface association descriptor
+    DESCRIPTOR_TYPE_INTERFACE_ASSOCIATION_LENGTH,                        // 0x08
+    DESCRIPTOR_TYPE_INTERFACE_ASSOCIATION,                               // 0x0b
+    28,                                                                  // first interface number
+    2,                                                                   // interface count
+    DEVICE_CLASS_COMMUNICATION_AND_CONTROL,
+    0                                                                    // string reference
+    },
+    // Function descriptors for thirteenth CDC - control interface
+    //
+    {                                                                    // interface descriptor
+    DESCRIPTOR_TYPE_INTERFACE_LENGTH,                                    // length (0x09)
+    DESCRIPTOR_TYPE_INTERFACE,                                           // 0x04
+    28,                                                                  // interface number 28
+    0,                                                                   // alternative setting 0
+        #if defined CDC_WITHOUT_INTERRUPT_ENDPOINT
+    0,                                                                   // no endpoint used
+        #else
+    1,                                                                   // number of endpoints in addition to EP0
+        #endif
+    USB_CLASS_COMMUNICATION_CONTROL,                                     // interface class (0x02)
+    USB_ABSTRACT_LINE_CONTROL_MODEL,                                     // interface sub-class (0x02)
+    0,                                                                   // interface protocol
+        #if defined USB_STRING_OPTION
+    INTERFACE_STRING_INDEX,                                              // string index for interface
+        #else
+    0,                                                                   // zero when strings are not supported
+        #endif
+    },                                                                   // end of interface descriptor
+
+    {                                                                    // function descriptors
+    USB_CDC_FUNCTIONAL_DESCRIPTOR_HEADER_LENGTH,                         // descriptor size in bytes (0x05)
+    CS_INTERFACE,                                                        // type field (0x24)
+    HEADER_FUNCTION_DESCRIPTOR,                                          // header descriptor (0x00)
+    {LITTLE_SHORT_WORD_BYTES(CDC_SPEC_VERSION)}                          // {4} specification version
+    },
+
+    {
+    USB_CDC_FUNCTIONAL_DESCRIPTOR_CALL_MAN_LENGTH,                       // descriptor size in bytes (0x05)
+    CS_INTERFACE,                                                        // type field (0x24)
+    CALL_MAN_FUNCTIONAL_DESCRIPTOR,                                      // call management function descriptor (0x01)
+    CALL_MAN_FUNCTIONAL_CAPABILITY_HANDLES_CALL_MANAGEMENT,              // capabilities
+    0                                                                    // data interface
+    },                                                                   // end of function descriptors
+
+    {
+    USB_CDC_FUNCTIONAL_DESCRIPTOR_ABSTRACT_CONTROL_LENGTH,               // descriptor size in bytes (0x04)
+    CS_INTERFACE,                                                        // type field (0x24)
+    ABSTRACT_CONTROL_FUNCTION_DESCRIPTOR,                                // abstract control descriptor (0x02)
+    ABSTRACT_CONTROL_FUNCTION_CAPABILITY_LINE_STATE_CODING               // capabilities
+    },
+
+    {
+    USB_CDC_FUNCTIONAL_DESCRIPTOR_UNION_LENGTH,                          // descriptor size in bytes (0x05)
+    CS_INTERFACE,                                                        // type field (0x24)
+    UNION_FUNCTIONAL_DESCRIPTOR,                                         // union function descriptor (0x06)
+    0,                                                                   // control interface
+    1                                                                    // subordinate interface
+    },                                                                   // end of function descriptors
+    #if !defined CDC_WITHOUT_INTERRUPT_ENDPOINT
+    {                                                                    // interrupt endpoint descriptor for first interface
+    DESCRIPTOR_TYPE_ENDPOINT_LENGTH,                                     // descriptor size in bytes (0x07)
+    DESCRIPTOR_TYPE_ENDPOINT,                                            // endpoint descriptor (0x05)
+        #if defined USB_SIMPLEX_ENDPOINTS
+    (IN_ENDPOINT | 0x1e),                                                // direction and address of endpoint
+        #else
+    (IN_ENDPOINT | 0x2e),                                                // direction and address of endpoint
+        #endif
+    ENDPOINT_INTERRUPT,                                                  // endpoint attributes
+    {LITTLE_SHORT_WORD_BYTES(64)},                                       // endpoint FIFO size (little-endian)
+    10                                                                   // polling interval in ms
+    },                                                                   // end of endpoint descriptor
+    #endif
+    {                                                                    // the second interface
+    DESCRIPTOR_TYPE_INTERFACE_LENGTH,                                    // descriptor size in bytes (0x09)
+    DESCRIPTOR_TYPE_INTERFACE,                                           // interface descriptor (0x04)
+    29,                                                                  // interface number 29
+    0,                                                                   // no alternative setting
+    2,                                                                   // 2 endpoints
+    INTERFACE_CLASS_COMMUNICATION_DATA,                                  // 0x0a
+    0,                                                                   // sub-class
+    0,                                                                   // interface protocol
+        #if defined USB_STRING_OPTION
+    INTERFACE_STRING_INDEX,                                              // string index for interface
+        #else
+    0                                                                    // zero when strings are not supported
+        #endif
+    },
+
+    {                                                                    // bulk out endpoint descriptor for the second interface
+    DESCRIPTOR_TYPE_ENDPOINT_LENGTH,                                     // descriptor size in bytes (0x07)
+    DESCRIPTOR_TYPE_ENDPOINT,                                            // endpoint descriptor (0x05)
+        #if defined USB_SIMPLEX_ENDPOINTS
+            #if defined CDC_WITHOUT_INTERRUPT_ENDPOINT
+    (OUT_ENDPOINT | 0x0f),                                               // direction and address of endpoint
+            #else
+    (OUT_ENDPOINT | 0x1d),                                               // direction and address of endpoint
+            #endif
+        #else
+            #if defined CDC_WITHOUT_INTERRUPT_ENDPOINT
+    (OUT_ENDPOINT | 0x1d),                                               // direction and address of endpoint
+            #else
+    (OUT_ENDPOINT | 0x2b),                                               // direction and address of endpoint
+            #endif
+        #endif
+    ENDPOINT_BULK,                                                       // endpoint attributes
+    {LITTLE_SHORT_WORD_BYTES(CDC_DATA_ENDPOINT_SIZE)},                   // endpoint FIFO size (little-endian)
+    0                                                                    // polling interval in ms - ignored for bulk
+    },
+
+    {                                                                    // bulk in endpoint descriptor for the second interface
+    DESCRIPTOR_TYPE_ENDPOINT_LENGTH,                                     // descriptor size in bytes (0x07)
+    DESCRIPTOR_TYPE_ENDPOINT,                                            // endpoint descriptor (0x05)
+        #if defined USB_SIMPLEX_ENDPOINTS
+            #if defined CDC_WITHOUT_INTERRUPT_ENDPOINT
+    (IN_ENDPOINT | 0x0f),                                                // direction and address of endpoint
+            #else
+    (IN_ENDPOINT | 0x1d),                                                // direction and address of endpoint
+            #endif
+        #else
+            #if defined CDC_WITHOUT_INTERRUPT_ENDPOINT
+    (IN_ENDPOINT | 0x1e),                                                // direction and address of endpoint
+            #else
+    (IN_ENDPOINT | 0x2c),                                                // direction and address of endpoint
+            #endif
+        #endif
+    ENDPOINT_BULK,                                                       // endpoint attributes
+    {LITTLE_SHORT_WORD_BYTES(CDC_DATA_ENDPOINT_SIZE)},                   // endpoint FIFO size (little-endian)
+    0                                                                    // polling interval in ms - ignored for bulk
+    },
+    #endif
+
     #if defined USE_USB_MSD
     {                                                                    // interface descriptor
     DESCRIPTOR_TYPE_INTERFACE_LENGTH,                                    // length (0x09)

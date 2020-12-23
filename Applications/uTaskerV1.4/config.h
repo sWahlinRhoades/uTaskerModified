@@ -1,8 +1,8 @@
 /**********************************************************************
-    Mark Butcher    Bsc (Hons) MPhil MIET
+    Mark Butcher    Bsc (Hons) MPhil MIET 
 
     M.J.Butcher Consulting
-    Birchstrasse 20f,    CH-5406, Rütihof
+    Birchstrasse 20f,    CH-5406, RÃ¼tihof
     Switzerland
 
     www.uTasker.com    Skype: M_J_Butcher
@@ -11,7 +11,7 @@
     File:      config.h
     Project:   uTaskerV1.4 project
     ---------------------------------------------------------------------
-    Copyright (C) M.J.Butcher Consulting 2004..2019
+    Copyright (C) M.J.Butcher Consulting 2004..2020
     **********************************************************************
     02.02.2017 Adapt for us tick resolution (_TICK_RESOLUTION)
     11.04.2018 Merge with STM32 project
@@ -19,6 +19,7 @@
     06.06.2018 Merge with coldfire project
     06.10.2018 Merge with AVR32 project
     27.12.2018 Add iMX configuration
+    04.11.2020 Add K32L
     
 */
 
@@ -31,28 +32,31 @@
 #endif
 ///////////////////////////////////////////////////////////////////////////
 //                                                                       // new users who would like to see just a blinking LED before enabling the project's many powerful features can set this
-  #define BLINKY                                                         // to give simplest scheduling of a single task called at 200ms rate that retriggers the watchdog and toggles the board's heartbeat LED
-//#define HELLO_WORLD                                                    // gives the classic first step project with just a message on a UART start and echos back input afterwards [enter key shows memory use] (also blinks LED and is identical with or without BLINKY enabled)
+//#define BLINKY                                                         // to give simplest scheduling of a single task called at 200ms rate that retriggers the watchdog and toggles the board's heartbeat LED [can use low power mode]
+//#define HELLO_WORLD                                                    // gives the classic first step project with just a message on a UART at startup and echos back input afterwards [enter key shows memory use] (also blinks LED and is identical with or without BLINKY enabled)
 #if defined BLINKY                                                       //
-  //#define APPLICATION_WITHOUT_OS                                       // use together with BLINKY to remove all OS components and have a simple main loop and delays (still uses interrupt-free SYSTICK for timing accuracy but not low power mode)
+    //#define APPLICATION_WITHOUT_OS                                     // use together with BLINKY to remove all OS components and have a simple main loop and delays (still uses interrupt-free SYSTICK for timing accuracy but not low power mode)
 #endif                                                                   //
 //                                                                       // 
 ///////////////////////////////////////////////////////////////////////////
 //#define EXTERNAL_TEST
-//#define QUICK_DEV_TASKS                                                // add 4 additional tasks for simple and quick development use (located at the end of appication.c)
+//#define QUICK_DEV_TASKS                                                // add 4 additional tasks for simple and quick development use (located at the end of application.c)
 
 //#define RUN_IN_FREE_RTOS                                               // use uTasker in a FreeRTOS task to benefit from both worlds!
-  //#define FREE_RTOS_UART                                               // demonstrate UART usage by FreeRTOS task
+    #define FREE_RTOS_UART                                               // demonstrate UART usage by FreeRTOS task
   //#define FREE_RTOS_USB                                                // demonstrate USB-CDC usage by FreeRTOS task
     #define FREE_RTOS_BLINKY                                             // allow a FreeRTOS blinky task to operate
 
-#define _TICK_RESOLUTION     TICK_UNIT_MS(50)                            // 50ms system tick period - max possible at 50MHz SYSTICK would be about 335ms !
+#if defined _iMX
+    #define _TICK_RESOLUTION     TICK_UNIT_MS(10)                        // 10ms system tick period - max possible at 500MHz SYSTICK would be about 33.5ms !
+#else
+    #define _TICK_RESOLUTION     TICK_UNIT_MS(50)                        // 50ms system tick period - max possible at 50MHz SYSTICK would be about 335ms !
+#endif
 
 #define USE_CORTEX_CYCLE_COUNTER                                         // enable cycle counter (Cortex-M4/M7 only) - read with "time_stamp = DWT_CYCCNT"
 
-//#define REMOVE_PORT_INITIALISATIONS                                    // remove port initialisation from demonstration to ensure that port configurations don't conflict with specific application developments (exception is blink LED)
-//#define NO_PERIPHERAL_DEMONSTRATIONS                                   // disable peripheral demonstration code (ADC/I2C/CAN/port interrupts/etc.) so that they can't interfere with new application developments
-
+#define REMOVE_PORT_INITIALISATIONS                                      // remove port initialisation from demonstration to ensure that port configurations don't conflict with specific application developments (exception is blink LED)
+#define NO_PERIPHERAL_DEMONSTRATIONS                                     // disable peripheral demonstration code (ADC/I2C/CAN/port interrupts/etc.) so that they can't interfere with new application developments
 #define USE_MAINTENANCE                                                  // include the command line shell (on UART, USB-CDC and/or Telnet) with maintenance support for the application (remove to reduce project size for special tests or possibly running from limited RAM)
     #define PREVIOUS_COMMAND_BUFFERS  4                                  // allow the up-arrow to retrieve this many past commands
     #define MEMORY_DEBUGGER                                              // memory and storage debugger interface (read, write, fill and erase)
@@ -88,10 +92,10 @@
 
     //#define FRDM_S32K144
 
-    //#define FRDM_KE02Z                                                 // E processors Cortex-M0+/M4 (5V robust) - freedom board http://www.utasker.com/kinetis/FRDM-KE02Z.html
+    //#define FRDM_KE02Z                                                 // KE processors Cortex-M0+/M4 (5V robust) - freedom board http://www.utasker.com/kinetis/FRDM-KE02Z.html
     //#define FRDM_KE02Z40M                                              // freedom board http://www.utasker.com/kinetis/FRDM-KE02Z40M.html
     //#define FRDM_KE04Z                                                 // freedom board http://www.utasker.com/kinetis/FRDM-KE04Z.html
-    //#define FRDM_KE06Z                                                 // freedom board http://www.utasker.com/kinetis/FRDM-KE06Z.html
+      #define FRDM_KE06Z                                                 // freedom board http://www.utasker.com/kinetis/FRDM-KE06Z.html
     //#define FRDM_KE15Z                                                 // freedom board http://www.utasker.com/kinetis/FRDM-KE15Z.html
     //#define TWR_KE18F                                                  // tower board [Cortex-M4] http://www.utasker.com/kinetis/TWR-KE18F.html
     //#define HVP_KE18F                                                  // tower board [Cortex-M4] http://www.utasker.com/kinetis/HVP-KE18F.html
@@ -119,11 +123,16 @@
     //#define TWR_KL82Z72M                                               // tower board http://www.utasker.com/kinetis/FRDM-KL82Z72M
     //#define FRDM_KL82Z                                                 // freedom board http://www.utasker.com/kinetis/FRDM-KL82Z.html
 
+    //#define FRDM_K32L2A4S                                              // freedom board http://www.utasker.com/kinetis/FRDM-K32L2A4S.html
+    //#define FRDM_K32L2B3                                               // freedom board http://www.utasker.com/kinetis/FRDM-K32L2B3.html
+    //#define FRDM_K32L3A6                                               // freedom board http://www.utasker.com/kinetis/FRDM-K32L3A6.html
+
     //#define TWR_KM34Z50M                                               // M processors Cortex M0+ (metrology) - tower board http://www.utasker.com/kinetis/TWR-KM34Z50M.html
     //#define TWR_KM34Z75M                                               // tower board http://www.utasker.com/kinetis/TWR-KM34Z75M.html
 
     //#define TWR_KV10Z32                                                // V processors Cortex M0+/M4/M7 (M0+ - motor control and power conversion - low dynamic control) - tower board http://www.utasker.com/kinetis/TWR-KV10Z32.html
     //#define TWR_KV11Z75M                                               // tower board http://www.utasker.com/kinetis/TWR-KV11Z75M.html
+    //#define FRDM_KV11Z                                                 // (M0+ - entry level 3-phase motor control) - freedom board http://www.utasker.com/kinetis/FRDM-KV11Z.html
     //#define FRDM_KV31F                                                 // (M4 - high dynamic control) - freedom board http://www.utasker.com/kinetis/FRDM-KV31F.html
     //#define TWR_KV31F120M                                              // (M4 - high dynamic control) - tower board http://www.utasker.com/kinetis/TWR-KV31F120M.html
     //#define TWR_KV46F150M                                              // tower board http://www.utasker.com/kinetis/TWR-KV46F150M.html
@@ -131,7 +140,9 @@
 
     //#define TWR_KW21D256                                               // W processors Cortex M0+/M4 (wireless connectivity) - tower board http://www.utasker.com/kinetis/TWR-KW21D256.html
     //#define TWR_KW24D512                                               // tower board http://www.utasker.com/kinetis/TWR-KW24D512.html
+    //#define FRDM_KW36                                                  // freedom board http://www.utasker.com/kinetis/FRDM-KW36.html
     //#define HEXIWEAR_KW40Z                                             // hexiwear - wearable development kit for IoT (KW40Z160 support wireless processor) http://www.hexiwear.com/
+    //#define FRDM_KW41Z                                                 // freedom board http://www.utasker.com/kinetis/FRDM-KW41Z.html
 
     //#define MAPS_KS22F                                                 // KS22F
 
@@ -147,7 +158,7 @@
     //#define TWR_K21F120M                                               // tower board http://www.utasker.com/kinetis/TWR-K21F120M.html
     //#define FRDM_K22F                                                  // freedom board http://www.utasker.com/kinetis/FRDM-K22F.html
     //#define TWR_K22F120M                                               // tower board http://www.utasker.com/kinetis/TWR-K22F120M.html
-    //#define tinyK22                                                    // USB memory stick format board with SD card and 120MMHz K22FN512 http://www.utasker.com/kinetis/tinyK22.html
+    //#define tinyK22                                                    // USB memory stick format board with SD card and 120MHz K22FN512 http://www.utasker.com/kinetis/tinyK22.html
     //#define BLAZE_K22                                                  // K22FN1M0 with 1.6" color display and touch http://www.utasker.com/kinetis/BLAZE_K22.html
     //#define TWR_K24F120M                                               // tower board http://www.utasker.com/kinetis/TWR-K24F120M.html
     //#define FRDM_K28F                                                  // freedom board http://www.utasker.com/kinetis/FRDM-K28F.html
@@ -175,7 +186,7 @@
     //#define FreeLON                                                    // K64 based with integrated LON
     //#define TWR_K65F180M                                               // tower board http://www.utasker.com/kinetis/TWR-K65F180M.html
     //#define K66FX1M0                                                   // development board with K66FX1M0
-      #define FRDM_K66F                                                  // freedom board http://www.utasker.com/kinetis/FRDM-K66F.html
+    //#define FRDM_K66F                                                  // freedom board http://www.utasker.com/kinetis/FRDM-K66F.html
     //#define TEENSY_3_6                                                 // USB development board with K66FX1M0 - http://www.utasker.com/kinetis/TEENSY_3.6.html
 
     //#define TWR_K70F120M                                               // K processors Cortex M4 with graphical LCD, Ethernet, USB, encryption, tamper - tower board http://www.utasker.com/kinetis/TWR-K70F120M.html
@@ -186,10 +197,29 @@
     //#define TWR_POS_K81
     //#define TWR_K80F150M                                               // tower board http://www.utasker.com/kinetis/TWR-K80F150M.html
 #elif defined _iMX
-    #define MIMXRT1020
-  //#define MIMXRT1050
-  //#define MIMXRT1060
-  //#define MIMXRT1064
+    #if !defined iMX_XiP_LOAD && !defined iMX_STANDALONE && !defined iMX_BOOT // generally controlled by IDE target setting
+        #define iMX_BOOT                                                 // build for boot loader mode (and not standalone in QSPI flash or loaded XiP) - this should generally be used
+        #if !defined iMX_BOOT
+          //#define iMX_STANDALONE                                       // build for standalone XiP and not loaded XiP
+        #endif
+    #endif
+    //#define WRITE_PROTECT_SPI_FLASH_BOOT_AREA                          // set write protection on SPI flash to protect the boot loader from potential spurious writes or erasure (warning - this can write SPI device OTP settings that may not be reversible)
+
+    #if !defined IDE_TARGET                                              // if the target is not controlled directly by the IDE
+        //#define MIMXRT1010                                             // i.MX RT 1011 http://www.utasker.com/iMX/RT1010.html
+        //#define MIMXRT1015                                             // i.MX RT 1015 http://www.utasker.com/iMX/RT1015.html
+        //#define MIMXRT1020                                             // i.MX RT 1021 http://www.utasker.com/iMX/RT1020.html
+        //#define MIMXRT1024                                             // i.MX RT 1024 (4M internal QSPI flash) http://www.utasker.com/iMX/RT1024.html
+        //#define MIMXRT1050                                             // i.MX RT 1052 http://www.utasker.com/iMX/RT1050.html
+        //#define iMX_RT1052_EMB_ART                                     // i.MX RT 1052 http://www.utasker.com/iMX/iMX_RT1052_OEM.html
+        //#define ARCH_MIX                                               // i.MX RT 1052 http://www.utasker.com/iMX/ArchMix.html
+        //#define MIMXRT1060                                             // i.MX RT 1062 http://www.utasker.com/iMX/RT1060.html
+        //#define TEENSY_4_0                                             // i.MX RT 1062 http://www.utasker.com/iMX/Teensy_4.html
+        //#define TEENSY_4_1                                             // i.MX RT 1062 http://www.utasker.com/iMX/Teensy_4.html
+        //#define iMX_RT1062_EMB_ART                                     // i.MX RT 1062 http://www.utasker.com/iMX/iMX_RT1062_OEM.html
+          #define MIMXRT1064                                             // i.MX RT 1064 (4M internal QSPI flash) http://www.utasker.com/iMX/RT1064.html
+        //#define MIMXRT1170                                             // i.MX RT 1170 http://www.utasker.com/iMX/iMX_RT1170.html
+    #endif
 #elif defined _M5223X
     //#define M52110BOARD                                                // board for M52110 (basic CAN MCU)
     //#define M5282EVB                                                   // with SDRAM interface and FEC
@@ -201,11 +231,11 @@
     //#define M52210DEMO                                                 // DEMO Board for M52210 (USB family)
     //#define M52223EVB                                                  // EVB Board for M52223
     //#define M52221DEMO                                                 // DEMO Board for M52221
-    //#define M52259EVB                                                  // EVB Board for M52259 (Kirin3)
+      #define M52259EVB                                                  // EVB Board for M52259 (Kirin3)
     //#define M52259DEMO                                                 // DEMO Board for M52259 (Kirin3)
     //#define M52259_TOWER                                               // TWR-M52259 (Kirin3)
     //#define UC_SYMPHONY                                                // MCF52234 based developent board
-      #define M52235EVB                                                  // EVB Board for M52235
+    //#define M52235EVB                                                  // EVB Board for M52235
     //#define M52233DEMO                                                 // DEMO Board for M52233
 #elif defined _LM3SXXXX                                                  // Luminary Micro Stellaris family
     //#define _LM3S10X                                                   // small package part - 28 SOIC
@@ -243,7 +273,7 @@
     //#define NUCLEO_F103RB                                              // evaluation board with STM32F103RBT6
     //#define NUCLEO_F334R8                                              // evaluation board with STM32F334R8T6 (cortex-m4 with FPU)
     //#define NUCLEO_F401RE                                              // evaluation board with STM32F401RET6
-    //#define NUCLEO_F411RE                                              // evaluation board with STM32F411RET6
+    //#define NUCLEO_F411RE                                              // evaluation board with STM32F411RET6 (cortex-m4 with FPU)
 
     // Nucleo 144 range
     //
@@ -251,22 +281,27 @@
     //#define NUCLEO_L496RG                                              // evaluation board with STM32L496ZGT6U
     //#define NUCLEO_F207ZG                                              // evaluation board with STM32F207ZGT6U
     //#define NUCLEO_F401RE                                              // evaluation board with STM32F401RET6
-    //#define NUCLEO_F429ZI                                              // evaluation board with STM32F429ZIT6U
+    //#define NUCLEO_F429ZI                                              // evaluation board with STM32F429ZIT6U (cortex-m4 with FPU)
     //#define NUCLEO_F496ZG                                              // evaluation board with STM32F496ZGT6U
       #define NUCLEO_F746ZG                                              // evaluation board with STM32F746ZGT6U
     //#define NUCLEO_F767ZI                                              // evaluation board with STM32F767ZIT6U
-    //#define NUCLEO_H743ZI                                              // evaluation board with STM32H743ZIT6U
+    //#define NUCLEO_H743ZI                                              // evaluation board with STM32H743ZIT6U (400MHz cortex-m7 with FPU)
 
+    //#define DISCOVERY_32F411E                                          // evaluation board with STM32F411VET6 (cortex-m4 with FPU)
     //#define ST_MB913C_DISCOVERY                                        // discovery board with STM32F100RB
     //#define ARDUINO_BLUE_PILL                                          // board with STM32F103C8T6 (48 pin LQFP, 64k Flash/20k SRAM performance line processor)
-    //#define STM3210C_EVAL                                              // evaluation board with STM32F107VCT
-    //#define STM32_P207                                                 // olimex prototyping board with STM32F207ZET6
-    //#define STM32F746G_DISCO                                           // evaluation board with STM32F746NGH6
-    //#define WISDOM_STM32F407                                           // evaluation board with STM32F407ZET6
-    //#define STM3241G_EVAL                                              // evaluation board with STM32F417IGH6
-    //#define ST_MB997A_DISCOVERY                                        // discovery board with STM32F407VGT6
-    //#define STM32F407ZG_SK                                             // IAR prototyping board with STM32F407ZGT6
+    //#define STM3210C_EVAL                                              // evaluation board with STM32F107VCT - cortex-m3
+    //#define MCB32_ARM_KIT                                              // evaluation board with STM32F107VCT - cortex-m3
+    //#define STM32_P207                                                 // olimex prototyping board with STM32F207ZET6 - cortex-m3
+    //#define STM32F746G_DISCO                                           // evaluation board with STM32F746NGH6 - cortex-m7
+    //#define WISDOM_STM32F407                                           // evaluation board with STM32F407ZET6 - cortex-m4
+    //#define STM3241G_EVAL                                              // ST-Micro evaluation board with STM32F417IGH6 - cortex-m4
+    //#define ST_MB997A_DISCOVERY                                        // discovery board with STM32F407VGT6 - cortex-m4
+    //#define STM32F407ZG_SK                                             // IAR prototyping board with STM32F407ZGT6 - cortex-m4
+    //#define STM32_E407                                                 // Olimex prototyping board with STM32F407ZGT6 - cortex-m4
+    //#define ST_IDP004                                                  // IO-link master multi-port evaluation board based on L6360 - cortex-m3
 #elif defined _HW_AVR32
+    #define DEVICE_WITHOUT_CAN                                           // AVR32 project doesn't support CAN
   //#define AVR32_EVK1100                                                // evaluation board from ATMEL with Ethernet and LCD
   //#define AVR32_EVK1101                                                // evaluation board from ATMEL with AT32UC3B
   //#define AVR32_EVK1104
@@ -342,8 +377,9 @@
     #define OUR_HEAP_SIZE        (HEAP_REQUIREMENTS)((10 * 1024) * MEM_FACTOR)
     #define KINETIS_KE
     #define KINETIS_KE15
-    #define DEVICE_WITHOUT_ETHERNET                                      // KE doesn't have Ethernet controller
-    #define DEVICE_WITHOUT_USB                                           // KE doesn't have USB
+    #define DEVICE_WITHOUT_ETHERNET                                      // KE15 doesn't have Ethernet controller
+    #define DEVICE_WITHOUT_USB                                           // KE15 doesn't have USB
+    #define DEVICE_WITHOUT_CAN                                           // KE15 doesn't have CAN controller
 #elif defined TWR_KE18F
     #define TARGET_HW            "TWR-KE18F"
     #define KINETIS_MAX_SPEED    168000000
@@ -428,7 +464,7 @@
     #define DEVICE_WITHOUT_USB                                           // KL02 doesn't have USB
 #elif defined FRDM_KL03Z
     #define TARGET_HW            "FRDM-KL03Z Kinetis"
-    #define OUR_HEAP_SIZE        (HEAP_REQUIREMENTS)((1.0 * 1024) * MEM_FACTOR)
+    #define OUR_HEAP_SIZE        (HEAP_REQUIREMENTS)((0.75 * 1024) * MEM_FACTOR)
     #undef MONITOR_PERFORMANCE                                           // KL03 has no PIT
     #define KINETIS_KL
     #define KINETIS_KL03
@@ -459,7 +495,7 @@
     #else
         #define TARGET_HW        "FRDM-KL25Z"
     #endif
-    #define OUR_HEAP_SIZE        (HEAP_REQUIREMENTS)((12 * 1024) * MEM_FACTOR)
+    #define OUR_HEAP_SIZE        (HEAP_REQUIREMENTS)((10 * 1024) * MEM_FACTOR)
     #define KINETIS_KL
     #define KINETIS_KL25
     #define DEVICE_WITHOUT_CAN                                           // KL doesn't have CAN controller
@@ -478,6 +514,7 @@
     #define KINETIS_KL26
     #define DEVICE_WITHOUT_CAN                                           // KL doesn't have CAN controller
     #define DEVICE_WITHOUT_ETHERNET                                      // KL doesn't have Ethernet controller
+  //#define NMI_IN_FLASH                                                 // test handling NMI input directly at startup
 #elif defined rcARM_KL26
     #define TARGET_HW            "FRDM-KL26Z"
     #define OUR_HEAP_SIZE        (HEAP_REQUIREMENTS)((10 * 1024) * MEM_FACTOR)
@@ -538,6 +575,30 @@
     #define OUR_HEAP_SIZE   (HEAP_REQUIREMENTS)((12 * 1024) * MEM_FACTOR)
     #define DEVICE_WITHOUT_CAN                                           // KL doesn't have CAN controller
     #define DEVICE_WITHOUT_ETHERNET                                      // KL doesn't have Ethernet controller
+#elif defined FRDM_K32L2A4S
+    #define KINETIS_KL
+    #define KINETIS_K32L
+    #define KINETIS_K32L2A
+    #define TARGET_HW       "FRDM-K32L2A4S"
+    #define OUR_HEAP_SIZE   (HEAP_REQUIREMENTS)((32 * 1024) * MEM_FACTOR)
+    #define DEVICE_WITHOUT_CAN                                           // K32L doesn't have CAN controller
+    #define DEVICE_WITHOUT_ETHERNET                                      // K32L doesn't have Ethernet controller
+#elif defined FRDM_K32L2B3
+    #define KINETIS_KL
+    #define KINETIS_K32L
+    #define KINETIS_K32L2B
+    #define TARGET_HW       "FRDM-K32L2B3"
+    #define OUR_HEAP_SIZE   (HEAP_REQUIREMENTS)((16 * 1024) * MEM_FACTOR)
+    #define DEVICE_WITHOUT_CAN                                           // K32L doesn't have CAN controller
+    #define DEVICE_WITHOUT_ETHERNET                                      // K32L doesn't have Ethernet controller
+#elif defined FRDM_K32L3A6
+    #define KINETIS_KL
+    #define KINETIS_K32L
+    #define KINETIS_K32L3A
+    #define TARGET_HW       "FRDM-K32L3A6"
+    #define OUR_HEAP_SIZE   (HEAP_REQUIREMENTS)((32 * 1024) * MEM_FACTOR)
+    #define DEVICE_WITHOUT_CAN                                           // K32L doesn't have CAN controller
+    #define DEVICE_WITHOUT_ETHERNET                                      // K32L doesn't have Ethernet controller
 #elif defined TWR_KL82Z72M
     #define KINETIS_KL
     #define KINETIS_KL82
@@ -570,6 +631,14 @@
     #define KINETIS_KV10                                                 // specify the sub-family type
     #define DEVICE_WITHOUT_USB
     #define DEVICE_WITHOUT_CAN
+    #define DEVICE_WITHOUT_ETHERNET
+#elif defined FRDM_KV11Z
+    #define TARGET_HW            "FRDM-KV11Z"
+    #define OUR_HEAP_SIZE        (HEAP_REQUIREMENTS)((10 * 1024) * MEM_FACTOR)
+    #define KINETIS_MAX_SPEED    75000000
+    #define KINETIS_KV
+    #define KINETIS_KV11                                                 // specify the sub-family type
+    #define DEVICE_WITHOUT_USB
     #define DEVICE_WITHOUT_ETHERNET
 #elif defined TWR_KV31F120M || defined FRDM_KV31F
     #if defined FRDM_KV31F
@@ -633,7 +702,7 @@
     #define KINETIS_KL43
     #define DEVICE_WITHOUT_CAN                                           // KL doesn't have CAN controller
     #define DEVICE_WITHOUT_ETHERNET                                      // KL doesn't have Ethernet controller
-    #define STOP_WATCH_APPLICATION
+  //#define STOP_WATCH_APPLICATION
     #if defined STOP_WATCH_APPLICATION
         #undef _TICK_RESOLUTION
         #define _TICK_RESOLUTION     TICK_UNIT_MS(10) 
@@ -662,6 +731,26 @@
     #define KINETIS_MAX_SPEED    50000000
     #define TARGET_HW       "TWR-KW24D512"
     #define DEVICE_WITHOUT_ETHERNET                                      // KW doesn't have Ethernet controller
+    #define DEVICE_WITHOUT_USB                                           // KW24 doesn't have USB
+    #define OUR_HEAP_SIZE   (HEAP_REQUIREMENTS)((16 * 1024) * MEM_FACTOR)
+#elif defined FRDM_KW36
+    #define KINETIS_KW3X
+    #define KINETIS_KW36
+    #define KINETIS_REVISION_2
+    #define KINETIS_MAX_SPEED    50000000
+    #define TARGET_HW       "FRDM-KW36"
+    #define DEVICE_WITHOUT_ETHERNET                                      // KW doesn't have Ethernet controller
+    #define DEVICE_WITHOUT_USB                                           // KW doesn't have USB
+    #define OUR_HEAP_SIZE   (HEAP_REQUIREMENTS)((16 * 1024) * MEM_FACTOR)
+#elif defined FRDM_KW41Z
+    #define KINETIS_KW4X
+    #define KINETIS_KW41
+    #define KINETIS_REVISION_2
+    #define KINETIS_MAX_SPEED    50000000
+    #define TARGET_HW       "FRDM-KW41Z"
+    #define DEVICE_WITHOUT_ETHERNET                                      // KW doesn't have Ethernet controller
+    #define DEVICE_WITHOUT_USB                                           // KW41 doesn't have USB
+    #define DEVICE_WITHOUT_CAN                                           // KW41 doesn't have CAN controller
     #define OUR_HEAP_SIZE   (HEAP_REQUIREMENTS)((16 * 1024) * MEM_FACTOR)
 #elif defined K02F100M
     #define TARGET_HW            "K02F100M"
@@ -708,6 +797,7 @@
     #define OUR_HEAP_SIZE        (HEAP_REQUIREMENTS)((16 * 1024) * MEM_FACTOR)
 #elif defined TWR_K20D72M
   //#define DEV1                                                         // temporary development configuration
+  //#define DEV5                                                         // temporary development configuration
     #define TARGET_HW            "TWR-K20D72M Kinetis"
     #define KINETIS_K20                                                  // specify the sub-family
     #define KINETIS_REVISION_2
@@ -786,6 +876,7 @@
     #define OUR_HEAP_SIZE        (HEAP_REQUIREMENTS)((24 * 1024) * MEM_FACTOR)
 #elif defined BLAZE_K22
     #define TARGET_HW            "BLAZE"
+  //#define _DEV3                                                        // development HW based on Blaze
     #define KINETIS_K_FPU                                                // part with floating point unit
     #define KINETIS_MAX_SPEED    120000000
     #define KINETIS_K20                                                  // specify the sub-family
@@ -794,7 +885,7 @@
     #define DEVICE_WITHOUT_ETHERNET                                      // K20 doesn't have Ethernet controller
     #define OUR_HEAP_SIZE        (HEAP_REQUIREMENTS)((24 * 1024) * MEM_FACTOR)
     #define I2C_INTERFACE                                                // enable I2C driver for touch screen interface
-    #define BLAZE_DIGITAL_WATCH
+  //#define BLAZE_DIGITAL_WATCH                                          // digital watch application (requires SUPPORT_RTC to be enabled)
 #elif defined TWR_K24F120M
     #define TARGET_HW            "TWR-K24F120M"
     #define KINETIS_K_FPU                                                // part with floating point unit
@@ -848,7 +939,7 @@
 #elif defined NET_KBED
   //#define KBED_FPGA                                                    // KBED wit FPGA option
     #define KBEDM_BOARD	                                                 // KBEDM board for KBED
-  //#define SPI_LCD                                                      // optional SPI_LCD
+    #define SPI_LCD                                                      // optional SPI_LCD
   //#define TESTBED_BOARD	                                             // testBed Board for KBED
   //#define MXBASE_BOARD                                                 // MX-Base Board for KBED
     #define NET_I2C_8E8A                                                 // I2C I/O module connected
@@ -903,24 +994,21 @@
 #elif defined FreeLON
     #define TARGET_HW            "FreeLON"
     #define OUR_HEAP_SIZE        (HEAP_REQUIREMENTS)((48 * 1024) * MEM_FACTOR) // large SRAM parts
-    #define KINETIS_MAX_SPEED    120000000
-    #define KINETIS_K_FPU                                                // part with floating point unit
+    #define KINETIS_MAX_SPEED    120000000                               // part with inherent floating point unit
     #define KINETIS_K60                                                  // specify the sub-family
     #define KINETIS_REVISION_2
     #define KINETIS_K64                                                  // extra sub-family type precision
 #elif defined FRDM_K64F
     #define TARGET_HW            "FRDM-K64F"
     #define OUR_HEAP_SIZE        (HEAP_REQUIREMENTS)((63 * 1024) * MEM_FACTOR) // large SRAM parts
-    #define KINETIS_MAX_SPEED    120000000
-    #define KINETIS_K_FPU                                                // part with floating point unit
+    #define KINETIS_MAX_SPEED    120000000                               // part with inherent floating point unit
     #define KINETIS_K60                                                  // specify the sub-family
     #define KINETIS_REVISION_2
     #define KINETIS_K64                                                  // extra sub-family type precision
 #elif defined HEXIWEAR_K64F
     #define TARGET_HW            "HEXIWEAR-K64F"
     #define OUR_HEAP_SIZE        (HEAP_REQUIREMENTS)((48 * 1024) * MEM_FACTOR) // large SRAM parts
-    #define KINETIS_MAX_SPEED    120000000
-    #define KINETIS_K_FPU                                                // part with floating point unit
+    #define KINETIS_MAX_SPEED    120000000                               // part with inherent floating point unit
     #define KINETIS_K60                                                  // specify the sub-family
     #define KINETIS_REVISION_2
     #define KINETIS_K64                                                  // extra sub-family type precision
@@ -929,16 +1017,14 @@
   //#define TWR_SER2                                                     // use TWR-SER2 serial board instead of standard serial board
     #define TARGET_HW            "TWR-K64F120M"
     #define OUR_HEAP_SIZE        (HEAP_REQUIREMENTS)((48 * 1024) * MEM_FACTOR) // large SRAM parts
-    #define KINETIS_MAX_SPEED    120000000
-    #define KINETIS_K_FPU                                                // part with floating point unit
+    #define KINETIS_MAX_SPEED    120000000                               // part with inherent floating point unit
     #define KINETIS_K60                                                  // specify the sub-family
     #define KINETIS_REVISION_2
     #define KINETIS_K64                                                  // extra sub-family type precision
 #elif defined TEENSY_3_5
     #define TARGET_HW            "Teensy 3.5 (K64FX512)"
     #define OUR_HEAP_SIZE        (HEAP_REQUIREMENTS)((48 * 1024) * MEM_FACTOR) // large SRAM parts
-    #define KINETIS_MAX_SPEED    120000000
-    #define KINETIS_K_FPU                                                // part with floating point unit
+    #define KINETIS_MAX_SPEED    120000000                               // part with inherent floating point unit
     #define KINETIS_K60                                                  // specify the sub-family
     #define KINETIS_REVISION_2
     #define KINETIS_K64                                                  // extra sub-family type precision
@@ -947,8 +1033,7 @@
     #define TWR_SER2                                                     // use SER2 serial board instead of standard serial board (used also when HS USB is enabled)
     #define TARGET_HW            "TWR-K65F180M"
     #define OUR_HEAP_SIZE        (HEAP_REQUIREMENTS)((48 * 1024) * MEM_FACTOR) // large SRAM parts
-    #define KINETIS_MAX_SPEED    180000000
-    #define KINETIS_K_FPU                                                // part with floating point unit
+    #define KINETIS_MAX_SPEED    180000000                               // part with inherent floating point unit
     #define KINETIS_K60                                                  // specify the sub-family
     #define KINETIS_REVISION_2
     #define KINETIS_K65                                                  // extra sub-family type precision
@@ -960,50 +1045,53 @@
     #define OUR_HEAP_SIZE        (HEAP_REQUIREMENTS)((48 * 1024) * MEM_FACTOR) // large SRAM parts
     #define KINETIS_MAX_SPEED    150000000
     #define KINETIS_K_FPU                                                // part with floating point unit
-    #define KINETIS_K60                                                  // specify the sub-family
+    #define KINETIS_K20                                                  // specify the sub-family
     #define KINETIS_REVISION_2
-    #define KINETIS_K66                                                  // extra sub-family type precision
+    #define KINETIS_K28                                                  // extra sub-family type precision
     #define USB_HS_INTERFACE                                             // use HS interface rather than FS interface
     #define DEVICE_WITHOUT_ETHERNET                                      // K20 doesn't have Ethernet controller
 #elif defined FRDM_K66F || defined K66FX1M0 
     #define TARGET_HW            "FRDM-K66F"
-    #define OUR_HEAP_SIZE        (HEAP_REQUIREMENTS)((48 * 1024) * MEM_FACTOR) // large SRAM parts
-    #define KINETIS_MAX_SPEED    180000000
-    #define KINETIS_K_FPU                                                // part with floating point unit
+    #define OUR_HEAP_SIZE        (HEAP_REQUIREMENTS)((56 * 1024) * MEM_FACTOR) // large SRAM parts
+    #define KINETIS_MAX_SPEED    180000000                               // part with inherent floating point unit
     #define KINETIS_K60                                                  // specify the sub-family
     #define KINETIS_REVISION_2
     #define KINETIS_K66                                                  // extra sub-family type precision
     #if !defined K66FX1M0
         #define USB_HS_INTERFACE                                         // use HS interface rather than FS interface
+      //#define USB_FS_INTERFACE                                         // support FS interface (together with HS interface)
+      //#define TEST_PIT_SINE_TO_USB                                     // temporary development control
     #endif
   //#define LAN8740_PHY                                                  // configuration with LAN8740 PHY in MII mode (for a test board)
 #elif defined TEENSY_3_6
     #define TARGET_HW            "Teensy 3.6 (K66FX1M0)"
     #define OUR_HEAP_SIZE        (HEAP_REQUIREMENTS)((48 * 1024) * MEM_FACTOR) // large SRAM parts
-    #define KINETIS_MAX_SPEED    180000000
-    #define KINETIS_K_FPU                                                // part with floating point unit
+    #define KINETIS_MAX_SPEED    180000000                               // part with inherent floating point unit
     #define KINETIS_K60                                                  // specify the sub-family
     #define KINETIS_REVISION_2
     #define KINETIS_K66                                                  // extra sub-family type precision
-  //#define USB_HS_INTERFACE                                             // use HS interface rather than FS interface
+    #define USB_HS_INTERFACE                                             // use HS interface rather than FS interface
+    #define USB_FS_INTERFACE                                             // support FS interface (together with HS interface)
+  //#define _DEV4                                                        // enable support for a particular development version
 #elif defined EMCRAFT_K70F120M
     #define TARGET_HW           "EMCRAFT-K70F120M"
     #define KINETIS_MAX_SPEED    120000000
-    #define KINETIS_K70                                                  // specify the sub-family
-    #define KINETIS_K_FPU                                                // part with floating point unit
+    #define KINETIS_K70                                                  // part with inherent floating point unit
     #define OUR_HEAP_SIZE        (HEAP_REQUIREMENTS)((30 * 1024) * MEM_FACTOR)
 #elif defined K70F150M_12M
     #define KINETIS_MAX_SPEED    150000000                               // 150MHz part
     #define TARGET_HW            "K70F150M-12MHz crystal"
-    #define KINETIS_K70                                                  // specify the sub-family
-    #define KINETIS_K_FPU                                                // part with floating point unit
+    #define KINETIS_K70                                                  // part with inherent floating point unit
     #define OUR_HEAP_SIZE        (HEAP_REQUIREMENTS)((30 * 1024) * MEM_FACTOR)
 #elif defined TWR_K70F120M
+    #define KINETIS_MAX_SPEED    120000000                               // 120MHz part
     #define TARGET_HW            "TWR-K70F120M"
-  //#define TWR_SER2                                                     // use SER2 serial board instead of standard serial board (used also when HS USB is enabled)
-    #define KINETIS_K70                                                  // specify the sub-family
-    #define KINETIS_K_FPU                                                // part with floating point unit
+    #define TWR_SER2                                                     // use SER2 serial board instead of standard serial board (used also when HS USB is enabled)
+    #define KINETIS_K70                                                  // part with inherent floating point unit
     #define OUR_HEAP_SIZE        (HEAP_REQUIREMENTS)((30 * 1024) * MEM_FACTOR)
+    #if defined TWR_SER2
+        #define USB_HS_INTERFACE                                         // use HS interface rather than FS interface
+    #endif
 #elif defined TWR_K80F150M
     #define KINETIS_MAX_SPEED    150000000
     #define TARGET_HW            "TWR-K80F150M"
@@ -1022,18 +1110,104 @@
     #define KINETIS_REVISION_2
     #define DEVICE_WITHOUT_ETHERNET                                      // K82 doesn't have Ethernet controller
     #define OUR_HEAP_SIZE        (HEAP_REQUIREMENTS)((30 * 1024) * MEM_FACTOR)
+#elif defined MIMXRT1010
+    #define iMX_RT101X
+    #define iMX_RT1011
+    #define TARGET_HW            "MIMXRT1010"
+    #define OUR_HEAP_SIZE        (HEAP_REQUIREMENTS)((30 * 1024) * MEM_FACTOR)
+    #define DEVICE_WITHOUT_ETHERNET
+    #define DEVICE_WITHOUT_CAN
+    #define SPI_FILE_SYSTEM
+    #define FLASH_FILE_SYSTEM                                            // we have an internal file system in FLASH
+#elif defined MIMXRT1015
+    #define iMX_RT101X
+    #define iMX_RT1015
+    #define TARGET_HW            "MIMXRT1015"
+    #define OUR_HEAP_SIZE        (HEAP_REQUIREMENTS)((30 * 1024) * MEM_FACTOR)
+    #define DEVICE_WITHOUT_ETHERNET
+    #define DEVICE_WITHOUT_CAN
+    #define SPI_FILE_SYSTEM
+    #define FLASH_FILE_SYSTEM                                            // we have an internal file system in FLASH
 #elif defined MIMXRT1020
     #define iMX_RT102X
     #define iMX_RT1021
-    #define iMX_MAX_SPEED        500000000
-    #define FRDM_K82F
-    #define KINETIS_MAX_SPEED    150000000
     #define TARGET_HW            "MIMXRT1020"
-    #define KINETIS_K80                                                  // specify the sub-family
-    #define KINETIS_K82                                                  // specify part
-    #define KINETIS_K_FPU                                                // part with floating point unit
-    #define KINETIS_REVISION_2
     #define OUR_HEAP_SIZE        (HEAP_REQUIREMENTS)((30 * 1024) * MEM_FACTOR)
+    #define SPI_FILE_SYSTEM
+    #define FLASH_FILE_SYSTEM                                            // we have an internal file system in FLASH
+  //#define DEV6                                                         // specific HW version
+#elif defined MIMXRT1024
+    #define iMX_RT102X
+    #define iMX_RT1024
+    #define TARGET_HW            "MIMXRT1024"
+    #define OUR_HEAP_SIZE        (HEAP_REQUIREMENTS)((30 * 1024) * MEM_FACTOR)
+    #define SPI_FILE_SYSTEM
+  //#define USE_EXTERNAL_QSPI_FLASH                                      // also use external QSPI flash QSPI flash
+#elif defined MIMXRT1050
+    #define iMX_RT105X
+    #define iMX_RT1052
+    #define TARGET_HW            "MIMXRT1050"
+    #define OUR_HEAP_SIZE        (HEAP_REQUIREMENTS)((48 * 1024) * MEM_FACTOR)
+    #define SPI_FILE_SYSTEM
+    #define FLASH_FILE_SYSTEM                                            // we have an internal file system in FLASH
+#elif defined ARCH_MIX
+    #define iMX_RT105X
+    #define iMX_RT1052
+    #define TARGET_HW            "Arch Mix"
+    #define OUR_HEAP_SIZE        (HEAP_REQUIREMENTS)((48 * 1024) * MEM_FACTOR)
+    #define SPI_FILE_SYSTEM
+    #define FLASH_FILE_SYSTEM                                            // we have an internal file system in FLASH
+#elif defined TEENSY_4_0
+    #define iMX_RT106X
+    #define iMX_RT1062
+    #define TARGET_HW            "TEENSY 4.0"
+    #define OUR_HEAP_SIZE        (HEAP_REQUIREMENTS)((48 * 1024) * MEM_FACTOR)
+    #define SPI_FILE_SYSTEM
+    #define FLASH_FILE_SYSTEM                                            // we have an internal file system in FLASH
+#elif defined TEENSY_4_1
+    #define iMX_RT106X
+    #define iMX_RT1062
+    #define TARGET_HW            "TEENSY 4.1"
+    #define OUR_HEAP_SIZE        (HEAP_REQUIREMENTS)((48 * 1024) * MEM_FACTOR)
+    #define SPI_FILE_SYSTEM
+    #define FLASH_FILE_SYSTEM                                            // we have an internal file system in FLASH
+#elif defined MIMXRT1060
+    #define iMX_RT106X
+    #define iMX_RT1062
+    #define TARGET_HW            "MIMXRT1060"
+    #define OUR_HEAP_SIZE        (HEAP_REQUIREMENTS)((128 * 1024) * MEM_FACTOR)
+    #define SPI_FILE_SYSTEM
+    #define FLASH_FILE_SYSTEM                                            // we have an internal file system in FLASH
+#elif defined MIMXRT1170
+    #define iMX_RT106X
+    #define iMX_RT1062
+    #define TARGET_HW            "MIMXRT1170"
+    #define OUR_HEAP_SIZE        (HEAP_REQUIREMENTS)((48 * 1024) * MEM_FACTOR)
+    #define SPI_FILE_SYSTEM
+    #define FLASH_FILE_SYSTEM                                            // we have an internal file system in FLASH
+#elif defined iMX_RT1052_EMB_ART
+    #define iMX_RT105X
+    #define iMX_RT1052
+    #define TARGET_HW            "iMX RT1052 OEM"
+    #define OUR_HEAP_SIZE        (HEAP_REQUIREMENTS)((48 * 1024) * MEM_FACTOR)
+    #define SPI_FILE_SYSTEM
+    #define FLASH_FILE_SYSTEM                                            // we have an internal file system in FLASH
+#elif defined iMX_RT1062_EMB_ART
+    #define iMX_RT106X
+    #define iMX_RT1062
+    #define TARGET_HW            "iMX RT1062 OEM"
+    #define OUR_HEAP_SIZE        (HEAP_REQUIREMENTS)((48 * 1024) * MEM_FACTOR)
+    #define SPI_FILE_SYSTEM
+    #define FLASH_FILE_SYSTEM                                            // we have an internal file system in FLASH
+  //#define DEV9                                                         // activate specific development variation
+#elif defined MIMXRT1064
+    #define iMX_RT106X
+    #define iMX_RT1064
+    #define TARGET_HW            "MIMXRT1064"
+    #define OUR_HEAP_SIZE        (HEAP_REQUIREMENTS)((96 * 1024) * MEM_FACTOR)
+    #define SPI_FILE_SYSTEM
+    #define FLASH_FILE_SYSTEM                                            // we have an internal file system in FLASH
+  //#define USE_EXTERNAL_QSPI_FLASH                                      // also use external QSPI flash QSPI flash
 #elif defined M52223EVB
     #define TARGET_HW       "M52223EVB"
     #define _M5222X
@@ -1184,7 +1358,6 @@
     #define TARGET_HW            "NUCLEO-XXXX (STM32L432)"             // 80MHz with FPU
     #define _STM32L4XX
     #define _STM32L432                                                   // part type
-    #define STM32_FPU                                                    // FPU present
     #define OUR_HEAP_SIZE        (HEAP_REQUIREMENTS)((16 * 1024) * MEM_FACTOR)
     #define DEVICE_WITHOUT_USB                                           // the STM32 device has USB but the board doesn't allow it to be used directly
     #define DEVICE_WITHOUT_ETHERNET                                      // the STM32 doesn't have ethernet
@@ -1219,19 +1392,42 @@
     #define DEVICE_WITHOUT_ETHERNET                                      // this STM32L doesn't have ethernet
     #define DEVICE_WITHOUT_DMA                                           // provisional during initial development
     #define DEVICE_WITHOUT_CAN                                           // this STM32L doesn't have CAN controller
+#elif defined MCB32_ARM_KIT
+    #define TARGET_HW            "MCB32 ARM KIT (STM32F107VCT6)"
+    #define _STM32F107X                                                  // part group
+    #define OUR_HEAP_SIZE        (HEAP_REQUIREMENTS)((24 * 1024) * MEM_FACTOR) // we have the LAN buffers in HEAP and big RX/TX
 #elif defined STM3210C_EVAL
     #define TARGET_HW            "STM3210C-EVAL (STM32F107VCT)"
     #define _STM32F107X                                                  // part group
     #define OUR_HEAP_SIZE        (HEAP_REQUIREMENTS)((24 * 1024) * MEM_FACTOR) // we have the LAN buffers in HEAP and big RX/TX
+#elif defined NUCLEO_F411RE                                              // nucleo-64
+    #define TARGET_HW            "NUCLEO-F411RE (STM32F411RET6)"
+    #define _STM32F4XX                                                   // part family
+    #define _STM32F411                                                   // part group
+    #define DEVICE_WITHOUT_ETHERNET                                      // board doesn't have Ethernet without base-board
+    #define OUR_HEAP_SIZE        (HEAP_REQUIREMENTS)((16 * 1024) * MEM_FACTOR)
+#elif defined DISCOVERY_32F411E
+    #define TARGET_HW            "32F411EDISCOVERY (STM32F411VET6)"
+    #define _STM32F4XX                                                   // part family
+    #define _STM32F411                                                   // part group
+    #define DEVICE_WITHOUT_ETHERNET                                      // board doesn't have Ethernet without base-board
+    #define OUR_HEAP_SIZE        (HEAP_REQUIREMENTS)((16 * 1024) * MEM_FACTOR)
 #elif defined NUCLEO_F401RE
     #define TARGET_HW            "NUCLEO-F401RE (STM32F401RET6)"
     #define _STM32F4XX                                                   // part family
     #define _STM32F401                                                   // part group
     #define DEVICE_WITHOUT_ETHERNET                                      // board doesn't have Ethernet without base-board
     #define OUR_HEAP_SIZE        (HEAP_REQUIREMENTS)((16 * 1024) * MEM_FACTOR)
+#elif defined NUCLEO_H743ZI
+    #define TARGET_HW            "NUCLEO-H743ZI (STM32H743ZI)"
+  //#define _ERRATE_REV_A_Z                                              // activate (SDIO) workarounds for revisions A and Z
+    #define _STM32H7XX                                                   // part group
+    #define _STM32F42X
+    #define _STM32F429
+    #define OUR_HEAP_SIZE        (HEAP_REQUIREMENTS)((63 * 1024) * MEM_FACTOR)
+    #define DEVICE_WITHOUT_DMA                                           // temporary during initial development
 #elif defined NUCLEO_F429ZI
     #define TARGET_HW            "NUCLEO-F429ZI (STM32F429ZI)"
-    #define STM32_FPU                                                    // FPU present
     #define _ERRATE_REV_A_Z                                              // activate (SDIO) workarounds for revisions A and Z
     #define _STM32F4XX                                                   // part group
     #define _STM32F42X
@@ -1239,14 +1435,12 @@
     #define OUR_HEAP_SIZE        (HEAP_REQUIREMENTS)((32 * 1024) * MEM_FACTOR)
 #elif defined NUCLEO_L476RG
     #define TARGET_HW            "NUCLEO-L476RG (STM32L476RG)"
-    #define STM32_FPU                                                    // FPU present
     #define _STM32L4XX                                                   // part group
     #define _STM32L47X
     #define _STM32L476
     #define OUR_HEAP_SIZE        (HEAP_REQUIREMENTS)((32 * 1024) * MEM_FACTOR)
 #elif defined NUCLEO_L496RG
     #define TARGET_HW            "NUCLEO-L496RG (STM32L496RG)"
-    #define STM32_FPU                                                    // FPU present
     #define _STM32L4XX                                                   // part group
     #define _STM32L4X6                                                   // part group
     #define _STM32L49X
@@ -1264,7 +1458,6 @@
     #define TARGET_HW            "STM3240C-EVAL (STM32F407IGH6)"
     #define _STM32F4XX
     #define _STM32F417
-    #define STM32_FPU                                                    // FPU present
     #define OUR_HEAP_SIZE        (HEAP_REQUIREMENTS)((24 * 1024) * MEM_FACTOR) // we have the LAN buffers in HEAP and big RX/TX
 #elif defined STM32F407ZG_SK
     #define _ERRATE_REV_A_Z                                              // activate (SDIO) workarounds for revisions A and Z
@@ -1272,6 +1465,19 @@
     #define _STM32F4XX
     #define _STM32F407
     #define OUR_HEAP_SIZE        (HEAP_REQUIREMENTS)((32 * 1024) * MEM_FACTOR)
+#elif defined STM32_E407
+    #define _ERRATE_REV_A_Z                                              // activate (SDIO) workarounds for revisions A and Z
+    #define TARGET_HW            "STM32-E407"
+    #define _STM32F4XX
+    #define _STM32F407
+    #define OUR_HEAP_SIZE        (HEAP_REQUIREMENTS)((32 * 1024) * MEM_FACTOR)
+#elif defined ST_IDP004
+    #define _ERRATE_REV_A_Z                                              // activate (SDIO) workarounds for revisions A and Z
+    #define TARGET_HW            "STM32F205RBTx"                         // Cortex-M3
+    #define _STM32F2XX
+    #define _STM32F205
+    #define OUR_HEAP_SIZE (HEAP_REQUIREMENTS)((24 * 1024) * MEM_FACTOR)  // we have the LAN buffers in HEAP and big RX/TX
+    #define DEVICE_WITHOUT_ETHERNET
 #elif defined ST_MB997A_DISCOVERY
     #define EMBEST_BASE_BOARD                                            // activate when available to use Ethernet and SD card
     #define _ERRATE_REV_A_Z                                              // activate (SDIO) workarounds for revisions A and Z
@@ -1301,6 +1507,11 @@
     #define _STM32F2XX
     #define _STM32F207
     #define OUR_HEAP_SIZE (HEAP_REQUIREMENTS)((24 * 1024) * MEM_FACTOR)  // we have the LAN buffers in HEAP and big RX/TX
+#elif defined NUCLEO_F767ZI
+    #define TARGET_HW            "NUCLEO-F767ZI (STM32F767ZI)"
+    #define _STM32F7XX
+    #define _STM32F767
+    #define OUR_HEAP_SIZE        (HEAP_REQUIREMENTS)((24 * 1024) * MEM_FACTOR) // we have the LAN buffers in HEAP and big RX/TX
 #elif defined NUCLEO_F746ZG
     #define TARGET_HW            "NUCLEO-F746ZG (STM32F746ZGT6)"
     #define _STM32F7XX
@@ -1318,17 +1529,22 @@
 //
 #if defined FRDM_KE04Z || defined FRDM_KL03Z || defined TWR_KV10Z32 || defined TEENSY_LC || defined TRK_KEA8 // due to the restricted flash size in this device the flash is used only for program code
     #define NO_FLASH_SUPPORT                                             // neither parameter nor file system
+#elif defined _iMX                                                       // no internal flash
+    #if !defined iMX_BOOT && !defined MIMXRT1064
+        #define NO_FLASH_SUPPORT                                         // neither parameter nor file system
+    #endif
 #else
   //#define NO_FLASH_SUPPORT                                             // neither parameter nor file system used
 #endif
 #if !defined NO_FLASH_SUPPORT
-    #define USE_PARAMETER_BLOCK                                          // enable a parameter block for storing and retrieving non-volatile information
+    #define USE_PARAMETER_BLOCK                                          // enable a parameter block for storing and retrieving non-volatile information - see uParameterSystem description http://www.utasker.com/docs/uTasker/uTaskerFileSystem_3.PDF
         #define USE_PAR_SWAP_BLOCK                                       // we support a backup block which can be restored if desired (it is recommended to use this together with USE_PARAMETER_BLOCK)
       //#define PARAMETER_NO_ALIGNMENT                                   // the driver doesn't need to respect byte write restrictions since the application does - this can improve memory utilisation when bytes writes are not supported by the hardware
   //#define USE_PARAMETER_AREA                                           // simple parameter area rather than parameter block
   //#define SPI_FILE_SYSTEM                                              // we have an external file system via SPI interface
   //#define I2C_EEPROM_FILE_SYSTEM                                       // we have an EEPROM based external file system via I2C interface
   //#define SPI_EEPROM_FILE_SYSTEM                                       // we have an EEPROM based external file system via SPI interface
+  //#define _STORAGE_I2C_FRAM_ENABLED                                    // FRAM based file system via I2C interface
   //#define EXT_FLASH_FILE_SYSTEM                                        // we have a file system in external FLASH memory
     #if !defined NAND_FLASH_FAT && !defined DEV1
         #define FLASH_FILE_SYSTEM                                        // we have an internal file system in FLASH
@@ -1343,14 +1559,18 @@
           //#define MANAGED_FILE_WRITE                                   // allow writes to files to be controlled in managed mode so that they take place as a background operation
           //#define MANAGED_FILE_READ                                    // allow reads from files to be controlled in managed mode so that they take place as a background operation
     #endif
-  //#define FLASH_ROUTINES                                               // supply flash routines (can be used to force flash write/erase support without any file system)
+  //#define FLASH_ROUTINES                                               // supply flash routines (can be used to force flash write/erase support without any parameter/file system)
 
-    #if !defined SPI_FILE_SYSTEM && !defined I2C_EEPROM_FILE_SYSTEM && !defined SPI_EEPROM_FILE_SYSTEM && !defined NVRAM && !defined EXT_FLASH_FILE_SYSTEM
+    #if !defined _iMX && !defined SPI_FILE_SYSTEM && !defined I2C_EEPROM_FILE_SYSTEM && !defined SPI_EEPROM_FILE_SYSTEM && !defined NVRAM && !defined EXT_FLASH_FILE_SYSTEM && !defined _STORAGE_I2C_FRAM_ENABLED
         #define ONLY_INTERNAL_FLASH_STORAGE                              // no external storage present
     #endif
 
-    #if defined (SPI_FILE_SYSTEM) || defined (FLASH_FILE_SYSTEM) || defined (NVRAM) || defined (I2C_EEPROM_FILE_SYSTEM) || defined SPI_EEPROM_FILE_SYSTEM || defined EXT_FLASH_FILE_SYSTEM
+    #if defined (SPI_FILE_SYSTEM) || defined (FLASH_FILE_SYSTEM) || defined (NVRAM) || defined (I2C_EEPROM_FILE_SYSTEM) || defined SPI_EEPROM_FILE_SYSTEM || defined EXT_FLASH_FILE_SYSTEM || defined _STORAGE_I2C_FRAM_ENABLED
         #define ACTIVE_FILE_SYSTEM                                       // enable uFileSystem
+      //#define NO_UFILE_OVERLAP_CHECKING                                // if it can be ensured that no writes are made to existing files areas the scan at the start of each write can be saved
+        #if defined _iMX
+            #define UFILE_SYSTEM_INTEGRITY_CHECK                         // run a uFileSystem content integrity check at initialisation, cleaning up any corrupted flash/files
+        #endif
     #endif
     #if defined I2C_EEPROM_FILE_SYSTEM
         #define M24M01_CNT    2                                          // use 2 x M24M01 for storae
@@ -1360,27 +1580,59 @@
 #define SUPPORT_MIME_IDENTIFIER                                          // if the file type is to be handled (eg. when mixing HTML with JPGs etc.) this should be set - note that the file system header will be adjusted
 
 #if defined FLASH_FILE_SYSTEM && defined SPI_FILE_SYSTEM                 // when a file system is located in SPI flash
-    // Specify the SPI flash type used
-    //
-  //#define SPI_FLASH_W25Q                                               // use Winbond W25Q SPI flash rather than ATMEL
-  //#define SPI_FLASH_MX25L                                              // use Macronix SPI flash rather than ATMEL
-  //#define SPI_FLASH_SST25                                              // use SST SPI SPI flash rather than ATMEL
-  //#define SPI_FLASH_ST                                                 // use ST SPI flash rather than ATMEL
-  //#define SPI_FLASH_S25FL1_K                                           // use Spansion SPI flash rather than ATMEL
-  //#define SPI_DATA_FLASH                                               // FLASH type is data flash supporting sub-sectors (relevant for ST types)
-    #if defined SPI_FLASH_ST
-        #if defined SPI_DATA_FLASH
-            #define FILE_GRANULARITY (2 * SPI_FLASH_BLOCK_LENGTH)        // (2 x 4096 byte blocks) file granularity is equal to a multiple of the FLASH granularity (as defined by the device)
+    #if defined _iMX
+        #if defined MIMXRT1064 && !defined USE_EXTERNAL_QSPI_FLASH
+            #define SPI_FLASH_W25Q
+            #define SPI_FLASH_W25Q32                                     // 4MBytes
+        #elif defined TEENSY_4_0
+            #define SPI_FLASH_W25Q
+            #define SPI_FLASH_W25Q16                                     // 2MBytes
+        #elif defined TEENSY_4_1
+            #define SPI_FLASH_W25Q
+            #define SPI_FLASH_W25Q64                                     // 8MBytes
+        #elif defined MIMXRT1050
+            #define SPI_FLASH_S26KL
+            #define SPI_FLASH_S26KS512                                   // 64MBytes
+        #elif defined iMX_RT1052_EMB_ART || defined iMX_RT1062_EMB_ART
+            #define SPI_FLASH_ATXP
+            #define SPI_FLASH_ATXP032                                    // 4MBytes
+        #elif defined MIMXRT1010 || defined MIMXRT1015
+            #define SPI_FLASH_AT25SF
+            #define SPI_FLASH_AT25FSF128A                                // 16MBytes
         #else
-            #define FILE_GRANULARITY (SPI_FLASH_BLOCK_LENGTH)            // (65535 byte blocks) file granularity is equal to a multiple of the FLASH granularity (as defined by the device)
+            #define SPI_FLASH_IS25
+            #define SPI_FLASH_IS25LP064A                                 // 8MBytes
         #endif
-    #elif defined SPI_FLASH_S25FL1_K || defined SPI_FLASH_MX25L
-        #define FILE_GRANULARITY (8 * SPI_FLASH_BLOCK_LENGTH)            // 32k file granularity
-    #elif defined SPI_FLASH_SST25 || defined SPI_FLASH_W25Q
-        #define FILE_GRANULARITY (SPI_FLASH_BLOCK_LENGTH)                // (4096 byte blocks) file granularity is equal to sub-sector FLASH granularity (as defined by the device)
     #else
-      //#define FILE_GRANULARITY (4 * SPI_FLASH_BLOCK_LENGTH)            // (4224/2112 byte blocks) file granularity is equal to a multiple of the FLASH granularity (as defined by the device)
-        #define FILE_GRANULARITY (FLASH_GRANULARITY)
+        // Specify the SPI flash type used
+        //
+      //#define SPI_FLASH_SECOND_SOURCE_MODE                             // allow multiple flash types to be detected and used
+          //#define SIM_DISABLE_IS25                                     // since only one device type is used at a time disable the types to not be simulated
+            #define SIM_DISABLE_W25Q
+            #define SIM_DISABLE_MX25L
+      //#define SPI_FLASH_IS25                                           // use ISSI IS25 SPI flash rather than ATMEL
+        #define SPI_FLASH_W25Q                                           // use Winbond W25Q SPI flash rather than ATMEL
+          //#define MT25Q_COMPATIBLE_OPTION                              // type used is compatible Micro MT25Q part
+      //#define SPI_FLASH_MX25L                                          // use Macronix MX25 SPI flash rather than ATMEL
+      //#define SPI_FLASH_MX66L                                          // use Macronix MX66 SPI flash rather than ATMEL
+      //#define SPI_FLASH_SST25                                          // use SST SPI SPI flash rather than ATMEL
+      //#define SPI_FLASH_ST                                             // use ST SPI flash rather than ATMEL
+      //#define SPI_FLASH_S25FL1_K                                       // use Spansion SPI flash rather than ATMEL
+      //#define SPI_DATA_FLASH                                           // FLASH type is data flash supporting sub-sectors (relevant for ST types)
+        #if defined SPI_FLASH_ST
+            #if defined SPI_DATA_FLASH
+                #define FILE_GRANULARITY (2 * SPI_FLASH_BLOCK_LENGTH)    // (2 x 4096 byte blocks) file granularity is equal to a multiple of the FLASH granularity (as defined by the device)
+            #else
+                #define FILE_GRANULARITY (SPI_FLASH_BLOCK_LENGTH)        // (65535 byte blocks) file granularity is equal to a multiple of the FLASH granularity (as defined by the device)
+            #endif
+        #elif defined SPI_FLASH_S25FL1_K || defined SPI_FLASH_MX25L
+            #define FILE_GRANULARITY (8 * SPI_FLASH_BLOCK_LENGTH)        // 32k file granularity
+        #elif defined SPI_FLASH_SST25 || defined SPI_FLASH_W25Q || defined SPI_FLASH_IS25
+            #define FILE_GRANULARITY (SPI_FLASH_BLOCK_LENGTH)            // (4096 byte blocks) file granularity is equal to sub-sector FLASH granularity (as defined by the device)
+        #else
+          //#define FILE_GRANULARITY (4 * SPI_FLASH_BLOCK_LENGTH)        // (4224/2112 byte blocks) file granularity is equal to a multiple of the FLASH granularity (as defined by the device)
+            #define FILE_GRANULARITY (FLASH_GRANULARITY)
+        #endif
     #endif
 #endif
 
@@ -1391,7 +1643,7 @@
 
 #define uFILE_SYSTEM_START    (MEMORY_RANGE_POINTER)(uFILE_START)
 #define uFILE_SYSTEM_END      (MEMORY_RANGE_POINTER)(uFILE_START + FILE_SYSTEM_SIZE)
-#if (defined _STM32F4XX || defined _STM32F2XX || defined _STM32F7XX) && (defined FLASH_FILE_SYSTEM && !defined SPI_FILE_SYSTEM) // positions parameter block in different FLASH bank and uses sub-files
+#if (defined _STM32F4XX || defined _STM32F2XX || defined _STM32F7XX || defined _STM32H7XX) && (defined FLASH_FILE_SYSTEM && !defined SPI_FILE_SYSTEM) // positions parameter block in different FLASH bank and uses sub-files
     #define LAST_FILE_BLOCK      (unsigned short)((FILE_SYSTEM_SIZE)/FILE_GRANULARITY) // last block in our file system
     #define LAST_SUB_FILE_BLOCK  (unsigned short)((FILE_SYSTEM_SIZE)/SUB_FILE_SIZE)  // last sub-block in our file system
 #else
@@ -1409,7 +1661,7 @@
 
 // Configure MODBUS extension package
 //
-//#define USE_MODBUS                                                     // activate MODBUS support in the project
+//#define USE_MODBUS                                                     // activate MODBUS support in the project - see MODBUS user's guide http://www.utasker.com/docs/MODBUS/uTasker_MODBUS.PDF
 #if defined USE_MODBUS
       #define USE_MODBUS_SLAVE                                           // slave capability supported
     //#define NO_SLAVE_MODBUS_READ_COILS                                 // disable specific slave public function support
@@ -1473,12 +1725,17 @@
 
 // Serial interface (UART)
 //
-#define SERIAL_INTERFACE                                                 // enable serial interface driver
+#define SERIAL_INTERFACE                                                 // enable serial interface driver - see UART guide http://www.utasker.com/docs/uTasker/uTaskerUART.PDF
 #if (!defined BLINKY && !defined HELLO_WORLD) && defined SERIAL_INTERFACE
   //#define FREEMASTER_UART                                              // UART for run-time debugging use
   //#define UART_EXTENDED_MODE                                           // required for 9-bit mode
       //#define SERIAL_MULTIDROP_TX                                      // enable 9-bit support in the transmission direction
       //#define SERIAL_MULTIDROP_RX                                      // enable 9-bit support in the reception direction
+      //#define FREE_RUNNING_RX_DMA_RECEPTION                            // use the UART receiver in free-running DMA mode (requires SERIAL_SUPPORT_DMA_RX and SERIAL_SUPPORT_DMA_RX_FREERUN in app_hw_xxxx.h) - see videos https://youtu.be/dNZvvouiqis and https://youtu.be/GaoWE-tMRq4
+      //#define UART_SUPPORT_IDLE_LINE_INTERRUPT                         // alow idle line interrupt to signal reception data availablility
+        #if defined UART_SUPPORT_IDLE_LINE_INTERRUPT && defined FREE_RUNNING_RX_DMA_RECEPTION
+            #define FREE_RUNNING_RX_DMA_RECEPTION_IDLE_LINE
+        #endif
   //#define SERIAL_STATS                                                 // keep statistics about serial interface use
   //#define SUPPORT_MSG_MODE                                             // enable terminator recognition (MSG_MODE)
       //#define SUPPORT_MSG_CNT                                          // enable the message counter mode (MSG_MODE_RX_CNT) - requires also SUPPORT_MSG_MODE
@@ -1494,8 +1751,9 @@
   //#define SERIAL_SUPPORT_ECHO                                          // enable echo mode in rx driver
   //#define SERIAL_SUPPORT_ESCAPE                                        // enable escape sequencing in driver
   //#define SERIAL_SUPPORT_SCAN                                          // serial receiver supports scanning of input buffer for a sequence
+    #define SERIAL_SUPPORT_PEEK
   //#define SUPPORT_HW_FLOW                                              // support RTS/CTS flow control and other possible modem signals
-      //#define UART_WITHOUT_MODEM_CONTROL                               // test overriding automatic modem support
+      //#define UART_WITHOUT_MODEM_CONTROL                               // force overriding automatic modem support
       //#define UART_FRAME_END_COMPLETE
       //#define USER_DEFINED_UART_TX_FRAME_COMPLETE
       //#define LPUART0_MANUAL_RTS_CONTROL
@@ -1509,14 +1767,16 @@
     #define LOG_UART3                                                    // activate this option to log all data sent to UART 3 to a file called "UART3.txt"
     #define LOG_UART4                                                    // activate this option to log all data sent to UART 4 to a file called "UART4.txt"
     #define LOG_UART5                                                    // activate this option to log all data sent to UART 5 to a file called "UART5.txt"
+    #define LOG_UART6                                                    // activate this option to log all data sent to UART 6 to a file called "UART6.txt"
+    #define LOG_UART7                                                    // activate this option to log all data sent to UART 7 to a file called "UART7.txt"
 
     #define LOG_UART_RX                                                  // log UART receptions to simulation files "UARTx.sim"
 
-    #if defined USE_MODBUS
+    #if defined USE_MODBUS                                               // configure MODBUS on UART - see MODBUS user's guide http://www.utasker.com/docs/MODBUS/uTasker_MODBUS.PDF
         #define MODBUS_RTU                                               // support binary RTU mode
         #define MODBUS_ASCII                                             // support ASCII mode
         #define STRICT_MODBUS_SERIAL_MODE                                // automatically adjust the character length according to mode
-        #if defined FRDM_KL02Z
+        #if defined FRDM_KL02Z || defined K02F100M
             #define MODBUS_SERIAL_INTERFACES      1
         #else
             #define MODBUS_SERIAL_INTERFACES      2
@@ -1554,6 +1814,8 @@
         #if defined USE_DMX_RDM_SLAVE
             #define USER_DEFINED_UART_TX_FRAME_COMPLETE                  // user callback on completion of frame transmission
         #endif
+    #else
+      //#define USER_DEFINED_UART_RX_HANDLER                             // enable user callback in UART rx interrupt
     #endif
 
   //#define USE_PPP                                                      // allow TCP/IP on serial
@@ -1586,36 +1848,48 @@
     #define USB_INTERFACE                                                // enable USB driver interface
     #if defined USB_INTERFACE
       //#define MICROSOFT_OS_STRING_DESCRIPTOR                           // support MODs
+        #define CUSTOM_USB_TX_FREE                                       // enable optional custom TX_FREE interrupt event to be defined
       //#define USB_HOST_SUPPORT                                         // host supported
         #define USB_DEVICE_SUPPORT                                       // device supported
-        #define USB_SPEC_VERSION            USB_SPEC_VERSION_2_0         // report USB2.0 rather than USB1.1 - usually USB1.1 is used since it is equivalent to USB2.0 but requires one less descriptor transfer
+        #define USB_SPEC_VERSION            USB_SPEC_VERSION_2_0         // report USB2.0 rather than USB1.1 - often USB1.1 can be used since it is equivalent to USB2.0 but requires one less descriptor transfer
         #if defined USB_HOST_SUPPORT && !defined USB_DEVICE_SUPPORT
             #define NUMBER_USB     (5 + 1)                               // physical queues (control plus 5 endpoints)
         #endif
         #if defined USB_DEVICE_SUPPORT                                   // define one or more device classes (multiple classes creates a composite device)
             #define USE_USB_CDC                                          // USB-CDC (use also for Modbus over USB)
-            #define USE_USB_MSD                                          // needs SD card to compile (or alternatives FLASH_FAT / SPI_FLASH_FAT / FAT_EMULATION)
+          //#define USE_USB_MSD                                          // needs SD card to compile (or alternatives FLASH_FAT / SPI_FLASH_FAT / FAT_EMULATION)
           //#define USE_USB_HID_MOUSE                                    // human interface device (mouse)
           //#define USE_USB_HID_KEYBOARD                                 // human interface device (keyboard)
-              //#define USB_KEYBOARD_DELAY                               // enable inter-character delay control
+                #define USB_KEYBOARD_DELAY                               // enable inter-character delay control
           //#define USE_USB_HID_RAW                                      // human interface device (raw)
           //#define USE_USB_AUDIO                                        // audio device
-            #if defined USE_USB_AUDIO
-                #define AUDIO_BUFFER_COUNT  (32)                         // this many isochronous packets can fit into the buffer (the buffer size is AUDIO_BUFFER_COUNT * isochronous endpoint size)
-                #define AUDIO_FFT                                        // perform FFT on audio input input
+          //#define USE_HS_USB_AUDIO                                     // audio device on HS USB (used when two USB interfaces are available and the audio class should be on the high speed instance)
+            #if defined USE_USB_AUDIO || defined USE_HS_USB_AUDIO
+                #define AUDIO_BUFFER_COUNT  (16)                         // this many isochronous packets can fit into the buffer (the buffer size is AUDIO_BUFFER_COUNT * isochronous endpoint size)
+              //#define SPEAKER_ONLY
+                #define MIC_ONLY                                         // audio USB class with just microphone
+                    #define MIC_STEREO                                   // stereo microphone
+                    #define MIC_SAMPLING_RATE     (384000)               // 384kHz sampling
+              //#define AUDIO_FFT                                        // perform FFT on audio input input
                     #define CMSIS_DSP_FFT_512                            // enable 512 point FFT
             #endif
             #if defined USE_USB_CDC
               //#define USB_CDC_RNDIS                                    // Remote Network Driver Interface Specification for virtual network adapter
-                  //#define USB_TX_MESSAGE_MODE                          // enable transmission message mode when using RNDIS
+                #if defined USB_CDC_RNDIS
+                    #define USB_TX_MESSAGE_MODE                          // enable transmission message mode when using RNDIS
+                #endif
             #endif
             #if defined USE_USB_HID_MOUSE || defined USE_USB_HID_RAW
                 #define NUMBER_USB_HID 1
             #else
                 #define NUMBER_USB_HID 0
             #endif
-            #if defined USE_USB_AUDIO
+            #if defined USE_USB_AUDIO || defined USE_HS_USB_AUDIO
                 #define NUMBER_USB_AUDIO  3
+                #if defined USB_HS_INTERFACE
+                    #define IN_COMPLETE_CALLBACK                         // support user callback on IN completion
+                    #define USB_HS_ISO_SUPPORT
+                #endif
             #else
                 #define NUMBER_USB_AUDIO  0
             #endif
@@ -1624,8 +1898,12 @@
                 #if defined FAT_EMULATION
                     #define NUMBER_USB_MSD 1                             // single MSD LUM (eg. set to 2 for SD card and emulated drive)
                     #define EMULATED_FAT_LUNS         1                  // the number of logical units on emulated drive
-                    #define EMULATED_FAT_DISK_SIZE   (1024 * 1024)       // 1 MByte disk to be emulated
-                    #define MAXIMUM_DATA_FILES        8                  // maximum number of data files that could be used by the disk
+                    #if defined _iMX
+                        #define EMULATED_FAT_DISK_SIZE   (96 * 1024 * 1024) // 96 MByte disk to be emulated
+                    #else
+                        #define EMULATED_FAT_DISK_SIZE   (8 * 1024 * 1024) // 8 MByte disk to be emulated
+                    #endif
+                    #define MAXIMUM_DATA_FILES       10                  // maximum number of data files that could be used by the disk
                     #define ROOT_DIR_SECTORS          2                  // 2 sectors is adequate for file information (including LFNs) for maximum file count
                     #define EMULATED_FAT_FILE_DATE_CONTROL               // allow the application to define the time stamp of files
                     #define EMULATED_FAT_FILE_NAME_CONTROL               // allow the application to define the name of files
@@ -1648,10 +1926,11 @@
             #endif
             #if defined USE_USB_CDC
                 #define USB_SIMPLEX_ENDPOINTS                            // share IN and OUT on a single endpoint
+              //#define CDC_WITHOUT_INTERRUPT_ENDPOINT                   // do not use interrupt endpoint to increase the number of CDC interfaces possible
               //#define FREEMASTER_CDC                                   // CDC instance for run-time debugging use (if USB_CDC_COUNT is 1 the single USB-CDC connection is used, otherwise the last instance is used)
                 #if defined USB_CDC_RNDIS
                     #define USB_CDC_RNDIS_COUNT       1                  // the number of RNDIS virtual network interfaces
-                    #define USB_CDC_VCOM_COUNT        0                  // the number of CDC virtual COM ports in composite device (set to 0 when not used)
+                    #define USB_CDC_VCOM_COUNT        1                  // the number of CDC virtual COM ports in composite device (set to 0 when not used)
                     #define USB_CDC_COUNT             (USB_CDC_VCOM_COUNT + USB_CDC_RNDIS_COUNT) // number of USB-CDC device interfaces
                     #if !defined DEVICE_WITHOUT_ETHERNET
                         #define USB_TO_ETHERNET                          // allow RNDIS to Ethernet operation (this doesn't need the TCP/IP stack but does activate the Ethernet driver)
@@ -1683,15 +1962,25 @@
                     #define MODBUS_USB_INTERFACE_BASE 0                  // MODBUS USB is first interface
                 #endif
                 #define MODBUS_USB_CDC_COUNT          0                  // the number of CDC interfaces assigned to MODBUS
-                #define USB_SERIAL_CONNECTIONS                           // if serial interfaces are supported allow attaching each USB-CDC connection to a UART
+              //#define USB_SERIAL_CONNECTIONS                           // if serial interfaces are supported allow attaching each USB-CDC connection to a UART
                 #if defined USB_CDC_COUNT && (USB_CDC_COUNT > 1) && !defined USB_SPEC_VERSION
                     #define USB_SPEC_VERSION          USB_SPEC_VERSION_2_0 // multiple interface composite devices should use USB2.0
                 #endif
-                #if defined USB_SIMPLEX_ENDPOINTS
-                    #define NUMBER_USB     ((2 * USB_CDC_COUNT) + NUMBER_USB_MSD + NUMBER_USB_HID + NUMBER_USB_AUDIO + 1) // physical queues (control plus 3 endpoints for each USB-CDC interface) needed for USB-CDC interface
+                #if defined CDC_WITHOUT_INTERRUPT_ENDPOINT
+                    #if defined USB_SIMPLEX_ENDPOINTS
+                        #define CDC_ENDPOINT_COUNT    1                  // one shared data endpoint
+                    #else
+                        #define CDC_ENDPOINT_COUNT    2                  // one rx data endpoint and one tx data endpoint
+                    #endif
                 #else
-                    #define NUMBER_USB     ((3 * USB_CDC_COUNT) + NUMBER_USB_MSD + NUMBER_USB_HID + NUMBER_USB_AUDIO + 1) // physical queues (control plus 3 endpoints for each USB-CDC interface) needed for USB-CDC interface
+                    #if defined USB_SIMPLEX_ENDPOINTS
+                        #define CDC_ENDPOINT_COUNT    2                  // one shared data endpoint and one interrupt endpoint
+                    #else
+                        #define CDC_ENDPOINT_COUNT    3                  // one rx data endpoint and one tx data endpoint and one interrupt endpoint
+                    #endif
                 #endif
+                #define CDC_INTERFACE_COUNT       2
+                #define NUMBER_USB     ((CDC_ENDPOINT_COUNT * USB_CDC_COUNT) + NUMBER_USB_MSD + NUMBER_USB_HID + NUMBER_USB_AUDIO + 1) // physical queues (control plus CDC endpoints for each USB-CDC interface) needed for USB-CDC interface
             #else
                 #define NUMBER_USB     (NUMBER_USB_MSD + NUMBER_USB_HID + NUMBER_USB_AUDIO + 1) // physical queues (control plus endpoints)
             #endif
@@ -1701,12 +1990,39 @@
             #define USB_HS_INTERFACE                                     // use HS interface rather than FS interface (needs external ULPI transceiver) - use with TWR_SER2 and secondary elevator (not dummy elevator)
         #endif
         #if defined USB_HOST_SUPPORT
+            #define USB_HOST_HUB                                         // include hub support for multiple classes on single USB port
             #define USB_MSD_HOST                                         // works together with mass-storage for a USB memory stick as disk E
           //#define USB_CDC_HOST                                         // supports CDC device (can be used together with MSD host) - see https://youtu.be/XhISV1czIo4 for a demonstration of CDC communication betwen a host and a device target
-                #define SUPPORT_USB_SIMPLEX_HOST_ENDPOINTS               // allow operation with devices using bulk IN/OUT on the same endpoint (this should normally always be set)
-                #define USB_CDC_COUNT  1                                 // support up to this many virtual com host interfaces
+                #define SUPPORT_USB_SIMPLEX_HOST_ENDPOINTS               // allow operation with devices using bulk IN/OUT on the same endpoint (this should normally always be set)    
+                #if defined USB_CDC_HOST
+                    #define TELIT_LE910C1
+                    #if defined TELIT_LE910C1
+                        #define USB_HOST_INTERFACE_FILTER                // alow the application to set a filter on the device interfaces that are to be supported
+                        #define MAX_CONFIGURATION_DESCRIPTOR_LENGTH 320  // support large configuration descriptor content
+                        #define USB_CDC_HOST_COUNT          8            // support up to this many virtual com host interfaces
+                        #define NUMBER_OF_HOST_ENDPOINTS    12
+                        #define USB_HOST_CALLBACK_SETUP_ACK              // enable call-back wih event HOST_SETUP_ACKED after successful transmission of SETUP after enumeration
+                        #define MAX_HSUSB_ENDPOINT_PERIOD   32           // maximum interrupt endpoint polling period (8,16,32,128,256,512 or 1024ms are possible - 32ms is used if nothing is specified)
+                        #if !defined DEVICE_WITHOUT_ETHERNET
+                            #define ETHERNET_BRIDGING                    // bridge received Ethernet frames to alternative interfaces (uses must supply fnBridgeEthernetFrame(ETHERNET_FRAME *ptr_rx_frame))
+                            #define USB_TO_ETHERNET                      // bridge non-consumed frames from RNDIS to Ethernet
+                        #endif
+                    #else
+                         #define NUMBER_OF_HOST_ENDPOINTS    12
+                        #define USB_CDC_HOST_COUNT  1                    // support up to this many virtual com host interfaces
+                    #endif
+                    #define USB_RNDIS_HOST                               // support RNDIS as host
+                    #if defined USB_RNDIS_HOST
+                        #define USB_HOST_CALLBACK_SETUP_ACK              // enable call-back wih event HOST_SETUP_ACKED after successful transmission of SETUP after enumeration
+                        #define USB_TO_TCP_IP                            // enable RNDIS interface to communicate with the local TCP/IP stack
+                        #define WAKE_BLOCKED_USB_TX                      // allow a blocked USB transmitter to continue after an interrupt event
+                    #endif
+                #else
+                    #define NUMBER_OF_HOST_ENDPOINTS    12
+                    #define USB_CDC_HOST_COUNT  1                        // support up to this many virtual com host interfaces
+                #endif
         #endif
-        #if defined USB_HS_INTERFACE || defined USB_HOST_SUPPORT || defined USE_USB_AUDIO || defined USB_CDC_RNDIS // since RNDIS makes intensive use of enpoint 0 for status and control it makes sense to use the largest size possible (assuming at least full-speed operation)
+        #if defined _iMX || defined USB_HS_INTERFACE || defined USB_HOST_SUPPORT || defined USE_USB_AUDIO || defined USE_HS_USB_AUDIO || defined USB_CDC_RNDIS // since RNDIS makes intensive use of enpoint 0 for status and control it makes sense to use the largest size possible (assuming at least full-speed operation)
             #define ENDPOINT_0_SIZE         64                           // high speed devices should use 64 bytes (and hosts use full size endpoint size)
         #else
             #define ENDPOINT_0_SIZE         8                            // maximum packet size for endpoint 0. Low speed devices must use 8 whereas full speed devices can chose to use 8, 16, 32 or 64
@@ -1733,12 +2049,17 @@
 
 // I2C
 //
-//#define I2C_INTERFACE
-#if defined I2C_INTERFACE
+#if defined _STORAGE_I2C_FRAM_ENABLED
+    #define I2C_INTERFACE                                                // I2C must be enabled
+#else
+    #define I2C_INTERFACE                                                // optionally enable I2C
+#endif
+#if defined I2C_INTERFACE                                                // see I2C user's guide http://www.utasker.com/docs/uTasker/uTasker_I2C.pdf
     #define NUMBER_I2C       (I2C_AVAILABLE + LPI2C_AVAILABLE)           // I2C interfaces available
-  //#define I2C_SLAVE_MODE                                               // support slave mode
-        #define I2C_SLAVE_TX_BUFFER                                      // support preparing slave transmissions with fnWrite()
-        #define I2C_SLAVE_RX_BUFFER                                      // support slave reception buffer for fnRead()
+  //#define I2C_2_BYTE_LENGTH                                            // driver uses 2 byte length information when reading/writing
+  //#define I2C_SLAVE_MODE                                               // optionally support slave mode
+      //#define I2C_SLAVE_TX_BUFFER                                      // support preparing slave transmissions with fnWrite()
+      //#define I2C_SLAVE_RX_BUFFER                                      // support slave reception buffer for fnRead()
 #else
     #define NUMBER_I2C     0                                             // no physical queue needed
 #endif
@@ -1751,22 +2072,27 @@
     #else
       //#define CAN_INTERFACE                                            // enable CAN bus interface
     #endif
-    #if defined CAN_INTERFACE
+    #if defined CAN_INTERFACE                                            // see CAN user's guide https://www.utasker.com/docs/uTasker/uTaskerCAN.PDF
         #define NUMBER_CAN          4                                    // the number of logical queues required for CAN support (2 logical queues each for up to 2 CAN controllers)
       //#define UTASKER_SIM                                              // simulator HW extension
             #define SIM_HW_IP_ADD       192,168,0,4                      // IP address of our HW simulator extension
             #define SIM_HW_PORT_NUMBER  1234                             // port number used by out HW simulator
         #define SIM_KOMODO                                               // use Komodo as simulator CAN extension
             #define KOMODO_USB_PORT 1                                    // use this USB port (0 or 1) - any additional monitor program sharing the Komodo can use the other port
+      //#define SUPPORT_CANopen                                          // include CANopen support
+            #define CANOPEN_INSTANCES     1
+            #define CAN_INDEX_WIDTH       (0x07ff | 0xf800)              // extended ID support
+            #define CANOPEN_EXTENDED_ID
     #else
         #define NUMBER_CAN   0                                           // no physical queue needed
     #endif
+    #define SUPPORT_FLUSH                                                // allow flush command to be used
 #else
     #define NUMBER_CAN   0                                               // no physical queue needed
 #endif
 
-// utFAT
-//
+// utFAT - see utFAT user's guide http://www.utasker.com/docs/uTasker/uTasker_I2C.pdf
+
 //#define SDCARD_SUPPORT                                                 // SD-card interface
 //#define FLASH_FAT                                                      // FAT in internal flash
 //#define SPI_FLASH_FAT                                                  // FAT in external SPI flash
@@ -1778,6 +2104,7 @@
 #if (defined SDCARD_SUPPORT || defined SPI_FLASH_FAT || defined FLASH_FAT || defined USB_MSD_HOST) && (!defined BLINKY && !defined HELLO_WORLD)
     #if defined SPI_FLASH_FAT
         #undef ONLY_INTERNAL_FLASH_STORAGE                               // allow multiple flash storage support
+        #define SPI_FLASH_W25Q                                           // use Winbond W25Q SPI flash rather than ATMEL
     #endif
     #if defined FLASH_FAT && !defined FLASH_ROUTINES
         #define FLASH_ROUTINES                                           // ensure that internal flash routines are available
@@ -1808,6 +2135,7 @@
     #if defined UTFAT_LFN_READ
         #define MAX_UTFAT_FILE_NAME      (100)                           // the maximum file name length supported - maximum 255
     #endif
+  //#define SUPPORT_SDCARD_V1                                            // support old version 1 cards
   //#define SDCARD_FIXED                                                 // no SD card monitoring since it is fixed in hardware
   //#define UTFAT_MULTIPLE_BLOCK_WRITE                                   // use multiple block writes where possible (write speed efficiency)
       //#define UTFAT_PRE_ERASE                                          // use pre-erase where possible (potential write speed efficiency)
@@ -1822,7 +2150,7 @@
         #define RANDOM_NUMBER_GENERATOR                                  // random number generator required
             #define SFN_ENTRY_CACHE_SIZE 20                              // short file name cache used to speed up SFN alias collision searching when writing LFNs
       //#define UTFAT_SAFE_DELETE                                        // delete operation removes all information (name and content details are removed from disk - no undelete possible)
-        #define UTFAT_UNDELETE                                           // undelete a file or directory
+      //#define UTFAT_UNDELETE                                           // undelete a file or directory
       //#define UTFAT_FILE_CACHE_POOL    2                               // two file buffers in the pool - used on an individual file basis to cache data writes (latest write on close)
     #endif
     #define UTFAT_EXPERT_FUNCTIONS                                       // enable additional functions for monitoring operation and performing advanced operations
@@ -1836,6 +2164,21 @@
 #if defined FLASH_ROUTINES && (defined FREEMASTER_CDC || defined FREEMASTER_UART)
     #define FREEMASTER_STORAGE_ACCESS                                    // use storage interface rather than direct memory mapping so that SPI flash content can be addressed and also flash can be written
 #endif
+
+// WiFi
+//
+//#define WIFI_INTERFACE
+#if defined WIFI_INTERFACE
+    #define WIFI_ATWINC15                                                // use Microchip ATWINC15x0 module
+    #if defined WIFI_ATWINC15
+        #define NM_EDGE_INTERRUPT                                        // handle module's interrupt line
+        #define CONF_PERIPH
+        #define ETH_MODE                                                 // use bypass mode and not the module's internal TCP/IP stack
+        #define CONF_WINC_USE_SPI                                        // module is connected via SPI
+        #define CONF_WINC_DEBUG   0
+    #endif
+#endif
+
 
 // nRF24L01
 //
@@ -1851,7 +2194,7 @@
 
 // Ethernet
 //
-#if !defined DEVICE_WITHOUT_ETHERNET && !defined K70F150M_12M && !defined TEENSY_3_5 && !defined TEENSY_3_6 && !defined K66FX1M && !defined HEXIWEAR_K64F && !defined HEXIWEAR_KW40Z && !defined K66FX1M0
+#if !defined DEVICE_WITHOUT_ETHERNET && !defined K70F150M_12M && !defined TEENSY_3_5 && !defined TEENSY_3_6 && !defined TEENSY_4_0 && !defined K66FX1M && !defined HEXIWEAR_K64F && !defined HEXIWEAR_KW40Z && !defined K66FX1M0
     #define ETH_INTERFACE                                                // enable Ethernet interface driver
 #elif defined TEENSY_3_1 || defined TEENSY_LC
   //#define ETH_INTERFACE                                                // enable external Ethernet interface driver
@@ -1859,7 +2202,7 @@
         #define ENC424J600_INTERFACE                                     // using ENC424J600
     #endif
 #endif
-#if (defined ETH_INTERFACE || (defined USB_CDC_RNDIS && !defined PURE_RNDIS_ETHERNET) || defined USE_PPP) && (!defined BLINKY && !defined HELLO_WORLD)
+#if (defined ETH_INTERFACE || defined WIFI_INTERFACE || (defined USB_CDC_RNDIS && !defined PURE_RNDIS_ETHERNET) || (defined USB_HOST_SUPPORT && defined USB_CDC_HOST && defined USB_RNDIS_HOST) || defined USE_PPP) && (!defined BLINKY && !defined HELLO_WORLD)
     #define MAC_DELIMITER  '-'                                           // used for display and entry of mac addresses
     #define IPV6_DELIMITER ':'                                           // used for display and entry of IPV6 addresses
     #define NUMBER_LAN     1                                             // one physical interface needed for LAN
@@ -1883,7 +2226,7 @@
     #define ETHERNET_RELEASE_AFTER_EVERY_FRAME                           // handle only one Ethernet reception frame at a time and allow other tasks to be scheduled in between
         #define ETHERNET_RELEASE_LIMIT  3                                // allow a maximum of three reception frames to be handled
 
-    #if defined ETH_INTERFACE && ((defined USB_CDC_RNDIS && defined NO_USB_ETHERNET_BRIDGING) || !defined USB_CDC_RNDIS)
+    #if defined ETH_INTERFACE && ((defined USB_CDC_RNDIS && defined NO_USB_ETHERNET_BRIDGING) || !defined USB_CDC_RNDIS) // ethernet and RNDIS
         #define IP_NETWORK_COUNT             1                           // number of networks
             #define SECOND_NETWORK           1                           // reference to second network (after DEFAULT_NETWORK which is 0)
     #endif
@@ -1936,6 +2279,11 @@
         #define PHY2_INTERFACE         defineInterface(PHY2_IP_INTERFACE) // phy port 2 interface is third interface
         #define PHY12_INTERFACE        defineInterface(PHY12_IP_INTERFACE) // phy both ports interface is fourth interface
     #else
+        #if defined ETH_INTERFACE && defined USB_RNDIS_HOST
+            #define IP_INTERFACE_COUNT   2
+            #define RNDIS_IP_INTERFACE    (unsigned char)1
+            #define RNDIS_INTERFACE       defineInterface(RNDIS_IP_INTERFACE) // RNDIS interface is second interface
+        #endif
         #if !defined IP_INTERFACE_COUNT
             #define IP_INTERFACE_COUNT   1                               // single interface available
         #endif
@@ -1947,7 +2295,7 @@
         //#define ALTERNATIVE_VLAN_COUNT  2                              // alternative VLANs managed (in addition to standard VLAN) - used only together with SUPPORT_DYNAMIC_VLAN
       // Configure TCP/IP services
       //
-      //#define USE_IPV6                                                 // enable IPv6
+        #define USE_IPV6                                                 // enable IPv6 - see IPv6 user's guide http://www.utasker.com/docs/uTasker/uTaskerIPV6.PDF
       //#define USE_IPV6INV4                                             // support tunnelling IPv6 ind IPv4
       //#define USE_IPV6INV4_RELAY_DESTINATIONS 2                        // enable relaying to other nodes in the network - the number of destination in the IPv6 in IPv4 relay table
         #define MAX_HW_ADDRESS_LENGTH  MAC_LENGTH                        // set a variable maximum hardware address length - default is Ethernet MAC-48, 6 bytes
@@ -1968,11 +2316,11 @@
       //#define RESTRICTED_GATEWAY_INTERFACE                             // used only when multiple interfaces are available, in which case the user must supply fnRestrictGatewayInterface() to decide which interfaces are included in gateway ARP re-resolves (when not used all interfaces are used in a single network environment or only the original interface in a multi-network environment)
         #define USE_ICMP                                                 // enable ICMP
       //#define USE_IGMP                                                 // enable IGMP (must be enabled for level 2 hosts that handle multicast IP datagram reception and thus need to have full IP multicasting support)
-            #if defined ENC424J600_INTERFACE && (ETHERNET_INTERFACES > 1)
+            #if defined ENC424J600_INTERFACE && defined ETHERNET_INTERFACES && (ETHERNET_INTERFACES > 1)
                 #define IGMP_ALL_HOSTS_INTERFACES   (ETHERNET_INTERFACE | ENC424J00_INTERFACE) // interfaces that IGMP is to work on (enabling the all-host group on all required interfaces - only needed when IP_INTERFACE_COUNT > 1)
-            #elif defined USE_PPP && (ETHERNET_INTERFACES > 0)
+            #elif defined USE_PPP && defined ETHERNET_INTERFACES && (ETHERNET_INTERFACES > 0)
                 #define IGMP_ALL_HOSTS_INTERFACES   (ETHERNET_INTERFACE | PPP_INTERFACE) // interfaces that IGMP is to work on (enabling the all-host group on all required interfaces - only needed when IP_INTERFACE_COUNT > 1)
-            #elif defined RNDIS_IP_INTERFACE && (ETHERNET_INTERFACES > 1)
+            #elif defined RNDIS_IP_INTERFACE && defined ETHERNET_INTERFACES && (ETHERNET_INTERFACES > 1)
                 #define IGMP_ALL_HOSTS_INTERFACES   (ETHERNET_INTERFACE | RNDIS_IP_INTERFACE) // interfaces that IGMP is to work on (enabling the all-host group on all required interfaces - only needed when IP_INTERFACE_COUNT > 1)
             #else
                 #define IGMP_ALL_HOSTS_INTERFACES   defineInterface(DEFAULT_IP_INTERFACE) // interfaces that IGMP is to work on (enabling the all-host group on all required interfaces - only needed when IP_INTERFACE_COUNT > 1)
@@ -1993,9 +2341,9 @@
             #define ICMP_PING_IP_RESULT                                  // report the source IP in ping result
         #endif
     #endif
-    #if defined USE_IP || defined USE_IPV6
-        #define USE_UDP                                                  // enable UDP over IP - needs IP
-        #define USE_TCP                                                  // enable TCP over IP - needs IP
+    #if defined USE_IP || defined USE_IPV6                               // IPv4 or IPv6 enabled
+      //#define USE_UDP                                                  // enable UDP over IP - needs IP
+      //#define USE_TCP                                                  // enable TCP over IP - needs IP
 
         #if defined USE_TCP                                              // specify TCP support details
           //#define T_TCP_PERIOD           (DELAY_LIMIT)(0.1 * SEC)      // user defined TCP polling resolution (allows higher resolution polling and the following user defined values rather than defaults)
@@ -2018,24 +2366,24 @@
             #define WINDOWING_BUFFERS      4                             // we can send 4 frames before requiring ACKs
             #define CONTROL_WINDOW_SIZE                                  // support variable windows size to quench reception
 
-            #define USE_FTP                                              // enable FTP - needs TCP
-          //#define USE_FTP_CLIENT                                       // enable FTP client - needs TCP
+            #define USE_FTP                                              // enable FTP - needs TCP (and a file system)
+          //#define USE_FTP_CLIENT                                       // enable FTP client - needs TCP - see FTP client user's guide http://www.utasker.com/docs/uTasker/uTaskerFTP_client.pdf
           //#define USE_SMTP                                             // enable SMTP - needs TCP
           //#define USE_POP3                                             // enable POP3 Email - needs TCP
-            #define USE_HTTP                                             // support embedded Web server - needs TCP
-            #define USE_TELNET                                           // enable TELNET support
+          //#define USE_HTTP                                             // support embedded Web server - needs TCP (and a file system)
+            #define USE_TELNET                                           // enable TELNET support - see TELNET user's guide http://www.utasker.com/docs/uTasker/uTaskerFTP_client.pdf
               //#define USE_TELNET_LOGIN
               //#define TELNET_RFC2217_SUPPORT                           // support TELNET COM port control options
           //#define USE_TELNET_CLIENT                                    // enable TELNET client support
           //#define USE_TIME_SERVER                                      // enable time server support - presently demo started in application
                 #define NUMBER_OF_TIME_SERVERS 3                         // number of time servers that are used
-            #define MODBUS_TCP                                           // support MODBUS TCP protocol
+            #define MODBUS_TCP                                           // support MODBUS TCP protocol - see MODBUS user's guide http://www.utasker.com/docs/MODBUS/uTasker_MODBUS.PDF
             #define USE_MQTT_CLIENT                                      // enable MQTT (message queuing telemetry transport) client support
           //#define USE_MQTT_BROKER                                      // enable MQTT (message queuing telemetry transport) broker support
               //#define SECURE_MQTT                                      // MQTTS support
               //#define SUPPORT_CLIENT_SIDE_CERTIFICATE                  // support client certificate and private key
           //#define TEST_CLIENT_SERVER                                   // TCP client/server test (see debug.c)
-            #define TEST_TCP_SERVER                                      // TCP server (see debug.c) - uses also a TELNET session
+          //#define TEST_TCP_SERVER                                      // TCP server (see debug.c) - uses also a TELNET session
             #if defined TEST_CLIENT_SERVER
                 #define USER_TCP_SOCKETS      1
             #else
@@ -2050,11 +2398,11 @@
         #endif
 
         #if defined USE_UDP
-          //#define SUPPORT_MULTICAST_TX                                 // allow multicast UDP transmission (to IP addresses in the range 224.0.0.0 to 239.255.255.255)
+            #define SUPPORT_MULTICAST_TX                                 // allow multicast UDP transmission (to IP addresses in the range 224.0.0.0 to 239.255.255.255)
           //#define SUPPORT_MULTICAST_RX                                 // allow reception of defined UDP multicast receptions (specific IP addresses in the range 224.0.0.0 to 239.255.255.255) - IGMP enables this support inherently for the local host
-                #define MAX_MULTICAST_MEMBERS   1
+              //#define MAX_MULTICAST_MEMBERS   1
 
-          //#define ELZET80_DEVICE_DISCOVERY
+            #define ELZET80_DEVICE_DISCOVERY
             #if defined ELZET80_DEVICE_DISCOVERY
                 #define ELZET80_DISCOVERY_UDP_PORT  1338                 // listen on this UDP port
                 #if defined REMOTE_SIMULATION_INTERFACE
@@ -2070,7 +2418,7 @@
                 #endif
             #endif
 
-            #define USE_DHCP_CLIENT                                      // enable DHCP client  - needs UDP - IPCONFIG default zero - needs >= 1k Ethernet RX buffers (set random number also)
+            #define USE_DHCP_CLIENT                                      // enable DHCP client - needs UDP - IPCONFIG default zero - needs >= 1k Ethernet RX buffers (set random number also)
                 #define DHCP_HOST_NAME                                   // we send our host name as DHCP option - the application must supply fnGetDHCP_host_name()
           //#define USE_DHCP_SERVER                                      // enable DHCP server
           //#define USE_mDNS_SERVER                                      // enable mDNS server - needs UDP and IGMP
@@ -2083,13 +2431,13 @@
                 #define SNMP_MANAGER_COUNT        3                      // the number of managers supported
                 #define SNMP_TRAP_QUEUE_LENGTH    8                      // traps that can be queued to each manager
                 #define SNMP_MAX_BUFFER           512                    // largest UDP content size (in bytes - cannot be larger than maximum UDP data length)
-          //#define USE_SNTP                                             // simple network time protocol
+          //#define USE_SNTP                                             // simple network time protocol - see user's guide http://www.utasker.com/docs/uTasker/uTaskerSNTP.pdf
                 #define SNTP_SERVERS              4                      // number of SNTP servers that are used
 
             #if defined USE_DHCP_CLIENT && defined USE_DHCP_SERVER
-                #define DHCP_SOCKET 2                                    // ensure sockets are available for client and server
+                #define DHCP_SOCKET 2                                    // ensure sockets are available for both client and server
             #elif defined USE_DHCP_CLIENT || defined USE_DHCP_SERVER
-                #define DHCP_SOCKET 1
+                #define DHCP_SOCKET 1                                    // one socket needed for either the client or the server
             #else
                 #define DHCP_SOCKET 0
             #endif
@@ -2243,7 +2591,7 @@
 
             #define WEB_PARAMETER_GENERATION                             // support of parameter generating (eg. manipulating select and adding values)
             #define WEB_PARAMETER_HANDLING                               // support  handling of received web parameters
-            #define WEB_PARSER_START          '\xa3' //'£'               // this symbol is used in Web pages to instruct parsing to begin
+            #define WEB_PARSER_START          '\xa3' //'Â£'               // this symbol is used in Web pages to instruct parsing to begin
             #define WEB_INSERT_STRING         'v'
             #define WEB_DISABLE_FIELD         'D'
             #define WEB_NOT_DISABLE_FIELD     'd'
@@ -2251,10 +2599,6 @@
             #define WEB_INSERT_DYNAMIC        'H'
           //#define WEB_ESCAPE_LEN             5                         // defaults to 4 if not defined
             #define FILE404 (uFILE_SYSTEM_START + (FILE_GRANULARITY * (LAST_FILE_BLOCK - 1))) // last block fixed for 404 error page
-            #if !defined SPI_FILE_SYSTEM || defined FLASH_FILE_SYSTEM    // SPI file system requires 404 file also to be in file
-                #define FILE404_IN_PROG                                  // fixed FILE404 in Code (no NE64 support since it pages the file system in memory)
-            #endif
-            #define FILE_404_CONTENT        "<html><head><title>uTasker No file</title></head><body bgcolor=#ff9000 text=#000000 topmargin=3 marginheight=3><center><td valign=top class=h><font color=#ff0000 style=font-size:30px><b style='mso-bidi-font-weight:normal'>uTasker</font> - Error 404</i></b></td><br></td><td align=left><br><br>The requested file has not been found on the server. Please check that html files have been loaded correctly.<br></font></td></tr></body></html>"
 
             #define SUPPORT_CHROME                                       // always answer with HTTP header so that Chrome accepts data (this is a standard setting)
                 #define _EXTENDED_HTTP_MIME_CONTENT_SUPPORT              // add content type to HTTP header (needed often with newer browser versions)
@@ -2266,9 +2610,28 @@
                 #define SUPPORT_POST_TEXT
                 #define SUPPORT_POST_GIF
                 #define SUPPORT_POST_BMP
+                #define SUPPORT_POST_PNG
+                #define SUPPORT_POST_JPG
                 #define SUPPORT_POST_PDF
             #endif
-          //#define VARIABLE_PAGE_AUTHENTICATION
+
+            #if !defined SPI_FILE_SYSTEM || defined FLASH_FILE_SYSTEM    // SPI file system requires 404 file also to be in file
+                #define FILE404_IN_PROG                                  // fixed FILE404 in Code (no NE64 support since it pages the file system in memory)
+            #endif
+            #if defined SUPPORT_HTTP_POST
+                #define FILE_404_CONTENT        "<html><head><title>uTasker No file</title></head><body bgcolor=#ff9000 text=#000000 topmargin=3 marginheight=3><center><td valign=top class=h> \
+                <font color=#ff0000 style=font-size:30px><b style='mso-bidi-font-weight:normal'>\xa3vN0</font> Firmare version \xa3vV0</b></td><br><td align=left><br><br> \
+                <font color=#ff0000 style=font-size:30px><b style='mso-bidi-font-weight:normal'>uTasker</font> - Error 404</i></b></td><br></td><td align=left><br><br>The requested \
+                file has not been found on the server. Please check that html files have been loaded correctly.<br></font> \
+                <form action=00.bin enctype=""multipart/form-data"" method=""post""><p><input type=""file"" name=""file1"" size=""100""><input type=""submit"" value=""Upload Web content"" \xa3\x64s0></p></form> \
+                <form action=0z.bin enctype=""multipart/form-data"" method=""post""><p><input type=""file"" name=""file2"" size=""100""><input type=""submit"" value=""Upload Firmware"" \xa3\x64s0></p></form> \
+                <br></font></td></body></html>";
+            #else
+                #define FILE_404_CONTENT        "<html><head><title>uTasker No file</title></head><body bgcolor=#ff9000 text=#000000 topmargin=3 marginheight=3><center><td valign=top \
+                class=h><font color=#ff0000 style=font-size:30px><b style='mso-bidi-font-weight:normal'>uTasker</font> - Error 404</i></b></td><br></td><td align=left><br><br>The requested \
+                file has not been found on the server. Please check that html files have been loaded correctly.<br></font></td></tr></body></html>"
+            #endif
+          //#define VARIABLE_PAGE_AUTHENTICATION                         // support authentication on a per page basis
             #define PLAIN_TEXT_POST                                      // allow posting parameters
           //#define HTTP_POST_DEFINES_PAGE                               // return the user file as specified by the file name in a POST, rather than special uFile name
             #define SUPPORT_HTTP_CONTINUE                                // respond to Expect: 100-continue to start a posting sequence without any delay (useful when working with cURL)
@@ -2291,7 +2654,7 @@
             #endif
             #define HTTP_HEADER_CONTENT_INFO                             // add plain text HTTP header information - ensures that Internet Explorer correctly displays txt files
             #if defined SDCARD_SUPPORT || defined SPI_FLASH_FAT || defined FLASH_FAT // disk D: is used
-              //#define HTTP_UTFAT                                       // allow HTTP to work with utFAT
+                #define HTTP_UTFAT                                       // allow HTTP to work with utFAT
                 #define HTTP_ROOT              "web"                     // the root directory as seen by the HTTP server (can be set to a sub-directory of the main disk to restrict HTTP accesses to there)
                 #define DEFAULT_HTTP_FILE      "index.htm"               // the file served when first contact is made with the web server
             #endif
@@ -2324,6 +2687,16 @@
     #define NUMBER_LAN     0                                             // no physical queue needed
 #endif
 
+#if defined USB_INTERFACE && defined USB_HOST_SUPPORT && !defined SUPPORT_UCALLOC
+    #define SUPPORT_UCALLOC
+    #define UCALLOC_HEAP_SIZE        (12 * 1024)
+    #define BREAK_DOWN_BLOCKS_LIMIT  (4 * 1024)                          // break down holes of this size and larger by reallocating them in preference to filling smallest possibly hole
+    #define HEAP_OBJECTS             50
+
+    #define SUPPORT_QUEUE_DEALLOCATION
+    #define SUPPORT_CALLOC_ALIGN
+#endif
+
 #if defined USE_MODBUS && defined USE_MODBUS_MASTER && defined MODBUS_GATE_WAY_QUEUE
     #if !defined MODBUS_TCP
         #define MODBUS_TCP_SERVERS       0
@@ -2354,7 +2727,7 @@
   //#define CRYPTO_WOLF_SSL                                              // use wolfSSL library code (for simulation or HW when native support is not available and enabled)
     #define CRYPTO_MBEDTLS                                               // use mbedTLS library code (for simulation or HW when native support is not available and enabled)
     #define CRYPTO_AES                                                   // use AES (advanced encryption standard) cypher
-        #define MBEDTLS_AES_ROM_TABLES                                   // mbedTLS uses ROM tables for AES rather than calculating sbox and tables (costs 8k Flash, saves 8.5k RAM, loses about 70% performance)
+      //#define MBEDTLS_AES_ROM_TABLES                                   // mbedTLS uses ROM tables for AES rather than calculating sbox and tables (costs 8k Flash, saves 8.5k RAM, loses about 70% performance)
         #define OPENSSL_AES_FULL_LOOP_UNROLL                             // unroll loops for improved performance (costs 4k Flash, gains about 20% performance)
       //#define NATIVE_AES_CAU                                           // use uTasker mmCAU (LTC) - only possible when the device has mmCAU (LTC) - simulation requires a SW library to be enabled for alternate use
           //#define AES_DISABLE_CAU                                      // force software implementation by disabling any available crypto accelerator (used mainly for testing CAU efficiency increase)
@@ -2378,11 +2751,11 @@
       //#define CMSIS_DSP_FFT_64                                         // enable 64 point FFT
       //#define CMSIS_DSP_FFT_128                                        // enable 128 point FFT
       //#define CMSIS_DSP_FFT_256                                        // enable 256 point FFT
-      //#define CMSIS_DSP_FFT_512                                        // enable 512 point FFT
-      //#define CMSIS_DSP_FFT_1024                                       // enable 1024 point FFT
-        #define CMSIS_DSP_FFT_2048                                       // enable 2048 point FFT
-        #define CMSIS_DSP_FFT_4096                                       // enable 4096 point FFT
-        #define CMSIS_DSP_FFT_8192                                       // enable 8192 point FFT
+        #define CMSIS_DSP_FFT_512                                        // enable 512 point FFT
+        #define CMSIS_DSP_FFT_1024                                       // enable 1024 point FFT
+      //#define CMSIS_DSP_FFT_2048                                       // enable 2048 point FFT
+      //#define CMSIS_DSP_FFT_4096                                       // enable 4096 point FFT
+      //#define CMSIS_DSP_FFT_8192                                       // enable 8192 point FFT
 #endif
 
 #define USE_CMSIS_SIN_COS                                                // use CMSIS sin/cos function for fast single-precision floating point operation
@@ -2393,7 +2766,16 @@
 // Character LCD
 //
 //#define SUPPORT_LCD                                                    // enable a task for interfacing to a character LCD (see user's guide at http://www.utasker.com/docs/uTasker/uTaskerLCD.PDF and video at https://youtu.be/YJEzxSqVtss)
-#if defined SUPPORT_LCD
+  //#define AVAGO_HCMS_CHAR_LCD                                          // Avago Technologies 5x7 AlphaNumericDisplay
+#if defined AVAGO_HCMS_CHAR_LCD
+    #define LCD_LINES              1                                     // use 1 x 8 LCD
+    #define LCD_CHARACTERS         8
+    #define LCD_ON_COLOUR          (COLORREF)RGB(0,0,0)                  // RGB colour of LCD when backlight is on
+    #define LCD_OFF_COLOUR         (COLORREF)RGB(0,0,0)                  // RGB colour of LCD when backlight is off
+    #define LCD_PIXEL_COLOUR       (COLORREF)RGB(255,0,0)                // RGB colour of LCD pixels
+    #define LCD_PARTNER_TASK       TASK_APPLICATION
+  //#define LCD_CYRILLIC_FONT                                            // use cyrillic extended ASCII character set instead of standard extended
+#elif defined SUPPORT_LCD
     #define LCD_LINES              2                                     // use 2 x 16 LCD
     #define LCD_CHARACTERS         16                                    // options are 1:8 / 1:16 / 1:20 / 1:24 / 1:40 / 2:x / 4:x
     #define LCD_ON_COLOUR          (COLORREF)RGB(60,220,60)              // RGB colour of LCD when backlight is on
@@ -2405,7 +2787,7 @@
 
 // Segment LCD
 //
-#if defined KINETIS_K30 || defined KINETIS_K40 || defined KINETIS_K51 || defined KINETIS_K53 || defined KINETIS_KL40 // if processor supports SLCD
+#if defined KINETIS_K30 || defined KINETIS_K40 || defined KINETIS_K51 || defined KINETIS_K53 || defined KINETIS_KL40 || defined FRDM_K32L2B3 // if processor supports SLCD
     #define SUPPORT_SLCD                                                 // segment LCD
 #endif
 
@@ -2414,9 +2796,13 @@
 #if defined BLAZE_K22
     #define SUPPORT_GLCD                                                 // enable the task for interfacing to a graphical LCD
   //#define TFT2N0369_GLCD_MODE                                          // use colour TFT in GLCD compatible mode (as base)
-    #define ST7789S_GLCD_MODE                                            // adjustments for specific controller
-    #define SUPPORT_TOUCH_SCREEN                                         // with touch screen operation
-    #define TOUCH_FT6206                                                 // FT6206 capacitative touch panel controller
+    #if defined _DEV3
+        #define ILI9341_GLCD_MODE                                        // adjustments for specific controller
+    #else
+        #define ST7789S_GLCD_MODE                                        // adjustments for specific controller
+        #define SUPPORT_TOUCH_SCREEN                                     // with touch screen operation
+        #define TOUCH_FT6206                                             // FT6206 capacitative touch panel controller
+    #endif
     #define GLCD_BACKLIGHT_CONTROL                                       // PWM based backlight control
 #elif defined NET_K60 || ((defined NET_KBED || defined rcARM_KL26) && defined SPI_LCD)                  
     #define SUPPORT_GLCD                                                 // enable the task for interfacing to a graphical LCD
@@ -2426,8 +2812,21 @@
     #define SUPPORT_TOUCH_SCREEN                                         // touch screen operation
     #define TOUCH_MOUSE_TASK    TASK_APPLICATION                         // application received touch mouse events
     #define ENABLE_BACKLIGHT()
+#elif defined MIMXRT1050 || defined iMX_RT1052_EMB_ART || defined iMX_RT1062_EMB_ART || defined MIMXRT1064
+    #define SUPPORT_GLCD                                                 // enable the task for interfacing to a graphical LCD
+    #define SUPPORT_TOUCH_SCREEN                                         // with touch screen operation
+    #define TFT_CLOCK_DEMO                                               // enable specific reference TFT application
+    #define VARIABLE_PIXEL_COLOUR
+    #define TOUCH_FT5406                                                 // FT5406 capacitative touch panel controller (required I2C)
+        #define TOUCH_SCREEN_PENS   5
+    #if !defined SUPPORT_UCALLOC
+        #define SUPPORT_UCALLOC
+        #define UCALLOC_HEAP_SIZE        (50 * 1024)
+        #define BREAK_DOWN_BLOCKS_LIMIT  (1 * 1024)                      // break down holes of this size and larger by reallocating them in preference to filling smallest possibly hole
+        #define HEAP_OBJECTS             4
+    #endif
 #else
-  //#define SUPPORT_GLCD
+  //#define SUPPORT_GLCD                                                 // enable graphical LCD
   //#define SUPPORT_TOUCH_SCREEN                                         // touch screen operation
 #endif
 
@@ -2441,30 +2840,40 @@
       //#define CGLCD_GLCD_MODE                                          // use colour LCD in GLCD compatible mode
       //#define KITRONIX_GLCD_MODE                                       // use colour TFT in GLCD compatible mode (IDM_L35_B)
       //#define MB785_GLCD_MODE                                          // use colour TFT in GLCD compatible mode (STM321C-EVAL)
-        #define TFT2N0369_GLCD_MODE                                      // use colour TFT in GLCD compatible mode (TWR-LCD)
+      //#define TFT2N0369_GLCD_MODE                                      // use colour TFT in GLCD compatible mode (TWR-LCD)
       //#define FT800_GLCD_MODE                                          // FTDI FT800 controller
         #if defined FT800_GLCD_MODE
-            #define FT_800_ENABLE                                        // select the FT800 display type
+          //#define FT_800_ENABLE                                        // select the FT800 display type
           //#define FT_801_ENABLE                                        // select the FT801 display type
           //#define FT_810_ENABLE                                        // select the FT810 display type
           //#define FT_811_ENABLE                                        // select the FT811 display type
-          //#define FT_812_ENABLE                                        // select the FT812 display type
+            #define FT_812_ENABLE                                        // select the FT812 display type
           //#define FT_813_ENABLE                                        // select the FT813 display type
+          //#define FT_815_ENABLE                                        // select the FT815 display type (needs BT800_EMULATOR)
+          //#define FT_816_ENABLE                                        // select the FT816 display type (needs BT800_EMULATOR)
             #if defined FT_810_ENABLE || defined FT_811_ENABLE || defined FT_812_ENABLE || defined FT_813_ENABLE
                 #define FT_81X_ENABLE
             #endif
-            #define FT800_EMULATOR                                       // enable FTDI emulator (valid for all types and needs to be on to build with visual studio)
+          //#define FT800_EMULATOR                                       // enable FTDI emulator (valid for all types and needs to be on to build with visual studio)
+            #define BT800_EMULATOR                                       // enable bridgetek version (2019)
+            #define BT800_SCREEN_COUNT       1                           // single display (multiple display emulation only possible with BT800_EMULATOR)
+          //#define BRIDGETEK_GLIB                                       // use the Bridgetek graphic library
         #endif
-        #if defined TWR_K70F120M || defined K70F150M_12M
+        #if defined TWR_K70F120M || defined K70F150M_12M || defined MIMXRT1050 || defined iMX_RT1052_EMB_ART || defined iMX_RT1062_EMB_ART || defined MIMXRT1064
             #define TWR_LCD_RGB_GLCD_MODE                                // use colour TFT in GLCD compatible mode (TWR-LCD-RGB)
             #define TFT_GLCD_MODE                                        // use a TFT in GLCD compatible mode (only use together with LCD controller)
         #endif
     #endif
     #define SPECIAL_LCD_DEMO                                             // when images are posted to the display, stop the CGLCD_GLCD_MODE demonstration so that the image remains
     #define LCD_PARTNER_TASK       TASK_APPLICATION                      // GLCD task sends initialise complete event and acks to this task
+    #define TOUCH_KEY_PARTNER_TASK TASK_APPLICATION
     #if defined BLAZE_K22
-        #define GLCD_X             240                                   // horizontal resolution of the GLCD in pixels
         #define GLCD_Y             240                                   // vertical resolution of the GLCD in pixels
+        #if defined _DEV3
+            #define GLCD_X         320                                   // horizontal resolution of the GLCD in pixels
+        #else
+            #define GLCD_X         240                                   // horizontal resolution of the GLCD in pixels
+        #endif
         #undef BIG_PIXEL
         #define CGLCD_PIXEL_SIZE   1                                     // for each CGLCD pixel use 2 physical pixels in x and y directions - also reduces GLCD memory requirements
     #elif defined FT800_GLCD_MODE
@@ -2482,7 +2891,7 @@
         #define CGLCD_PIXEL_SIZE   1                                     // for each CGLCD pixel use 1 physical pixels in x and y directions
     #elif defined TWR_LCD_RGB_GLCD_MODE
         #define TWR_RGB_LCD_REV_E                                        // latest hardware revision type available
-        #if defined K70F150M_12M
+        #if defined K70F150M_12M || (defined iMX_RT1062_EMB_ART && defined DEV9)
             #define GLCD_X         800                                   // horizontal resolution of the GLCD in pixels (WQVGA)
             #define GLCD_Y         480                                   // vertical resolution of the GLCD in pixels
             #define CGLCD_PIXEL_SIZE   4                                 // for each CGLCD pixel use 4 physical pixels in x and y directions - also reduces GLCD memory requirements
@@ -2505,6 +2914,7 @@
         #define GLCD_X             160                                   // horizontal resolution of the GLCD in pixels
         #define GLCD_Y             80                                    // vertical resolution of the GLCD in pixels
         #define CGLCD_PIXEL_SIZE   1                                     // for each CGLCD pixel use 1 physical pixels in x and y directions
+        #define BIG_PIXEL
     #endif
     #if defined OLED_GLCD_MODE
         #define LCD_PIXEL_COLOUR   (COLORREF)RGB(255,255,255)            // RGB colour of LCD pixel when on
@@ -2517,7 +2927,11 @@
             #define LCD_OFF_COLOUR     (COLORREF)RGB(0,0,0)              // RGB colour of LCD when backlight is off (used only by the simulator
         #else
             #define LCD_PIXEL_COLOUR   (COLORREF)RGB(255,255,0)          // RGB colour of LCD pixel when on
-            #define LCD_ON_COLOUR      (COLORREF)RGB(0,0,255)            // RGB colour of LCD when backlight is on
+            #if defined TFT_CLOCK_DEMO
+                #define LCD_ON_COLOUR  (COLORREF)RGB(255,255,255)        // RGB colour of LCD when backlight is on
+            #else
+                #define LCD_ON_COLOUR  (COLORREF)RGB(0,0,255)            // RGB colour of LCD when backlight is on
+            #endif
             #define LCD_OFF_COLOUR     (COLORREF)RGB(0,0,0)              // RGB colour of LCD when backlight is off (used only by the simulator)
         #endif
         #define NOKIA_EPSON_S1D15G00                                     // Nokia (type) CGLCD can have either this chip or
@@ -2527,7 +2941,7 @@
         #define LCD_ON_COLOUR      (COLORREF)RGB(215,215,45)             // RGB colour of LCD when backlight is on
         #define LCD_OFF_COLOUR     (COLORREF)RGB(80,80,0)                // RGB colour of LCD when backlight is off
     #else
-      //#define _GLCD_SAMSUNG                                            // Samsung controller based display rather than Toshiba
+        #define _GLCD_SAMSUNG                                            // Samsung controller based display rather than Toshiba
         #if defined _GLCD_SAMSUNG
             #undef GLCD_X
             #undef GLCD_Y
@@ -2629,7 +3043,9 @@
     #define GLOBAL_TIMER_TASK
 #elif defined USE_IGMP && ((defined USE_IGMP_V2 || defined USE_IGMP_V3) || (IGMP_MAX_HOSTS > 1))
     #define GLOBAL_TIMER_TASK
-#elif defined USE_DHCP_CLIENT && defined IP_NETWORK_COUNT &&  (IP_NETWORK_COUNT > 1)
+#elif defined USE_DHCP_CLIENT && defined IP_NETWORK_COUNT && (IP_NETWORK_COUNT > 1)
+    #define GLOBAL_TIMER_TASK
+#elif defined USB_INTERFACE
     #define GLOBAL_TIMER_TASK
 #else
   //#define GLOBAL_TIMER_TASK                                            // enable a task for global timer tasks
@@ -2645,7 +3061,7 @@
 // Low Power
 //
 #if !((defined K70F150M_12M || defined TWR_K70F120M || defined TWR_K60F120M || defined K60F150M_50M) && defined USB_INTERFACE) // don't use low power mode due to errata e7166
-    #if !defined RUN_IN_FREE_RTOS                                        // low power mode is presety not supported together with FreeRTOS
+    #if !defined APPLICATION_WITHOUT_OS
         #define SUPPORT_LOW_POWER                                        // a low power task supervises power reduction when possible
           //#define LOW_POWER_CYCLING_MODE                               // allow low power cycle loop with a "Virtual Wake-up Interrupt Handler" - see video https://youtu.be/v4UnfcDiaE4
     #endif
@@ -2657,19 +3073,26 @@
 
 
 #if defined BLINKY || defined HELLO_WORLD                                // if the BLINKY operation is defined we ensure that the following are disabled to give simplest configuration
-    #if !defined HELLO_WORLD
+    #if defined APPLICATION_WITHOUT_OS
+        #define APPLICATION_WITHOUT_TICK
+        #undef SERIAL_INTERFACE
+    #elif !defined HELLO_WORLD
         #undef SERIAL_INTERFACE
     #endif
+
     #undef USE_MAINTENANCE
     #undef USB_INTERFACE
     #undef USB_HOST_SUPPORT
+    #undef USB_RNDIS_HOST
     #undef I2C_INTERFACE
     #undef CAN_INTERFACE
     #undef SUPPORT_KEY_SCAN
     #undef ETH_INTERFACE
+    #undef SUPPORT_LCD
     #undef SUPPORT_GLCD
     #undef SUPPORT_OLED
     #undef SUPPORT_GLCD
+    #undef SPECIAL_LCD_DEMO
     #undef CMSIS_DSP_CFFT
     #undef CRYPTOGRAPHY
     #undef SDCARD_SUPPORT
@@ -2679,6 +3102,7 @@
     #undef UTFAT_WRITE
     #undef UTFAT_EXPERT_FUNCTIONS
     #undef FLASH_FAT
+    #undef SPI_INTERFACE
     #undef SPI_FLASH_FAT
     #undef FLASH_FILE_SYSTEM
     #undef SPI_FILE_SYSTEM
@@ -2692,6 +3116,7 @@
     #undef QUICK_DEV_TASKS
     #undef RANDOM_NUMBER_GENERATOR
     #undef RUN_IN_FREE_RTOS
+    #undef FT800_GLCD_MODE
     #define NO_FLASH_SUPPORT
     #define REMOVE_PORT_INITIALISATIONS
     #define NO_PERIPHERAL_DEMONSTRATIONS
@@ -2720,7 +3145,7 @@
 #endif
 
 #if defined OPSYS_CONFIG                                                 // this is only used by the hardware module
-    #if defined ETH_INTERFACE || defined USB_CDC_RNDIS || defined USE_PPP || defined USE_DMX_RDM_MASTER || defined USE_DMX512_SLAVE
+    #if defined ETH_INTERFACE || defined WIFI_INTERFACE || defined USB_CDC_RNDIS || defined USB_RNDIS_HOST || defined USE_PPP || defined USE_DMX_RDM_MASTER || defined USE_DMX512_SLAVE
         // If we support certain network operations we define some constants for its use
         //
         const unsigned char cucNullMACIP[MAC_LENGTH] = { 0, 0, 0, 0, 0, 0 };

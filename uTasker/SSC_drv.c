@@ -11,7 +11,7 @@
     File:      SSC_drv.c
     Project:   Single Chip Embedded Internet
     ---------------------------------------------------------------------
-    Copyright (C) M.J.Butcher Consulting 2004..2016
+    Copyright (C) M.J.Butcher Consulting 2004..2018
     *********************************************************************
     04.06.2013 Added SSC_DRV_MALLOC() and SCC_DRV_MALLOC_ALIGN() defaults {1}
 
@@ -25,7 +25,7 @@
 #include "config.h"
 
 
-#ifdef SSC_INTERFACE
+#if defined SSC_INTERFACE
 
 
 /* =================================================================== */
@@ -92,10 +92,10 @@ static QUEUE_TRANSFER entry_ssc(QUEUE_HANDLE channel, unsigned char *ptBuffer, Q
 
         if (Counter) {                                                   // modify driver state
                 if (Counter & RX_ON) {
-#ifdef SSC_SUPPORT_DMA
-                    if (ptSSCQue->ucDMA_mode & UART_RX_DMA) {
+#if defined SSC_SUPPORT_DMA
+                    if ((ptSSCQue->ucDMA_mode & UART_RX_DMA) != 0) {
                         fnPrepareSSCRxDMA(channel, ptSSCQue->ssc_queue.put, ptSSCQue->ucWordsPerFrame);
-    #ifdef SSC_DMA_DOUBLE_BUF_RX
+#if defined SSC_DMA_DOUBLE_BUF_RX
                         ptSSCQue->ssc_queue.put += (ptSSCQue->ucWordsPerFrame * ptSSCQue->ucBytesPerWord);
     #endif
                     }
@@ -133,7 +133,7 @@ static QUEUE_TRANSFER entry_ssc(QUEUE_HANDLE channel, unsigned char *ptBuffer, Q
                                                                          // copy the data to the output buffer and start transmission if not already done
         ptSSCQue = (struct stSSCQue *)(que_ids[DriverID].output_buffer_control); // set to output control block
         if (!ptBuffer) {                                                 // the caller wants to see whether the data will fit and not copy data so inform
-#ifdef SSC_SUPPORT_DMA_
+#if defined SSC_SUPPORT_DMA_
             if (ptSSCQue->ucDMA_mode & UART_TX_DMA) {
                 QUEUE_TRANSFER reduction = (ptSSCQue->lastDMA_block_length - fnRemainingDMA_tx(channel)); // get the number of characters
                 ptSSCQue->ssc_queue.chars -= reduction;
@@ -152,7 +152,7 @@ static QUEUE_TRANSFER entry_ssc(QUEUE_HANDLE channel, unsigned char *ptBuffer, Q
             uEnable_Interrupt();                                         // fnFillBuffer disables and then re-enables interrupts - be sure we are compatible
             rtn_val = fnFillBuf(&ptSSCQue->ssc_queue, ptBuffer, (QUEUE_TRANSFER)(Counter * ptSSCQue->ucBytesPerWord));
             uDisable_Interrupt();
-            if (!(ptSSCQue->ucState & (TX_WAIT | TX_ACTIVE))) {
+            if ((ptSSCQue->ucState & (TX_WAIT | TX_ACTIVE)) == 0) {
                 send_next_word(channel, ptSSCQue);                       // this is not done when the transmitter is already performing a transfer or if suspended
             }
             uEnable_Interrupt();
@@ -220,7 +220,7 @@ extern QUEUE_HANDLE fnOpenSSC(SSCTABLE *pars, unsigned char driver_mode)
 
     if (tx_control[pars->Channel] != 0) {
         tx_control[pars->Channel]->usOpn_mode = pars->usConfig;
-    #ifdef SSC_SUPPORT_DMA
+    #if defined SSC_SUPPORT_DMA
         tx_control[pars->Channel]->ucDMA_mode = pars->ucDMAConfig;
     #endif
         tx_control[pars->Channel]->ucBytesPerWord = ucWordBytes;
@@ -229,7 +229,7 @@ extern QUEUE_HANDLE fnOpenSSC(SSCTABLE *pars, unsigned char driver_mode)
     if (rx_control[pars->Channel] != 0) {
         rx_control[pars->Channel]->wake_task = pars->Task_to_wake;
         rx_control[pars->Channel]->usOpn_mode = pars->usConfig;
-    #ifdef SSC_SUPPORT_DMA
+    #if defined SSC_SUPPORT_DMA
         rx_control[pars->Channel]->ucDMA_mode = pars->ucDMAConfig;
     #endif
         rx_control[pars->Channel]->ucWordsPerFrame = pars->ucFrameLength;
@@ -245,13 +245,13 @@ extern QUEUE_HANDLE fnOpenSSC(SSCTABLE *pars, unsigned char driver_mode)
 
 static void send_next_word(QUEUE_HANDLE channel, SSCQUE *ptSSCQue)       // interrupts are assumed to be disabled here
 {
-#ifdef SSC_SUPPORT_DMA
+#if defined SSC_SUPPORT_DMA
     if (ptSSCQue->ucDMA_mode & UART_TX_DMA) {                            // DMA mode of operation
         ptSSCQue->ssc_queue.chars -= ptSSCQue->lastDMA_block_length;     // the last block has been transmitted so this space is available again for additional characters
         ptSSCQue->lastDMA_block_length = 0;
     }
 #endif
-    if (!(ptSSCQue->ucState & TX_WAIT)) {                                // send the next byte if possible - either first char or tx interrupt
+    if ((ptSSCQue->ucState & TX_WAIT) == 0) {                            // send the next byte if possible - either first char or tx interrupt
         if (!ptSSCQue->ssc_queue.chars) {                                // are there more to send?
             ptSSCQue->ucState &= ~TX_ACTIVE;                             // transmission of a block has terminated
             fnClearSSCTxInt(channel);                                    // clear interrupt
@@ -259,7 +259,7 @@ static void send_next_word(QUEUE_HANDLE channel, SSCQUE *ptSSCQue)       // inte
         else {
             unsigned long ulNextWord = 0;
             int iBytes = ptSSCQue->ucBytesPerWord;
-#ifdef SSC_SUPPORT_DMA
+#if defined SSC_SUPPORT_DMA
             if (ptSSCQue->ucDMA_mode & UART_TX_DMA) {                    // DMA mode of operation
                 QUEUE_TRANSFER tx_length;
                                                                          // calculate whether we can send block in one go or not
@@ -279,7 +279,7 @@ static void send_next_word(QUEUE_HANDLE channel, SSCQUE *ptSSCQue)       // inte
                 if ((ptSSCQue->ssc_queue.get += tx_length) >= ptSSCQue->ssc_queue.buffer_end) { // assume that transmission will be successful
                     ptSSCQue->ssc_queue.get = ptSSCQue->ssc_queue.QUEbuffer;
                 }
-                ptSSCQue->lastDMA_block_length = tx_length;              // save the block length for removal after complete tramsmission
+                ptSSCQue->lastDMA_block_length = tx_length;              // save the block length for removal after complete transmission
                 return;
             }
 #endif
@@ -317,8 +317,8 @@ static void send_next_word(QUEUE_HANDLE channel, SSCQUE *ptSSCQue)       // inte
 extern void fnSSCRxWord( unsigned long ulWord, QUEUE_HANDLE Channel )
 {
     SSCQUE *rx_ctl = rx_control[Channel];
-#ifdef SSC_SUPPORT_DMA
-    if (rx_ctl->ucDMA_mode & UART_RX_DMA) {                              // new characters in the buffer - increment message count
+#if defined SSC_SUPPORT_DMA
+    if ((rx_ctl->ucDMA_mode & UART_RX_DMA) != 0) {                       // new characters in the buffer - increment message count
         QUEUE_TRANSFER transfer_length = (rx_ctl->ucWordsPerFrame * rx_ctl->ucBytesPerWord);
         rx_ctl->ssc_queue.put += transfer_length;
         if (rx_ctl->ssc_queue.put >= rx_ctl->ssc_queue.buffer_end) {

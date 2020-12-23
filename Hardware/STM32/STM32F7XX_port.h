@@ -11,7 +11,7 @@
     File:      STM32F7XX_port.h
     Project:   Single Chip Embedded Internet
     ---------------------------------------------------------------------
-    Copyright (C) M.J.Butcher Consulting 2004..2017
+    Copyright (C) M.J.Butcher Consulting 2004..2020
     *********************************************************************
 
 */
@@ -57,7 +57,7 @@ static const char *cPer[PORTS_AVAILABLE][PORT_WIDTH][1 + ALTERNATIVE_FUNCTIONS +
     {  "PA11",   "-",      "TIM1_CH4",            "-",            "-",            "-",           "-",              "-",            "USART1_CTS",     "-",             "CAN1_RX",            "OTG_FS_DM",  "-",               "-",              "-",          "LCD_R4",    "EVENTOUT", "-" }, // PA11
     {  "PA12",   "-",      "TIM1_ETR",            "-",            "-",            "-",           "-",              "-",            "USART1_RTS",     "SAI2_FS_B",     "CAN1_TX",            "OTG_FS_DP",  "-",               "-",              "-",          "LCD_R5",    "EVENTOUT", "-" }, // PA12
     {  "PA13",   "JTMS-SWDIO", "-",               "-",            "-",            "-",           "-",              "-",            "-",              "-",             "-",                  "-",          "-",               "-",              "-",          "-",         "EVENTOUT", "-" }, // PA13
-    {  "PA14",   "JTMS-SWDIO", "-",               "-",            "-",            "-",           "-",              "-",            "-",              "-",             "-",                  "-",          "-",               "-",              "-",          "-",         "EVENTOUT", "-" }, // PA14
+    {  "PA14",   "JTCK-SWCLK", "-",               "-",            "-",            "-",           "-",              "-",            "-",              "-",             "-",                  "-",          "-",               "-",              "-",          "-",         "EVENTOUT", "-" }, // PA14
     {  "PA15",   "JTDI",   "TIM2_CH1/TIM2_ETR",   "-",            "-",            "HDMI_CEC",    "SPI1_NSS/I2S1_WS","SPI3_NSS/I2S3S_WS","-",         "UART4_RTS",     "-",                  "-",          "-",               "-",              "-",          "-",         "EVENTOUT", "-" }, // PA15
     },
     {

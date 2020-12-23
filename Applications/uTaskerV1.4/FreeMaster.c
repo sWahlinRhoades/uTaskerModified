@@ -11,11 +11,12 @@
     File:      FreeMaster.c
     Project:   uTasker project
     ---------------------------------------------------------------------
-    Copyright (C) M.J.Butcher Consulting 2004..2016
+    Copyright (C) M.J.Butcher Consulting 2004..2019
     *********************************************************************
     This file contains a partial uTasker redevelopment of the FreeMaster implementation which
     is operational on UART and USB-CDC.
-    Presently it includes also original Freescale code to achieve operation, which will be reworked during further development.
+    Presently it includes also original Freescale code to achieve operation, which may be reworked during further development.
+    02.06.2018 Zero optional user UART callback handlers                 {1}
 
 */
 
@@ -1137,7 +1138,7 @@ static void FMSTR_SendError(QUEUE_HANDLE FreeMasterPort, FMSTR_BCHR nErrCode);
 * CAN-related constants
 ******************************************************************************/
 
-#ifdef FMSTR_CAN_EXTID 
+#if defined FMSTR_CAN_EXTID 
 #if FMSTR_CAN_EXTID != 0x80000000U
 #error FMSTR_CAN_EXTID must be defined as 0x80000000
 #undef FMSTR_CAN_EXTID 
@@ -1225,7 +1226,7 @@ void FMSTR_ProcessCanTx(void);
 * Potentialy unused variable declaration
 *****************************************************************************************/
 
-#ifdef  _lint
+#if defined  _lint
 #define FMSTR_UNUSED(sym) /*lint -esym(715,sym) -esym(818,sym) -esym(529,sym) -e{960} */
 #else
 #define FMSTR_UNUSED(sym) ((sym),0)
@@ -1566,7 +1567,7 @@ void FMSTR_ProcessCanTx(void);
 
 #if defined FMSTR_USE_PIPES
 
-    #ifdef FMSTR_PIPES_EXPERIMENTAL
+    #if defined FMSTR_PIPES_EXPERIMENTAL
     #warning The "pipes" feature is now in experimental code phase. Not yet tested on this platform.
     #endif        
 
@@ -3184,7 +3185,7 @@ FMSTR_U16 FMSTR_StrLen(FMSTR_ADDR nAddr)
     const FMSTR_U8* pStr;
     FMSTR_U16 nLen = 0U;
 
-    #ifdef __HCS12X__
+    #if defined __HCS12X__
     /* convert from logical to global if needed */
     nAddr = FMSTR_FixHcs12xAddr(nAddr);
     #endif
@@ -4679,7 +4680,7 @@ extern void fnHandleFreeMaster(QUEUE_HANDLE comHandle, unsigned char *ptr_ucBuff
     static int iFreemasterRxCnt = 0;
     static int iRemainingRx = 0;
     static unsigned char ucFreemasterBuffer[128];
-    while (Length--) {                                                   // for each byte in this received block
+    while (Length-- != 0) {                                              // for each byte in this received block
         switch (iFreemasterRxState) {
         case FREEMASTER_RX_STATE_HUNTING:
             if (*ptr_ucBuffer == FREEMASTER_START_OF_MESSAGE) {          // searching for the start byte
@@ -4831,7 +4832,16 @@ extern QUEUE_HANDLE fnOpenFreeMasterUART(void)
     tInterfaceParameters.ucFlowHighWater = 80;                           // set the flow control high and low water levels in %
     tInterfaceParameters.ucFlowLowWater = 20;
     #endif
-    tInterfaceParameters.Config = (CHAR_8 + NO_PARITY + ONE_STOP + CHAR_MODE);
+    #if defined USER_DEFINED_UART_RX_HANDLER                             // {1}
+    tInterfaceParameters.receptionHandler = 0;
+    #endif
+    #if defined USER_DEFINED_UART_RX_BREAK_DETECTION
+    tInterfaceParameters.receiveBreakHandler = 0;
+    #endif
+    #if defined USER_DEFINED_UART_TX_FRAME_COMPLETE
+    tInterfaceParameters.txFrameCompleteHandler = 0;
+    #endif
+    tInterfaceParameters.Config = (CHAR_8 | NO_PARITY | ONE_STOP | CHAR_MODE);
     #if defined SERIAL_SUPPORT_DMA
     tInterfaceParameters.ucDMAConfig = UART_TX_DMA;                      // activate DMA on transmission
     #endif

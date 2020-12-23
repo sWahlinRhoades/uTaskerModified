@@ -5,10 +5,6 @@
       <UniqueIdentifier>{246613e9-36f4-4742-b8f1-2fb16f8937cc}</UniqueIdentifier>
       <Extensions>cpp;c;cxx;rc;def;r;odl;idl;hpj;bat</Extensions>
     </Filter>
-    <Filter Include="Header Files">
-      <UniqueIdentifier>{79f2255b-0bd9-472d-9b93-2cd7a2645d4a}</UniqueIdentifier>
-      <Extensions>h;hpp;hxx;hm;inl</Extensions>
-    </Filter>
     <Filter Include="WinSim">
       <UniqueIdentifier>{34ee11fd-2259-4e8d-8936-af256fbc57cb}</UniqueIdentifier>
     </Filter>
@@ -23,6 +19,40 @@
     </Filter>
     <Filter Include="Hardware\KINETIS">
       <UniqueIdentifier>{bafcd213-8054-4934-a4f6-02039dfb0e06}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Hardware\STM32">
+      <UniqueIdentifier>{c057caa4-ab30-466b-899a-481b67493cad}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="WinSim\SIMstm32">
+      <UniqueIdentifier>{56aee2f1-eaae-4222-9ea2-133941815782}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Hardware\Luminary">
+      <UniqueIdentifier>{df598d53-f3b4-4586-9c50-f8c7522ee006}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="WinSim\SIMluminary">
+      <UniqueIdentifier>{6bda6716-fd43-4d41-9a14-4584796b3301}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Hardware\SPI_Memory">
+      <UniqueIdentifier>{1db01abe-a6c9-4c3f-aa5f-ead74f3a0235}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Hardware\iMX_RT">
+      <UniqueIdentifier>{4683dcdf-4cb2-4ba8-b028-d562428b6e64}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="WinSim\SIMiMX_RT">
+      <UniqueIdentifier>{96e4aa4c-565b-4c52-987d-9db40be8dcc7}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Header Files">
+      <UniqueIdentifier>{79f2255b-0bd9-472d-9b93-2cd7a2645d4a}</UniqueIdentifier>
+      <Extensions>h;hpp;hxx;hm;inl</Extensions>
+    </Filter>
+    <Filter Include="uTasker">
+      <UniqueIdentifier>{ef394e56-a0d7-46ea-a93d-0fd793df4416}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="TCP/IP">
+      <UniqueIdentifier>{2cb4a5e6-9332-4023-9f7e-72869fb442ef}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="TCP/IP\mbedtls">
+      <UniqueIdentifier>{b1be3ade-2f03-420e-8baa-b9415602c835}</UniqueIdentifier>
     </Filter>
   </ItemGroup>
   <ItemGroup>
@@ -62,6 +92,39 @@
     <ClCompile Include="..\..\..\WinSim\serial_dev.c">
       <Filter>WinSim</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\..\Hardware\STM32\STM32_boot.c">
+      <Filter>Hardware\STM32</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Hardware\STM32\STM32Sim.c">
+      <Filter>WinSim\SIMstm32</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Hardware\STM32\STM32_ports.cpp">
+      <Filter>WinSim\SIMstm32</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Hardware\Luminary\LM3SXXXX_boot.c">
+      <Filter>Hardware\Luminary</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Hardware\Luminary\LM3SXXXX_ports.cpp">
+      <Filter>WinSim\SIMluminary</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Hardware\Luminary\LM3SXXXXSim.c">
+      <Filter>WinSim\SIMluminary</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Hardware\iMX\iMX.c">
+      <Filter>Hardware\iMX_RT</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Hardware\iMX\iMX_ports.cpp">
+      <Filter>WinSim\SIMiMX_RT</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Hardware\iMX\iMXSim.c">
+      <Filter>WinSim\SIMiMX_RT</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\uTasker\crypto.c">
+      <Filter>uTasker</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\stack\SSL\mbedtls-1.3.10\aes_mbedTLS.c">
+      <Filter>TCP/IP\mbedtls</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\config.h">
@@ -76,20 +139,170 @@
     <ClInclude Include="..\..\..\Hardware\Kinetis\kinetis.h">
       <Filter>Hardware\KINETIS</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\..\Hardware\Kinetis\spi_flash_kinetis_atmel.h">
-      <Filter>Hardware\KINETIS</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\..\Hardware\Kinetis\spi_flash_kinetis_sst25.h">
-      <Filter>Hardware\KINETIS</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\..\Hardware\Kinetis\spi_flash_kinetis_stmicro.h">
-      <Filter>Hardware\KINETIS</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\..\Hardware\Kinetis\kinetis_port.h">
-      <Filter>WinSim\SIMKINETIS</Filter>
-    </ClInclude>
     <ClInclude Include="..\..\..\Hardware\Kinetis\simkinetis.h">
       <Filter>WinSim\SIMKINETIS</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\Kinetis\kinetis_FLASH.h">
+      <Filter>Hardware\KINETIS</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\Kinetis\kinetis_HIRC.h">
+      <Filter>Hardware\KINETIS</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\Kinetis\kinetis_K_CLOCK.h">
+      <Filter>Hardware\KINETIS</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\Kinetis\kinetis_KE_CLOCK.h">
+      <Filter>Hardware\KINETIS</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\Kinetis\kinetis_KL_CLOCK.h">
+      <Filter>Hardware\KINETIS</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\Kinetis\kinetis_KM_CLOCK.h">
+      <Filter>Hardware\KINETIS</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\Kinetis\kinetis_KV_CLOCK.h">
+      <Filter>Hardware\KINETIS</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\Kinetis\kinetis_KW_CLOCK.h">
+      <Filter>Hardware\KINETIS</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\Kinetis\kinetis_MCG_LITE.h">
+      <Filter>Hardware\KINETIS</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\Kinetis\kinetis_PORTS.h">
+      <Filter>Hardware\KINETIS</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\STM32\simSTM32.h">
+      <Filter>WinSim\SIMstm32</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\STM32\STM32.h">
+      <Filter>Hardware\STM32</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\STM32\stm32_FLASH.h">
+      <Filter>Hardware\STM32</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\packages.h">
+      <Filter>Hardware</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\Luminary\spi_flash_lm3s_atmel.h">
+      <Filter>Hardware\Luminary</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\Luminary\spi_flash_lm3s_sst25.h">
+      <Filter>Hardware\Luminary</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\Luminary\spi_flash_lm3s_stmicro.h">
+      <Filter>Hardware\Luminary</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\Luminary\LM3SXXXX.h">
+      <Filter>Hardware\Luminary</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\Luminary\LM3S9B95_port.h">
+      <Filter>WinSim\SIMluminary</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\Luminary\LM3S10X_port.h">
+      <Filter>WinSim\SIMluminary</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\Luminary\LM3S1968_port.h">
+      <Filter>WinSim\SIMluminary</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\Luminary\LM3S2110_port.h">
+      <Filter>WinSim\SIMluminary</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\Luminary\LM3S2139_port.h">
+      <Filter>WinSim\SIMluminary</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\Luminary\LM3S3748_port.h">
+      <Filter>WinSim\SIMluminary</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\Luminary\LM3S3768_port.h">
+      <Filter>WinSim\SIMluminary</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\Luminary\LM3S5732_port.h">
+      <Filter>WinSim\SIMluminary</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\Luminary\LM3S6965_port.h">
+      <Filter>WinSim\SIMluminary</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\Luminary\LM3S8962_port.h">
+      <Filter>WinSim\SIMluminary</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\Luminary\SimLM3SXXXX.h">
+      <Filter>WinSim\SIMluminary</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\STM32\stm32_CLOCK.h">
+      <Filter>Hardware\STM32</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\SPI_Memory\spi_eeprom_25AA160.h">
+      <Filter>Hardware\SPI_Memory</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\SPI_Memory\spi_flash_interface.h">
+      <Filter>Hardware\SPI_Memory</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\SPI_Memory\spi_flash_kinetis_atmel.h">
+      <Filter>Hardware\SPI_Memory</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\SPI_Memory\spi_flash_kinetis_sst25.h">
+      <Filter>Hardware\SPI_Memory</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\SPI_Memory\spi_flash_kinetis_stmicro.h">
+      <Filter>Hardware\SPI_Memory</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\SPI_Memory\spi_flash_MX25L.h">
+      <Filter>Hardware\SPI_Memory</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\SPI_Memory\spi_flash_s25fl1-k.h">
+      <Filter>Hardware\SPI_Memory</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\SPI_Memory\spi_flash_STM32_atmel.h">
+      <Filter>Hardware\SPI_Memory</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\SPI_Memory\spi_flash_STM32_MX66L.h">
+      <Filter>Hardware\SPI_Memory</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\SPI_Memory\spi_flash_STM32_sst25.h">
+      <Filter>Hardware\SPI_Memory</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\SPI_Memory\spi_flash_STM32_stmicro.h">
+      <Filter>Hardware\SPI_Memory</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\SPI_Memory\spi_flash_w25q.h">
+      <Filter>Hardware\SPI_Memory</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\iMX\iMX.h">
+      <Filter>Hardware\iMX_RT</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\iMX\iMX_pinout.h">
+      <Filter>WinSim\SIMiMX_RT</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\iMX\sim_iMX.h">
+      <Filter>WinSim\SIMiMX_RT</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\iMX\iMX_FLASH.h">
+      <Filter>Hardware\iMX_RT</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\SPI_Memory\spi_flash_IS25LP.h">
+      <Filter>Hardware\SPI_Memory</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\SPI_Memory\spi_flash_AT25SF.h">
+      <Filter>Hardware\SPI_Memory</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\uTasker\driver.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\iMX\iMX_Clock.h">
+      <Filter>Hardware\iMX_RT</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\SPI_Memory\spi_flash_S26KL.h">
+      <Filter>Hardware\SPI_Memory</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\iMX\iMX_Loader.h">
+      <Filter>Hardware\iMX_RT</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\iMX\iMX_Caches_MPU.h">
+      <Filter>Hardware\iMX_RT</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\Hardware\SPI_Memory\spi_flash_ATXP.h">
+      <Filter>Hardware\SPI_Memory</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
@@ -104,6 +317,18 @@
     </None>
     <None Include="..\GNU_Kinetis\make_uTaskerBoot_GNU_Kinetis" />
     <None Include="..\GNU_Kinetis\Build_Kinetis.bat" />
+    <None Include="..\..\..\Hardware\STM32\STM32_keil_asm.s">
+      <Filter>Hardware\STM32</Filter>
+    </None>
+    <None Include="..\GNU_STM32\make_uTaskerBoot_GNU_STM32" />
+    <None Include="..\GNU_STM32\Build_STM32.bat" />
+    <None Include="..\..\..\Hardware\Luminary\LM3SXXXX_asm.s">
+      <Filter>Hardware\Luminary</Filter>
+    </None>
+    <None Include="..\GNU_LM3SXXXX\make_uTaskerBoot_GNU_LM3SXXXX" />
+    <None Include="..\GNU_LM3SXXXX\Build_LM3SXXXX_BOOT.bat" />
+    <None Include="..\GNU_iMX\Build_iMX_RT.bat" />
+    <None Include="..\GNU_iMX\make_uTaskerBoot_GNU_iMX" />
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="uTasker.rc">

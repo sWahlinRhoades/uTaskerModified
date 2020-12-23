@@ -11,7 +11,7 @@
     File:      icmp.c
     Project:   Single Chip Embedded Internet
     ---------------------------------------------------------------------
-    Copyright (C) M.J.Butcher Consulting 2004..2016
+    Copyright (C) M.J.Butcher Consulting 2004..2018
     *********************************************************************
     15.03.2010 Extended to include ICMPV6 (USE_IPV6) to handle neighbor solicitation/advertisement and pings
     06.09.2010 Optimise code when the device performs rx or tx offloading {1}
@@ -22,7 +22,7 @@
     30.01.2013 Add VLAN to ping-response socket                          {6}
     04.09.2014 Allow ping response from multiple networks when broadcast or subnet broadcast received {7}
     19.11.2014 Modify fnSendIPV6Discovery() prototype and add multiple interface support {8}
-    01.09.2015 Never respond to ping when addressed on a multi.cast address {9}
+    01.09.2015 Never respond to ping when addressed on a multi-cast address {9}
 
 */
           
@@ -83,7 +83,7 @@ static void fnInsertPingChecksum(ETHERNET_FRAME *ptrRx_frame, ICMP_ERROR *ptrICP
     #if !defined IP_TX_PAYLOAD_CHECKSUM_OFFLOAD || defined IP_INTERFACE_WITHOUT_CS_OFFLOADING || (defined IPV4_SUPPORT_TX_FRAGMENTATION && defined IP_TX_PAYLOAD_CHECKSUM_OFFLOAD) || defined _WINDOWS
     int iHWCheckSum;
     unsigned short usCheckSum;
-    ptrICP_frame->ucICMPCheckSum[0] = 0;                                 // checksum set to 0 (for possible calcualtion)
+    ptrICP_frame->ucICMPCheckSum[0] = 0;                                 // checksum set to 0 (for possible calculation)
     ptrICP_frame->ucICMPCheckSum[1] = 0;
         #if defined IPV4_SUPPORT_TX_FRAGMENTATION && defined IP_TX_PAYLOAD_CHECKSUM_OFFLOAD
     if (((ptrRx_frame->ucSpecialHandling & INTERFACE_NO_TX_PAYLOAD_CS_OFFLOADING) == 0) && (ptrRx_frame->usDataLength <= ETH_MTU)) {
@@ -114,6 +114,23 @@ static void fnInsertPingChecksum(ETHERNET_FRAME *ptrRx_frame, ICMP_ERROR *ptrICP
         ptrICP_frame->ucICMPCheckSum[1] = (unsigned char)(usCheckSum);
     }
     #else
+        #if defined PHY_TAIL_TAGGING
+    if (ptrRx_frame->ucRxPort == 1) {
+        ptrICP_frame->ucICMPCheckSum[0] = 0xfe;
+        ptrICP_frame->ucICMPCheckSum[1] = 0xff;
+        return;
+    }
+    else if (ptrRx_frame->ucRxPort == 2) {
+        ptrICP_frame->ucICMPCheckSum[0] = 0xfd;
+        ptrICP_frame->ucICMPCheckSum[1] = 0xff;
+        return;
+    }
+    else if (ptrRx_frame->ucRxPort == 3) {
+        ptrICP_frame->ucICMPCheckSum[0] = 0xfc;
+        ptrICP_frame->ucICMPCheckSum[1] = 0xff;
+        return;
+    }
+        #endif
     ptrICP_frame->ucICMPCheckSum[0] = 0;                                 // checksum set to 0 (it will be filled out automatically by the controller when transmitted)
     ptrICP_frame->ucICMPCheckSum[1] = 0;
     #endif
@@ -436,7 +453,7 @@ extern void fnHandleICMPV6(ETHERNET_FRAME *ptrRxFrame)
     case ICMPV6_TYPE_NEIGHBOR_ADVERTISEMENT:
         fnEnterIPV6Neighbor(frame_cont->ethernet_source_MAC, (unsigned char *)ptrDiscoveryFrame->ipv6.source_IP_address, (MAC_LENGTH | RESOLVED_ADDRESS));
         return;                                                          // no need to refresh neighbor table
-    #ifdef ICMP_SEND_PING
+    #if defined ICMP_SEND_PING
     case ICMPV6_TYPE_ECHO_REPLY:
         {
             ICMPV6_ECHO_REQUEST *ptrAnswer = (ICMPV6_ECHO_REQUEST *)&ptrDiscoveryFrame->icmpv6;
@@ -456,7 +473,7 @@ extern void fnHandleICMPV6(ETHERNET_FRAME *ptrRxFrame)
     fnEnterIPV6Neighbor(ptrRxFrame->ptEth->ethernet_source_MAC, (unsigned char *)ptrDiscoveryFrame->ipv6.source_IP_address, (REFRESH_ADDRESS | MAC_LENGTH));
 }
 
-    #ifdef ICMP_SEND_PING
+    #if defined ICMP_SEND_PING
 // Send an IPV6 ping request
 //
 extern int fnSendV6Ping(unsigned char *ping_address, unsigned char ucttl, UTASK_TASK OwnerTask, USOCKET Socket)

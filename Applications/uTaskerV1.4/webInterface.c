@@ -11,7 +11,7 @@
     File:      webInterface.c
     Project:   uTasker project
     ---------------------------------------------------------------------
-    Copyright (C) M.J.Butcher Consulting 2004..2018
+    Copyright (C) M.J.Butcher Consulting 2004..2020
     *********************************************************************
     26.02.2007 Added SMTP parameter support
     17.03.2007 Corrected SMTP login flag so that it is not cleared when Ethernet settings are changed {1}
@@ -62,6 +62,8 @@
     12.08.2013 Add ST7565S_GLCD_MODE                                     {43}
     06.11.2015 Adjust fnStackFree() parameters                           {44}
     11.02 2016 Parameters for fnStartHTTP() modified                     {45}
+    04.05.2018 Change interface to fnSetNewSerialMode()                  {46}
+    21.02.2020 Correct display of heap size                              {47}
 
 */
 
@@ -75,10 +77,6 @@
 /* =================================================================== */
 /*                             constants                               */
 /* =================================================================== */
-
-#if defined USE_MAINTENANCE || defined USE_HTTP
-    const CHAR  cSoftwareVersion[] = SOFTWARE_VERSION;                   // software version for general purpose display use
-#endif
 
 #if defined USE_HTTP
 
@@ -160,7 +158,7 @@ static void           fnDelayResetBoard(void);
 
 static const CHAR cBackgroundColor[] = "background-color:";
 static const CHAR cOffColor[] = "gray";
-#if defined USE_MAINTENANCE                                              // {17}
+#if defined USE_MAINTENANCE && !defined REMOVE_PORT_INITIALISATIONS      // {17}
     static const CHAR cOnColor[]  = "red ";                              // note length made same with space...
 #endif
 
@@ -381,7 +379,7 @@ static int fnHandleWeb(unsigned char ucType, CHAR *ptrData, HTTP *http_session)
     #if defined LCD_WEB_INTERFACE                                        // {19}{20}{25}
     case POSTING_DATA_TO_APP:                                            // a new bit map for the GLCD is being received
         fnDisplayBitmap((unsigned char *)ptrData, (unsigned short)(http_session->FileLength));
-        #if defined SPECIAL_LCD_DEMO && (defined CGLCD_GLCD_MODE || defined TFT_GLCD_MODE || defined ST7789S_GLCD_MODE) // {30}{} when a bit map is posted to the display, stop the GLCD compatibility mode demo so that the image remains
+        #if defined SPECIAL_LCD_DEMO && (defined CGLCD_GLCD_MODE || defined TFT_GLCD_MODE || defined ST7789S_GLCD_MODE || defined ILI9341_GLCD_MODE) // {30}{} when a bit map is posted to the display, stop the GLCD compatibility mode demo so that the image remains
         uTaskerStopTimer(TASK_APPLICATION);
         #endif
         break;
@@ -482,7 +480,7 @@ static int fnHandleWeb(unsigned char ucType, CHAR *ptrData, HTTP *http_session)
 
     case 'u':                                                            // end of serial mode change
         temp_pars->temp_parameters.SerialMode = SerialMode;              // modify serial mode according to on bits
-        fnSetNewSerialMode(MODIFY_CONFIG);                               // affect any changes
+        fnSetNewSerialMode(0, MODIFY_CONFIG);                            // {46} affect any changes
         break;
 #endif
 
@@ -808,14 +806,14 @@ static CHAR *fnInsertString(unsigned char *ptrBuffer, LENGTH_CHUNK_COUNT TxLengt
                         *ptrBuf++ = '[';
                         ptrBuf = fnBufferHex(stackUsed, (sizeof(stackUsed) | WITH_LEADIN), ptrBuf);
                         *ptrBuf++ = ']';
-                        *usLengthToSend = (ptrBuf - cValue);             // 0x0000 [0x0000]
+                        *usLengthToSend = (ptrBuf - cValue);             // 0x0000 [0x0000] or 0x00000000 [0x00000000]
                     }
                     return cValue;
                 default:
                     return 0;
                 }
                 fnBufferHex(ulHeap, (sizeof(ulHeap) | WITH_LEADIN), cValue);
-                *usLengthToSend = (sizeof(ulHeap) + 2);                  // 0x0000
+                *usLengthToSend = ((sizeof(ulHeap) * 2) + 2);            // {47} 0x0000 or 0x00000000
             }
             break;
 
@@ -1070,7 +1068,7 @@ static CHAR *fnInsertString(unsigned char *ptrBuffer, LENGTH_CHUNK_COUNT TxLengt
             break;
 
         case 'V':                                                        // show software version
-            *usLengthToSend = (sizeof(cSoftwareVersion) - 1);
+            *usLengthToSend = (unsigned short)uStrlen(cSoftwareVersion);
             return (CHAR *)cSoftwareVersion;
 
         case 'F':
@@ -1113,13 +1111,13 @@ static CHAR *fnInsertString(unsigned char *ptrBuffer, LENGTH_CHUNK_COUNT TxLengt
                 *usLengthToSend = 0;
                 return 0;
             }
-            *usLengthToSend = uStrlen(cPtr);
+            *usLengthToSend = (unsigned short)uStrlen(cPtr);
             return cPtr;
     #endif
 #endif
         case 'E':                                                        // display Email address
 #if defined USE_SMTP
-            *usLengthToSend = uStrlen(cEmailAdd);
+            *usLengthToSend = (unsigned short)uStrlen(cEmailAdd);
             return cEmailAdd;
 #else
             cValue[0] = ' ';
@@ -1279,8 +1277,13 @@ static CHAR *fnInsertString(unsigned char *ptrBuffer, LENGTH_CHUNK_COUNT TxLengt
                 extern void et024006_SetLimits(unsigned short x1, unsigned short y1, unsigned short x2, unsigned short y2 );
     #endif
     #if defined _WINDOWS
+        #if defined eLCD_IN_OCR2
+                extern unsigned char *fnGetOCR2(unsigned char *ptrOCR2);
+        #else
                 extern unsigned char *fnGetSDRAM(unsigned char *ptrSDRAM);
+        #endif
     #else
+                #define fnGetOCR2(x) x
                 #define fnGetSDRAM(x) x
                 #define AVR32_EBI_CS0_ADDRESS      0xC0000000
                 #define ET024006_CMD_ADDR          ((volatile unsigned short *) AVR32_EBI_CS0_ADDRESS)
@@ -1292,7 +1295,11 @@ static CHAR *fnInsertString(unsigned char *ptrBuffer, LENGTH_CHUNK_COUNT TxLengt
                 register unsigned long ulPixel;
                 int x;
     #if defined SUPPORT_TFT || defined TFT_GLCD_MODE
+        #if defined _iMX && defined eLCD_IN_OCR2
+                unsigned long *ptDst = (unsigned long *)fnGetOCR2((unsigned char *)RAM_START_ADDRESS_OCR2); // the start of OCR2 where the image is located
+        #else
                 unsigned long *ptDst = (unsigned long *)fnGetSDRAM((unsigned char *)SDRAM_ADDR); // the start of SDRAM where the image is located
+        #endif
                 ptDst += ((GLCD_Y - 1) * GLCD_X);                        // inverted bit maps, so move to bottom of image ready to scan upwards
         #if (3 * DISPLAY_WIDTH) > HTTP_BUFFER_LENGTH                     // reduce the chunk size by factor 3 if a line would occupy more that the HTTP buffer space available
                 ptDst -= ((Chunk - 1)/3 * GLCD_X);                       // move up to the line that is to be displayed (this assumes that the width can be divided exactly by 3 - valid for 480 byte width)
@@ -1341,7 +1348,7 @@ static CHAR *fnInsertString(unsigned char *ptrBuffer, LENGTH_CHUNK_COUNT TxLengt
                     extern int iGetPixelState(unsigned long ulPixelNumber);
                     ulPixel = iGetPixelState(((DISPLAY_HEIGHT - Chunk) * DISPLAY_WIDTH) + (x/3)); // generate the BMP content by reading the backup buffer - this method is also used when it is not possible to read from the display
                     if (ulPixel != 0) {
-        #if defined MB785_GLCD_MODE || defined _HX8347 || defined TFT2N0369_GLCD_MODE || defined ST7789S_GLCD_MODE
+        #if defined MB785_GLCD_MODE || defined _HX8347 || defined TFT2N0369_GLCD_MODE || defined ST7789S_GLCD_MODE || defined ILI9341_GLCD_MODE
                         cValue[x + 2] = (unsigned char)((LCD_PIXEL_COLOUR & RED)  >> 8);
                         cValue[x + 1] = (unsigned char)((LCD_PIXEL_COLOUR & GREEN) >> 3);
                         cValue[x]     = (unsigned char)((LCD_PIXEL_COLOUR & BLUE) << 3);
@@ -1356,7 +1363,7 @@ static CHAR *fnInsertString(unsigned char *ptrBuffer, LENGTH_CHUNK_COUNT TxLengt
         #endif
                     }
                     else {
-        #if defined MB785_GLCD_MODE || defined _HX8347 || defined TFT2N0369_GLCD_MODE || defined ST7789S_GLCD_MODE
+        #if defined MB785_GLCD_MODE || defined _HX8347 || defined TFT2N0369_GLCD_MODE || defined ST7789S_GLCD_MODE || defined ILI9341_GLCD_MODE
                         cValue[x + 2] = (unsigned char)((LCD_ON_COLOUR & RED)  >> 8);
                         cValue[x + 1] = (unsigned char)((LCD_ON_COLOUR & GREEN) >> 3);
                         cValue[x]     = (unsigned char)((LCD_ON_COLOUR & BLUE) << 3);
@@ -1406,7 +1413,7 @@ static CHAR *fnInsertString(unsigned char *ptrBuffer, LENGTH_CHUNK_COUNT TxLengt
 //
 static void fnDelayResetBoard(void)
 {
-    uTaskerMonoTimer( TASK_APPLICATION, (DELAY_LIMIT)(2*SEC), E_TIMER_SW_DELAYED_RESET );
+    uTaskerMonoTimer(TASK_APPLICATION, (DELAY_LIMIT)(2*SEC), E_TIMER_SW_DELAYED_RESET);
 }
 
 

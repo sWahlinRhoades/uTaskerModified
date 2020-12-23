@@ -11,7 +11,7 @@
     File:      uTasker.c
     Project:   Single Chip Embedded Internet
     ---------------------------------------------------------------------
-    Copyright (C) M.J.Butcher Consulting 2004..2016
+    Copyright (C) M.J.Butcher Consulting 2004..2020
     *********************************************************************
     24.03.2007 Starting a monostable timer with zero event changes periodic repetition timer {1}
     30.03.2007 Change end of task table on zero name rather than zero function. This allows more flexibility when redefining tasks {2}
@@ -31,9 +31,10 @@
     04.06.2013 Added OS_MALLOC() default                                                     {17}
     02.02.2014 Add UTASKER_POLLING                                                           {18}
     22.07.2014 Add uGetTaskState()                                                           {19}
+    30.08.2018 Add optional INTERRUPT_WATCHDOG_TASK                                          {20}
+    27.12.2019 Add return values to uTaskerMonoTimer() and uTaskerStopTimer()                {21}
 
 */
-
 
 /* =================================================================== */
 /*                           include files                             */
@@ -45,7 +46,7 @@
 /*                          local definitions                          */
 /* =================================================================== */
 
-#ifndef OS_MALLOC                                                        // {17}
+#if !defined OS_MALLOC                                                   // {17}
     #define OS_MALLOC(x) uMalloc((MAX_MALLOC)(x))
 #endif
 
@@ -65,15 +66,21 @@
 /*                     global variable definitions                     */
 /* =================================================================== */
 
-volatile UTASK_TICK uTaskerSystemTick= 0;                                // system tick counter
+volatile UTASK_TICK uTaskerSystemTick = 0;                               // system tick counter
 
-#if defined MULTISTART
+#if !defined APPLICATION_WITHOUT_OS
+    #if defined MULTISTART
     MULTISTART_TABLE *ptMultiStartTable = 0;
     JUMP_TABLE *JumpTable = 0;
-#endif
+    #endif
 
-#if defined MONITOR_PERFORMANCE                                          // {15}
+    #if defined MONITOR_PERFORMANCE                                      // {15}
     unsigned long ulMaximumIdle = 0;
+    #endif
+
+    #if defined INTERRUPT_WATCHDOG_TASK                                  // {20}
+    CHAR cInterruptWatchdog = 0;
+    #endif
 #endif
 
 
@@ -81,12 +88,13 @@ volatile UTASK_TICK uTaskerSystemTick= 0;                                // syst
 /*                      local variable definitions                     */
 /* =================================================================== */
 
-static TTIMETABLE *tTimerList = 0;                                       // pointer to timer list
-static TTASKTABLE *tTaskTable = 0;                                       // pointer to process table
-
-#if defined (RANDOM_NUMBER_GENERATOR) && !defined (RND_HW_SUPPORT)
+#if defined RANDOM_NUMBER_GENERATOR && !defined RND_HW_SUPPORT
     static unsigned short usRandomNumber = 0;
 #endif
+
+#if !defined APPLICATION_WITHOUT_OS
+    static TTIMETABLE *tTimerList = 0;                                   // pointer to timer list
+    static TTASKTABLE *tTaskTable = 0;                                   // pointer to process table
 
 #if defined MONITOR_PERFORMANCE                                          // {15}
     static unsigned long ulTotalIdle = 0;
@@ -119,7 +127,6 @@ extern TASK_LIMIT uTaskerStart(const UTASKTABLEINIT *ptATaskTable, const UTASK_T
 #if defined MULTISTART_SHARE
     int                iRetry = 0;
 #endif
-
     tTimerList = 0;
     tTaskTable = 0;
 
@@ -167,7 +174,7 @@ retry:
                     ptTaskTable++;
                 }
 #if defined MULTISTART_SHARE
-                if ((ptTaskTable->ptrTaskEntry == 0) && (!iRetry)) {     // specified task has not been found - try to get it from the default table
+                if ((ptTaskTable->ptrTaskEntry == 0) && (0 == iRetry)) { // specified task has not been found - try to get it from the default table
                     ptTaskTable = (UTASKTABLEINIT*)ctTaskTable;          // set default table
                     iRetry = 1;
                     goto retry;
@@ -249,24 +256,6 @@ retry:
     return (nr_of_tasks);
 }
 
-#if defined RANDOM_NUMBER_GENERATOR
-
-#define PRNG_POLY  0xb400                                                // taps: 16 14 13 11; characteristic polynomial: x^16 + x^14 + x^13 + x^11 + 1
-
-extern unsigned short fnRandom(void)                                     // {9}
-{
-    #if defined RND_HW_SUPPORT
-    return fnGetRndHW();                                                 // get a random value from the hardware
-    #else
-    register unsigned short usShifter = usRandomNumber;                  // for speed, copy to register
-
-    usShifter = (unsigned short)((usShifter >> 1) ^ (-(signed short)(usShifter & 1) & PRNG_POLY));
-    usRandomNumber = usShifter;                                          // {13} save the new value
-    return (usShifter);
-    #endif
-}
-#endif
-
 #if defined MONITOR_PERFORMANCE                                          // {15}
 // Each time a task starts and stops its duration is recorded in its task struct - an idle duration is recorded when no tasks are operating
 // 
@@ -288,7 +277,7 @@ static void fnTimeCheck(TTASKTABLE *ptTaskTable)
             ptrPresentTask = 0;                                          // no task being executed
             if (ulMaximumIdle == 0xffffffff) {                           // the last task commands reset of the present performance measurement period
                 TTASKTABLE *ptTaskTable = tTaskTable;                    // set at start and work down to bottom
-                while (ptTaskTable->pcTaskName) {                        // for each task
+                while (ptTaskTable->pcTaskName != 0) {                   // for each task
                     ptTaskTable->ulMinimumExecution = 0xffffffff;        // reset task counters
                     ptTaskTable->ulExecutions = 0;
                     ptTaskTable->ulMaximumExecution = 0;
@@ -321,7 +310,7 @@ extern TTASKTABLE *fnGetTaskPerformance(int iTaskNumber, UTASK_PERFORMANCE *ptrD
     unsigned long ulTotalTasksDuration = 0;
     
     uMemset(ptrDetails, 0, sizeof(UTASK_PERFORMANCE));                   // ensure result is zeroed in case the task is not found
-    while (ptTaskTable->pcTaskName) {                                    // for each task
+    while (ptTaskTable->pcTaskName != 0) {                               // for each task
         ulTotalTasksDuration += ptTaskTable->ulTotalExecution;           // sum total task execution duration of all tasks
         if (iTaskNumber == 0) {                                          // fill out for specific task
             ptrDetails->ulExecutions = ptTaskTable->ulExecutions;
@@ -404,6 +393,11 @@ extern TTASKTABLE *fnGetTaskPerformance(int iTaskNumber, UTASK_PERFORMANCE *ptrD
                 }
             }
             uEnable_Interrupt();                                         // enable interrupts before calling task
+#if defined _WINDOWS && defined SUPPORT_LOW_POWER
+            if (ptTaskTable->ptrTaskEntry != fnLowPower) {
+                ptTaskTable->ptrTaskEntry = ptTaskTable->ptrTaskEntry;   // break point location for all task calls that are not to the lower power task when simulating
+            }
+#endif
             ptTaskTable->ptrTaskEntry(ptTaskTable);                      // call the task
         }
 #if defined MONITOR_PERFORMANCE                                          // {15}
@@ -490,45 +484,50 @@ extern void uTaskerStateChange( UTASK_TASK pcTaskName, unsigned char ucSetState)
 }
 #endif
 
+#if !defined NO_MONOSTABLE_TIMERS
 // Start a monostable task timer
 //
-extern void uTaskerMonoTimer(UTASK_TASK pcTaskName, DELAY_LIMIT delay, unsigned char time_out_nr)
+extern int uTaskerMonoTimer(UTASK_TASK pcTaskName, DELAY_LIMIT delay, unsigned char time_out_nr) // {21}
 {
     TTASKTABLE *ptTaskTable;
     TTIMETABLE *ptTimerList = tTimerList;
 
-    if (ptTimerList != 0) {                                                  // protection - it is not expected that there will never be timers in the syste,
-        ptTaskTable = tTaskTable;                                            // set at start of the task table  and work down to bottom
-        while (ptTaskTable->pcTaskName != 0) {                               // while task entries present
-            if (*ptTaskTable->pcTaskName == pcTaskName) {                    // only compare first letter or task name
-                while (ptTimerList->ptTaskEntry != 0) {                      // while tasks queued
-                    if (ptTaskTable == ptTimerList->ptTaskEntry) {           // the task we are looking for
-                        uDisable_Interrupt();                                // protect from interrupts
-                        ptTaskTable->ucTaskState &= ~UTASKER_SUSPENDED;      // ensure the task can start again
-                        if ((int)(ptTimerList->ucEvent = time_out_nr) == 0) {// set event message for this type of timeout
-                            ptTaskTable->TaskRepetition = delay;             // modify delay value when zero event {1}
-                            if (delay == 0) {                                // zero delay stops repetition
+    if (ptTimerList == 0) {
+        return UTASKER_TASK_TIMERS_NOT_AVAILABLE;                        // {21} no timers in system
+    }
+
+    ptTaskTable = tTaskTable;                                            // set to start of the task table and work down to bottom
+    while (ptTaskTable->pcTaskName != 0) {                               // while task entries present
+        if (*ptTaskTable->pcTaskName == pcTaskName) {                    // only compare first letter of task name
+            while (ptTimerList->ptTaskEntry != 0) {                      // while tasks queued
+                if (ptTaskTable == ptTimerList->ptTaskEntry) {           // the task we are looking for
+                    uDisable_Interrupt();                                // protect from interrupts
+                        ptTaskTable->ucTaskState &= ~UTASKER_SUSPENDED;  // ensure the task can start again
+                        if ((int)(ptTimerList->ucEvent = time_out_nr) == 0) { // set event message for this type of timeout
+                            ptTaskTable->TaskRepetition = delay;         // modify delay value when zero event {1}
+                            if (delay == 0) {                            // zero delay stops repetition
                                 ptTimerList->ucTimerEnabled = (unsigned char)0; // disable timer {6}
-                                uEnable_Interrupt();                         // enable interrupts after modifications
-                                return;
+                                uEnable_Interrupt();                     // enable interrupts after modifications
+                                return UTASKER_REP_TASK_TIMER_STOPPED;   // {21}
                             }
                         }
-                        if (delay == 0) {                                    // if the delay is less that a TICK interval round it up rather than never timing out {5}
+                        if (delay == 0) {                                // if the delay is less that a TICK interval round it up rather than never timing out {5}
                             delay = 1;
                         }
-                        ptTimerList->taskDelay = (uTaskerSystemTick + delay);// set delay
-                        ptTimerList->ucTimerEnabled = (unsigned char)1;      // ensure timer enabled {6}                    
-                        uEnable_Interrupt();                                 // enable interrupts after modifications
-                        return;
-                    }
-                    ptTimerList++;
+                        ptTimerList->taskDelay = (uTaskerSystemTick + delay); // set delay
+                        ptTimerList->ucTimerEnabled = (unsigned char)1;  // ensure timer enabled {6}                    
+                    uEnable_Interrupt();                                 // enable interrupts after modifications
+                    return UTASKER_TASK_TIMER_STARTED;                   // {21}
                 }
-                break;                                                       // entry not found in timer queue
+                ptTimerList++;
             }
-            ptTaskTable++;
+            return UTASKER_TASK_TIMER_NOT_FOUND;                         // entry not found in timer queue
         }
+        ptTaskTable++;
     }
+    return UTASKER_TASK_NOT_FOUND;                                       // {21}
 }
+#endif
 
 // Request the remaining time in TICKs before the task's monostable timer will fire. A zero return value means that the timer has already fired, or doesn't exist.
 //
@@ -566,33 +565,34 @@ extern UTASK_TICK uTaskerRemainingTime(UTASK_TASK pcTaskName)            // {10}
 
 // This is used to kill a monostable timer
 //
-extern void uTaskerStopTimer(UTASK_TASK pcTaskName)
+extern int uTaskerStopTimer(UTASK_TASK pcTaskName)                       // {21}
 {
     TTASKTABLE *ptTaskTable;
     TTIMETABLE *ptTimerList = tTimerList;
 
     if (ptTimerList == 0) {
-        return;                                                          // no timers in system
+        return UTASKER_TASK_TIMERS_NOT_AVAILABLE;                        // {21} no timers in system
     }
 
     ptTaskTable = tTaskTable;                                            // set at start and work down to bottom
     while (ptTaskTable->pcTaskName != 0) {                               // for each task
         if (*ptTaskTable->pcTaskName == pcTaskName) {                    // only compare first letter for speed
-            while (ptTimerList->ptTaskEntry != 0) {                      // while tasks queued
-                if (ptTaskTable == ptTimerList->ptTaskEntry) {           // if the searched entry
+            while (ptTimerList->ptTaskEntry != 0) {                      // while tasks in the timer list
+                if (ptTaskTable == ptTimerList->ptTaskEntry) {           // if the searched entry found
                     uDisable_Interrupt();                                // protect from interrupts
                         ptTimerList->ucEvent = (unsigned char)0;         // ensure no event can be sent (even if queued)
                         ptTimerList->ucTimerEnabled = (unsigned char)0;  // disable timer {6}
                         ptTaskTable->ucTaskState |= UTASKER_SUSPENDED;   // {18} suspend the timer
                     uEnable_Interrupt();                                 // enable interrupts after modifications
-                    return;
+                    return UTASKER_REP_TASK_TIMER_STOPPED;               // {21}
                 }
                 ptTimerList++;                                           // move to next timer in the timer list
             }
-            return;
+            return UTASKER_TASK_TIMER_NOT_FOUND;                         // entry not found in timer queue
         }
         ptTaskTable++;                                                   // move to the next task in the task table
     }
+    return UTASKER_TASK_NOT_FOUND;                                       // {21}
 }
 
 
@@ -603,13 +603,15 @@ extern void uTaskerStopTimer(UTASK_TASK pcTaskName)
 
 // This should be called by a tick interrupt routine - enters and leaves with interrupt disabled
 //
-extern void fnRtmkSystemTick(void)
+extern void __callback_interrupt fnRtmkSystemTick(void)
 {
     TTASKTABLE *ptTaskTable;
     TTIMETABLE *ptTimerList = tTimerList;
 
     uTaskerSystemTick++;                                                 // increment system tick
+#if defined TICK_INTERRUPT
     TICK_INTERRUPT();                                                    // {14} allow user code in the TICK interrupt routine
+#endif
     if (ptTimerList == 0) {
         return;                                                          // no timers in system (yet)
     }
@@ -620,6 +622,12 @@ extern void fnRtmkSystemTick(void)
             if ((int)(ptTaskTable->ucTaskState & UTASKER_SUSPENDED) == 0) { // as long as not suspended task
                 if ((int)(ptTaskTable->ucTaskState & UTASKER_POLLING) == 0) { // {18} as long as not in polling mode
                     ptTaskTable->ucTaskState = UTASKER_ACTIVATE;         // release task to run once
+#if defined INTERRUPT_WATCHDOG_TASK                                      // {20}
+                    if (*(ptTaskTable->pcTaskName) == cInterruptWatchdog) { // if this task to be be executed in the TICK interrupt
+                        ptTaskTable->ucTaskState = UTASKER_STOP;         // cancel task scheduling
+                        ptTaskTable->ptrTaskEntry(0);                    // call the task with zero TTASKTABLE pointer
+                    }
+#endif
                 }
                 ptTaskTable->ucEvent = ptTimerList->ucEvent;             // enable event to be put to the input queue
             }
@@ -633,4 +641,22 @@ extern void fnRtmkSystemTick(void)
         ptTimerList++;                                                   // move to the next task in the task table
     }
 }
+#endif
 
+#if defined RANDOM_NUMBER_GENERATOR
+
+#define PRNG_POLY  0xb400                                                // taps: 16 14 13 11; characteristic polynomial: x^16 + x^14 + x^13 + x^11 + 1
+
+extern unsigned short fnRandom(void)                                     // {9}
+{
+    #if defined RND_HW_SUPPORT
+    return fnGetRndHW();                                                 // get a random value from the hardware
+    #else
+    register unsigned short usShifter = usRandomNumber;                  // for speed, copy to register
+
+    usShifter = (unsigned short)((usShifter >> 1) ^ (-(signed short)(usShifter & 1) & PRNG_POLY));
+    usRandomNumber = usShifter;                                          // {13} save the new value
+    return (usShifter);
+    #endif
+}
+#endif

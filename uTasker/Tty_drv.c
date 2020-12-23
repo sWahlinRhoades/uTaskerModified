@@ -8,10 +8,10 @@
     www.uTasker.com    Skype: M_J_Butcher
 
     ---------------------------------------------------------------------
-    File:      tty_drv.c
+    File:      Tty_drv.c
     Project:   Single Chip Embedded Internet
     ---------------------------------------------------------------------
-    Copyright (C) M.J.Butcher Consulting 2004..2016
+    Copyright (C) M.J.Butcher Consulting 2004..2019
     *********************************************************************
     22.02.2007 WAKE_BLOCKED_TX allow TX_FREE on char <= level (was < level) {1}. Remove check on tx done {2}
     17.03.2007 Add check fnWakeBlockedTx when transmission complete for DMA mode {3}
@@ -45,6 +45,12 @@
     06.08.2013 Only release transmissions on CTS assertion when originally blocked {31}
     06.08.2013 Add SERIAL_SUPPORT_DMA_RX_FREERUN support                 {32}
     06.08.2013 Allow fnMsgs() to work with free-running DMA              {33}
+    07.01.2017 Automatically set tx control pointer when no rx used      {34}
+    07.01.2017 Add UART_TIMED_TRANSMISSION mode                          {35}
+    03.05.2017 Add optional modulo tx buffer alignment                   {36}
+    09.05.2017 Add transmission pause mode                               {37}
+    05.05.2018 Add UART_HW_TRIGGERED_TX_MODE                             {38}
+    05.03.2019 Add input buffer peek support                             {39}
 
 */
 
@@ -72,7 +78,8 @@
 /* =================================================================== */
 
 #if !defined TTY_DRV_MALLOC                                                       // {28}
-    #define TTY_DRV_MALLOC(x)    uMalloc((MAX_MALLOC)(x))
+    #define TTY_DRV_MALLOC(x)         uMalloc((MAX_MALLOC)(x))
+    #define TTY_DRV_MALLO_ALIGN(x, y) uMallocAlign((MAX_MALLOC)(x), (unsigned short)(y))
 #endif
 
 /* =================================================================== */
@@ -114,24 +121,25 @@ static QUEUE_TRANSFER entry_tty(QUEUE_HANDLE channel, unsigned char *ptBuffer, Q
 {
     TTYQUE *ptTTYQue;
     QUEUE_TRANSFER rtn_val = 0;
+#if defined SERIAL_SUPPORT_PEEK                                          // {39}
+    int iPeek = 0;
+#endif
 
     uDisable_Interrupt();                                                // disable all interrupts
 
     switch (ucCallType) {
     case CALL_DRIVER:                                                    // request changes and return status
-        if ((CAST_POINTER_ARITHMETIC)ptBuffer & MODIFY_TX) {
+        ptTTYQue = (struct stTTYQue *)(que_ids[DriverID].input_buffer_control); // {34} rx state as default
+        if ((((CAST_POINTER_ARITHMETIC)ptBuffer & MODIFY_TX) != 0) || (ptTTYQue == 0)) { // {34} set tx state if specified or in case there is no rx control available
             ptTTYQue = (struct stTTYQue *)(que_ids[DriverID].output_buffer_control);// tx state
-        }
-        else {
-            ptTTYQue = (struct stTTYQue *)(que_ids[DriverID].input_buffer_control); // rx state
         }
 
         if (Counter != 0) {                                              // modify driver state
 #if defined SUPPORT_HW_FLOW                                              // {6}
-            if (Counter & MODIFY_CONTROL) {                              // control signals
-                fnControlLine(channel, (unsigned short)Counter, ptTTYQue->opn_mode);// pass on to hardware
+            if ((Counter & MODIFY_CONTROL) != 0) {                       // control signals
+                fnControlLine(channel, (unsigned short)Counter, ptTTYQue->opn_mode); // pass on to hardware
             }
-            else if (MODIFY_INTERRUPT & Counter) {
+            else if ((MODIFY_INTERRUPT & Counter) != 0) {
                 rtn_val = fnControlLineInterrupt(channel, (unsigned short)Counter, ptTTYQue->opn_mode); // pass on to hardware
                 fnRTS_change(channel, ((rtn_val & SET_CTS) != 0));       // synchronise control with buffer control
                 break;
@@ -142,10 +150,10 @@ static QUEUE_TRANSFER entry_tty(QUEUE_HANDLE channel, unsigned char *ptBuffer, Q
 #if defined SERIAL_SUPPORT_DMA && defined SERIAL_SUPPORT_DMA_RX
                     if ((ptTTYQue->ucDMA_mode & UART_RX_DMA) != 0) {
                         QUEUE_TRANSFER transfer_length = ptTTYQue->tty_queue.buf_length;
-                        if (ptTTYQue->ucDMA_mode & UART_RX_DMA_HALF_BUFFER) {
+                        if ((ptTTYQue->ucDMA_mode & UART_RX_DMA_HALF_BUFFER) != 0) {
                             transfer_length /= 2;
                         }
-                        if (ptTTYQue->opn_mode & MSG_MODE_RX_CNT) {
+                        if ((ptTTYQue->opn_mode & MSG_MODE_RX_CNT) != 0) {
     #if defined MSG_CNT_WORD                                             // {10}
                             transfer_length -= 2;
     #else
@@ -167,10 +175,23 @@ static QUEUE_TRANSFER entry_tty(QUEUE_HANDLE channel, unsigned char *ptBuffer, Q
                 }
 
                 if ((Counter & TX_ON) != 0) {
-                    fnTxOn(channel);
+                    if ((Counter & PAUSE_TX) != 0) {                     // {37}
+                        ptTTYQue->ucState &= ~(TX_WAIT);                 // remove pause
+                        if ((ptTTYQue->ucState & (TX_ACTIVE)) == 0) {
+                            send_next_byte(channel, ptTTYQue);           // this is not done when the transmitter is already performing a transfer or if suspended
+                        }
+                    }
+                    else {
+                        fnTxOn(channel);
+                    }
                 }
                 else if ((Counter & TX_OFF) != 0) {
-                    fnTxOff(channel);
+                    if ((Counter & PAUSE_TX) != 0) {                     // {37}
+                        ptTTYQue->ucState |= (TX_WAIT);                  // pause transmission so that data can be added to the buffer without yet being released
+                    }
+                    else {
+                        fnTxOff(channel);
+                    }
                 }
 #if defined SERIAL_SUPPORT_ECHO
                 if ((Counter & ECHO_ON) != 0) {
@@ -202,9 +223,9 @@ static QUEUE_TRANSFER entry_tty(QUEUE_HANDLE channel, unsigned char *ptBuffer, Q
 #if !defined _NO_CHECK_QUEUE_INPUT                                       // {19}
     case CALL_INPUT:                                                     // request the number or input characters waiting
         ptTTYQue = (struct stTTYQue *)(que_ids[DriverID].input_buffer_control); // set to input control block
-        if (ptTTYQue->opn_mode & (MSG_MODE | MSG_BREAK_MODE)) {          // {26}
+        if ((ptTTYQue->opn_mode & (MSG_MODE | MSG_BREAK_MODE)) != 0) {   // {26}
     #if defined (SUPPORT_MSG_CNT)
-            if (ptTTYQue->opn_mode & MSG_MODE_RX_CNT) {
+            if ((ptTTYQue->opn_mode & MSG_MODE_RX_CNT) != 0) {
                 rtn_val = (ptTTYQue->msgs + 1)/2;                        // in count mode we count the count and the actual message
             }
             else {
@@ -216,9 +237,9 @@ static QUEUE_TRANSFER entry_tty(QUEUE_HANDLE channel, unsigned char *ptBuffer, Q
         }
         else {
     #if defined SERIAL_SUPPORT_DMA && defined SERIAL_SUPPORT_DMA_RX && defined SERIAL_SUPPORT_DMA_RX_FREERUN  // {33}
-        if ((ptTTYQue->ucDMA_mode & (UART_RX_DMA | UART_RX_DMA_FULL_BUFFER | UART_RX_DMA_HALF_BUFFER | UART_RX_DMA_BREAK)) == (UART_RX_DMA)) { // if receiver is free-running in DMA mode
-            fnPrepareRxDMA(channel, (unsigned char *)&(ptTTYQue->tty_queue), 0); // update the input with present DMA reception information
-        }
+            if ((ptTTYQue->ucDMA_mode & (UART_RX_DMA | UART_RX_DMA_FULL_BUFFER | UART_RX_DMA_HALF_BUFFER | UART_RX_DMA_BREAK)) == (UART_RX_DMA)) { // if receiver is free-running in DMA mode
+                fnPrepareRxDMA(channel, (unsigned char *)&(ptTTYQue->tty_queue), 0); // update the input with present DMA reception information
+            }
     #endif
             rtn_val = ptTTYQue->tty_queue.chars;
         }
@@ -229,7 +250,7 @@ static QUEUE_TRANSFER entry_tty(QUEUE_HANDLE channel, unsigned char *ptBuffer, Q
         ptTTYQue = (struct stTTYQue *)(que_ids[DriverID].output_buffer_control); // set to output control block
         if (ptBuffer == 0) {                                             // the caller wants to see whether the data will fit and not copy data so inform
 #if defined SERIAL_SUPPORT_DMA_                                          // {18}
-            if (ptTTYQue->ucDMA_mode & UART_TX_DMA) {
+            if ((ptTTYQue->ucDMA_mode & UART_TX_DMA) != 0) {
                 QUEUE_TRANSFER reduction = (ptTTYQue->lastDMA_block_length - fnRemainingDMA_tx(channel)); // get the number of characters
                 ptTTYQue->tty_queue.chars -= reduction;
                 ptTTYQue->lastDMA_block_length -= reduction;
@@ -240,12 +261,12 @@ static QUEUE_TRANSFER entry_tty(QUEUE_HANDLE channel, unsigned char *ptBuffer, Q
             }
 #endif
             if ((ptTTYQue->tty_queue.buf_length - ptTTYQue->tty_queue.chars) >= Counter) {
-                rtn_val = ptTTYQue->tty_queue.buf_length - ptTTYQue->tty_queue.chars; // the remaining space
+                rtn_val = (ptTTYQue->tty_queue.buf_length - ptTTYQue->tty_queue.chars); // the remaining space
             }
         }
         else {
             uEnable_Interrupt();                                         // fnFillBuffer disables and then re-enables interrupts - be sure we are compatible
-            rtn_val = fnFillBuf(&ptTTYQue->tty_queue, ptBuffer, Counter);
+                rtn_val = fnFillBuf(&ptTTYQue->tty_queue, ptBuffer, Counter);
             uDisable_Interrupt();
             if ((ptTTYQue->ucState & (TX_WAIT | TX_ACTIVE)) == 0) {
                 send_next_byte(channel, ptTTYQue);                       // this is not done when the transmitter is already performing a transfer or if suspended
@@ -255,32 +276,48 @@ static QUEUE_TRANSFER entry_tty(QUEUE_HANDLE channel, unsigned char *ptBuffer, Q
         }
         break;
 
+#if defined SERIAL_SUPPORT_PEEK                                          // {39}
+    case CALL_PEEK_NEWEST:
+    case CALL_PEEK_OLDEST:
+        // Fall-through intentionally
+        //
+        iPeek = 1;                                                       // mark that we are peeking reading and not reading
+#endif
     case CALL_READ:                                                      // read data from the queue
         ptTTYQue = (struct stTTYQue *)(que_ids[DriverID].input_buffer_control); // set to input control block
 #if defined (SUPPORT_MSG_MODE) || defined (SUPPORT_MSG_CNT) || defined (UART_BREAK_SUPPORT)
-        if (ptTTYQue->opn_mode & (MSG_MODE | MSG_MODE_RX_CNT | MSG_BREAK_MODE)) {
+        if ((ptTTYQue->opn_mode & (MSG_MODE | MSG_MODE_RX_CNT | MSG_BREAK_MODE)) != 0) {
     #if defined SUPPORT_MSG_MODE_EXTRACT                                 // {29}
             if (Counter == 0) {
                 Counter = 1;
             }
             else {
     #endif
-                if (!ptTTYQue->msgs) {
+                if (ptTTYQue->msgs == 0) {
                     uEnable_Interrupt();                                 // enable interrupts
                     return rtn_val;
                 }
+    #if defined SERIAL_SUPPORT_PEEK                                      // {39}
+                if (iPeek == 0) {
+                    --ptTTYQue->msgs;                                    // delete this message (or its length)
+                }
+    #else
                 --ptTTYQue->msgs;                                        // delete this message (or its length)
+    #endif
     #if defined SUPPORT_MSG_MODE_EXTRACT
             }
     #endif
         }
 #endif
-#if defined SERIAL_SUPPORT_DMA && defined SERIAL_SUPPORT_DMA_RX_FREERUN  // {32}
+#if defined SERIAL_SUPPORT_DMA && defined SERIAL_SUPPORT_DMA_RX && defined SERIAL_SUPPORT_DMA_RX_FREERUN  // {32}
         if ((ptTTYQue->ucDMA_mode & (UART_RX_DMA | UART_RX_DMA_FULL_BUFFER | UART_RX_DMA_HALF_BUFFER | UART_RX_DMA_BREAK)) == (UART_RX_DMA)) { // if receiver is free-running in DMA mode
             fnPrepareRxDMA(channel, (unsigned char *)&(ptTTYQue->tty_queue), 0); // update the input with present DMA reception information
-
     #if defined SUPPORT_FLOW_CONTROL && defined SUPPORT_HW_FLOW          // handle CTS control when the buffer is critical
-            if ((ptTTYQue->opn_mode & RTS_CTS) && (!(ptTTYQue->ucState & RX_HIGHWATER)) // RTS/CTS for receiver
+            if (
+        #if defined SERIAL_SUPPORT_PEEK                                  // {39}
+            (iPeek == 0) &&
+        #endif
+                ((ptTTYQue->opn_mode & RTS_CTS) != 0) && ((ptTTYQue->ucState & RX_HIGHWATER) == 0) // RTS/CTS for receiver
         #if defined SUPPORT_FLOW_HIGH_LOW
             && ((ptTTYQue->tty_queue.chars >= ptTTYQue->high_water_level)))
         #else
@@ -296,10 +333,15 @@ static QUEUE_TRANSFER entry_tty(QUEUE_HANDLE channel, unsigned char *ptBuffer, Q
     #endif
         }
 #endif
+#if defined SERIAL_SUPPORT_PEEK                                          // {39}
+        if (iPeek != 0) {
+            uEnable_Interrupt();                                         // enable interrupts
+            return fnGetBufPeek(&ptTTYQue->tty_queue, ptBuffer, Counter, (ucCallType == CALL_PEEK_NEWEST));
+        }
+#endif
         rtn_val = fnGetBuf(&ptTTYQue->tty_queue, ptBuffer, Counter);     // interrupts are re-enabled as soon as no longer critical
-
 #if defined SERIAL_SUPPORT_DMA                                           // {12}
-        if ((ptTTYQue->ucDMA_mode & UART_RX_DMA_HALF_BUFFER) && (!(ptTTYQue->msgs & 0x1))) { // complete message extracted, set to next half buffer
+        if (((ptTTYQue->ucDMA_mode & UART_RX_DMA_HALF_BUFFER) != 0) && ((ptTTYQue->msgs & 0x1) == 0)) { // complete message extracted, set to next half buffer
             if (ptTTYQue->tty_queue.get < ptTTYQue->tty_queue.QUEbuffer + (ptTTYQue->tty_queue.buf_length/2)) {
                 ptTTYQue->tty_queue.get = ptTTYQue->tty_queue.QUEbuffer + (ptTTYQue->tty_queue.buf_length/2);
             }
@@ -308,7 +350,6 @@ static QUEUE_TRANSFER entry_tty(QUEUE_HANDLE channel, unsigned char *ptBuffer, Q
             }
         }
 #endif
-
 #if defined SUPPORT_FLOW_CONTROL
         if (((ptTTYQue->opn_mode & (USE_XON_OFF | RTS_CTS)) && (ptTTYQue->ucState & RX_HIGHWATER)) // flow control support for receiver
     #if defined SUPPORT_FLOW_HIGH_LOW
@@ -376,7 +417,7 @@ static QUEUE_TRANSFER entry_tty(QUEUE_HANDLE channel, unsigned char *ptBuffer, Q
             else {
                 break;
             }
-        } while (rtn_val--);
+        } while (rtn_val-- != 0);
     #endif
 
         return (ucMatch);
@@ -412,7 +453,7 @@ static QUEUE_TRANSFER entry_tty(QUEUE_HANDLE channel, unsigned char *ptBuffer, Q
         else {
             ptr = (unsigned char *)&ptTTYQue->ulSerialCounter[Counter];
             i = sizeof(ptTTYQue->ulSerialCounter[0]);
-            while (i--) {
+            while (i-- != 0) {
                 *ptBuffer++ = *ptr++;
             }
         }
@@ -466,21 +507,35 @@ static QUEUE_TRANSFER entry_tty(QUEUE_HANDLE channel, unsigned char *ptBuffer, Q
     default:
        break;
     }
-    uEnable_Interrupt();                                                  // enable interrupts
+    uEnable_Interrupt();                                                 // enable interrupts
     return (rtn_val);
 }
 
+#if defined SERIAL_SUPPORT_DMA && ((defined KINETIS_KL || defined KINETIS_KM) && !defined DEVICE_WITH_eDMA) // {36}
+static TTYQUE *fnGetControlBlock(QUEUE_TRANSFER queue_size, int iModulo)
+#else
 static TTYQUE *fnGetControlBlock(QUEUE_TRANSFER queue_size)
+#endif
 {
     TTYQUE *ptTTYQue;
 
-    if (NO_MEMORY == (ptTTYQue = (TTYQUE*)TTY_DRV_MALLOC(sizeof(struct stTTYQue)))) {
+    if (NO_MEMORY == (ptTTYQue = (TTYQUE *)TTY_DRV_MALLOC(sizeof(struct stTTYQue)))) {
         return (0);                                                      // failed, no memory
     }
-
-    if (NO_MEMORY == (ptTTYQue->tty_queue.QUEbuffer = (unsigned char*)TTY_DRV_MALLOC(queue_size))) {
-        return (0);                                                      // failed, no memory
+#if defined SERIAL_SUPPORT_DMA && ((defined KINETIS_KL || defined KINETIS_KM) && !defined DEVICE_WITH_eDMA) // {36}
+    if (iModulo != 0) {
+        if (NO_MEMORY == (ptTTYQue->tty_queue.QUEbuffer = (unsigned char *)TTY_DRV_MALLO_ALIGN(queue_size, queue_size))) {
+            return (0);                                                  // failed, no memory
+        }
     }
+    else {
+#endif
+        if (NO_MEMORY == (ptTTYQue->tty_queue.QUEbuffer = (unsigned char *)TTY_DRV_MALLOC(queue_size))) {
+            return (0);                                                  // failed, no memory
+        }
+#if defined SERIAL_SUPPORT_DMA && ((defined KINETIS_KL || defined KINETIS_KM) && !defined DEVICE_WITH_eDMA) // {36}
+    }
+#endif
     ptTTYQue->tty_queue.get = ptTTYQue->tty_queue.put = ptTTYQue->tty_queue.buffer_end = ptTTYQue->tty_queue.QUEbuffer;
     ptTTYQue->tty_queue.buffer_end += queue_size;
     ptTTYQue->tty_queue.buf_length = queue_size;
@@ -503,18 +558,27 @@ extern QUEUE_HANDLE fnOpenTTY(TTYTABLE *pars, unsigned char driver_mode)
         return (NO_ID_ALLOCATED);                                        // no free IDs available
     }
 
-    ptrQueue = &que_ids[DriverID-1];
+    ptrQueue = &que_ids[DriverID - 1];
     ptrQueue->CallAddress = entry_add;
 
-    if (driver_mode & FOR_WRITE) {                                       // define transmitter
+    if ((driver_mode & FOR_WRITE) != 0) {                                // define transmitter
+#if defined SERIAL_SUPPORT_DMA && ((defined KINETIS_KL || defined KINETIS_KM) && !defined DEVICE_WITH_eDMA) // {36}
+        ptrQueue->output_buffer_control = (QUEQUE *)(tx_control[pars->Channel] = fnGetControlBlock(pars->Rx_tx_sizes.TxQueueSize, ((pars->ucDMAConfig & UART_TX_MODULO) != 0)));
+#else
         ptrQueue->output_buffer_control = (QUEQUE *)(tx_control[pars->Channel] = fnGetControlBlock(pars->Rx_tx_sizes.TxQueueSize));
+#endif
     }
 
-    if (driver_mode & FOR_READ) {                                        // define receiver
-        TTYQUE *ptTTYQue = fnGetControlBlock(pars->Rx_tx_sizes.RxQueueSize);
+    if ((driver_mode & FOR_READ) != 0) {                                 // define receiver
+        TTYQUE *ptTTYQue;
+#if defined SERIAL_SUPPORT_DMA && ((defined KINETIS_KL || defined KINETIS_KM) && !defined DEVICE_WITH_eDMA) // {36}
+        ptTTYQue = fnGetControlBlock(pars->Rx_tx_sizes.RxQueueSize, ((pars->ucDMAConfig & UART_RX_MODULO) != 0));
+#else
+        ptTTYQue = fnGetControlBlock(pars->Rx_tx_sizes.RxQueueSize);
+#endif
         ptrQueue->input_buffer_control = (QUEQUE *)(rx_control[pars->Channel] = ptTTYQue);
 #if defined SUPPORT_MSG_CNT
-        if (pars->Config & MSG_MODE_RX_CNT) {                            // {20}
+        if ((pars->Config & MSG_MODE_RX_CNT) != 0) {                     // {20}
     #if defined MSG_CNT_WORD
             ptTTYQue->tty_queue.put += 2;
             ptTTYQue->tty_queue.chars = 2;                               // reserve for length of first message
@@ -526,10 +590,13 @@ extern QUEUE_HANDLE fnOpenTTY(TTYTABLE *pars, unsigned char driver_mode)
 #endif
     }
 
-    if (tx_control[pars->Channel] != 0) {
+    if (tx_control[pars->Channel] != 0) {                                // if transmission is supported on the channel
         tx_control[pars->Channel]->opn_mode = pars->Config;              // {20}
 #if defined SERIAL_SUPPORT_DMA
-        tx_control[pars->Channel]->ucDMA_mode = pars->ucDMAConfig;
+        tx_control[pars->Channel]->ucDMA_mode = pars->ucDMAConfig;       // the DMA configuration for this channel
+     #if defined UART_TIMED_TRANSMISSION                                 // {35}
+        tx_control[pars->Channel]->usMicroDelay = pars->usMicroDelay;    // inter-character transmission timebase (valid when UART_TIMED_TRANSMISSION_MODE is specified)
+    #endif
 #endif
 #if defined WAKE_BLOCKED_TX
     #if defined WAKE_BLOCKED_TX_BUFFER_LEVEL                             // {23}
@@ -622,11 +689,10 @@ static void send_next_byte(QUEUE_HANDLE channel, TTYQUE *ptTTYQue)       // inte
 #if defined SERIAL_SUPPORT_ESCAPE
         int iBlock = 0;
 #endif
-
         if (ptTTYQue->tty_queue.chars == 0) {                            // are there more to send?
             ptTTYQue->ucState &= ~TX_ACTIVE;                             // transmission of a block has terminated
             fnClearTxInt(channel);                                       // clear interrupt
-#if defined (WAKE_BLOCKED_TX) && defined (SERIAL_SUPPORT_DMA)            // {2},{3}
+#if defined (WAKE_BLOCKED_TX) && defined (SERIAL_SUPPORT_DMA)            // {2}{3}
             fnWakeBlockedTx(ptTTYQue, 0);
 #endif
 #if defined UART_BREAK_SUPPORT
@@ -636,13 +702,12 @@ static void send_next_byte(QUEUE_HANDLE channel, TTYQUE *ptTTYQue)       // inte
 #endif
 #if defined UART_FRAME_COMPLETE                                          // {16}
             if ((ptTTYQue->opn_mode & INFORM_ON_FRAME_TRANSMISSION) != 0) {
-                fnUARTFrameTermination(channel);
+                fnUARTFrameTermination(channel);                         // this routine is supplied by the user
             }
 #endif
         }
         else {
             unsigned char ucNextByte = *(ptTTYQue->tty_queue.get);
-
 #if defined SERIAL_SUPPORT_ESCAPE
             if ((ptTTYQue->opn_mode & TX_ESC_MODE) != 0) {
                 if (ptTTYQue->ucState & ESCAPE_SEQUENCE) {
@@ -658,12 +723,30 @@ static void send_next_byte(QUEUE_HANDLE channel, TTYQUE *ptTTYQue)       // inte
 #if defined SERIAL_SUPPORT_DMA
             if ((ptTTYQue->ucDMA_mode & UART_TX_DMA) != 0) {             // DMA mode of operation
                 QUEUE_TRANSFER tx_length;
-                                                                         // calculate whether we can send block in one go or not
-                if ((ptTTYQue->tty_queue.get + ptTTYQue->tty_queue.chars) >= ptTTYQue->tty_queue.buffer_end) {
+                QUEUE_TRANSFER charactersWaiting = ptTTYQue->tty_queue.chars;
+    #if defined UART_HW_TRIGGERED_MODE_SUPPORTED                         // {38}
+                if ((ptTTYQue->opn_mode & UART_HW_TRIGGERED_TX_MODE) != 0) {
+                    charactersWaiting = *ptTTYQue->tty_queue.get++;      // the first two bytes in the queue are the message length
+                    charactersWaiting <<= 8;
+                    charactersWaiting |= *ptTTYQue->tty_queue.get++;
+                    ptTTYQue->tty_queue.chars -= 2;
+        #if defined _WINDOWS
+                    if (charactersWaiting > ptTTYQue->tty_queue.chars) {
+                        _EXCEPTION("Bad use of UART_HW_TRIGGERED_TX_MODE"); // the first two characters indicate the individual transmit message length
+                    }
+                    if (ptTTYQue->tty_queue.get >= ptTTYQue->tty_queue.buffer_end) {
+                        _EXCEPTION("Bad use of UART_HW_TRIGGERED_TX_MODE"); // a linear buffer is expected
+                    }
+        #endif
+                }
+    #endif
+                // Calculate whether we can send block in one go or not
+                //
+                if ((ptTTYQue->tty_queue.get + charactersWaiting) >= ptTTYQue->tty_queue.buffer_end) {
                     tx_length = (QUEUE_TRANSFER)(ptTTYQue->tty_queue.buffer_end - ptTTYQue->tty_queue.get); // single transfer up to the end of the buffer
                 }
                 else {
-                    tx_length = ptTTYQue->tty_queue.chars;               // single transfer block
+                    tx_length = charactersWaiting;                       // single transfer block
                 }
                 if (tx_length == 0) {
                     return;
@@ -693,7 +776,7 @@ static void send_next_byte(QUEUE_HANDLE channel, TTYQUE *ptTTYQue)       // inte
         #endif
     #endif
         //      ptTTYQue->tty_queue.chars -= tx_length;                  // {15} don't remove length until after complete transmission
-                ptTTYQue->lastDMA_block_length = tx_length;              // {15} save the block length for removal after complete tramsmission
+                ptTTYQue->lastDMA_block_length = tx_length;              // {15} save the block length for removal after complete transmission
                 return;
             }
 #endif
@@ -737,6 +820,22 @@ static void send_next_byte(QUEUE_HANDLE channel, TTYQUE *ptTTYQue)       // inte
     }
 }
 
+#if (defined SERIAL_SUPPORT_DMA && defined SERIAL_SUPPORT_DMA_RX && defined SERIAL_SUPPORT_RX_DMA_BREAK) || defined UART_BREAK_SUPPORT
+static void fnPostFrameEvent(UTASK_TASK destination_task, unsigned char ucEventType, QUEUE_HANDLE Channel, unsigned short usFrameLength)
+{
+    unsigned char int_message[HEADER_LENGTH + 4];                        // temporary buffer 
+    int_message[MSG_DESTINATION_NODE] = int_message[MSG_SOURCE_NODE] = INTERNAL_ROUTE;
+    int_message[MSG_DESTINATION_TASK] = (unsigned char)destination_task; // the task that is to receive the message
+    int_message[MSG_SOURCE_TASK] = TASK_TTY;                             // TTY task is used as source reference (although no task exists)
+    int_message[MSG_CONTENT_LENGTH] = 4;                                 // length of the message content
+    int_message[MSG_CONTENT_COMMAND] = ucEventType;                      // the message type
+    int_message[MSG_CONTENT_DATA_START] = (unsigned char)Channel;        // the UART channel that the reception is on
+    int_message[MSG_CONTENT_DATA_START + 1] = (unsigned char)(usFrameLength >> 8); // the frame content length that is waiting to be read
+    int_message[MSG_CONTENT_DATA_START + 2] = (unsigned char)(usFrameLength);
+    fnWrite(INTERNAL_ROUTE, int_message, sizeof(int_message));           // post the message
+}
+#endif
+
 /* =================================================================== */
 /*                         interrupt  interface routines               */
 /* =================================================================== */
@@ -755,14 +854,32 @@ extern void fnSciRxByte(unsigned char ch, QUEUE_HANDLE Channel)
 #endif
 
 #if defined SERIAL_SUPPORT_DMA && defined SERIAL_SUPPORT_DMA_RX
-    if (rx_ctl->ucDMA_mode & UART_RX_DMA) {                              // new characters in the buffer - increment message count
+    if ((rx_ctl->ucDMA_mode & UART_RX_DMA) != 0) {                       // new characters in the buffer - increment message count
         QUEUE_TRANSFER transfer_length = rx_ctl->tty_queue.buf_length;
-        if (rx_ctl->ucDMA_mode & UART_RX_DMA_HALF_BUFFER) {
+    #if defined SERIAL_SUPPORT_RX_DMA_BREAK
+        if ((UART_RX_DMA_BREAK & rx_ctl->ucDMA_mode) != 0) {             // break detected
+            QUEUE_TRANSFER OriginalLength = rx_ctl->tty_queue.chars;
+            fnPrepareRxDMA(Channel, (unsigned char *)(&(rx_ctl->tty_queue)), 0); // update the waiting data
+            OriginalLength = (rx_ctl->tty_queue.chars - OriginalLength); // the additional characters collected since the previous break
+            if (ch != 0) {                                               // first break after enabling the received so we ignore received data
+                rx_ctl->tty_queue.get += rx_ctl->tty_queue.chars;
+                if (rx_ctl->tty_queue.get >= rx_ctl->tty_queue.buffer_end) {
+                    rx_ctl->tty_queue.get -= rx_ctl->tty_queue.buf_length;
+                }
+                rx_ctl->tty_queue.chars = 0;
+            }
+            else {
+                fnPostFrameEvent(rx_ctl->wake_task, (unsigned char)TTY_BREAK_FRAME_RECEPTION, Channel, OriginalLength);
+            }
+            return;
+        }
+    #endif
+        if ((rx_ctl->ucDMA_mode & UART_RX_DMA_HALF_BUFFER) != 0) {
             transfer_length /= 2;
         }
         rx_ctl->tty_queue.put += transfer_length;
         rx_ctl->tty_queue.chars += transfer_length;                      // {30} amount of characters that are ready to be read
-        if (rx_ctl->opn_mode & MSG_MODE_RX_CNT) {
+        if ((rx_ctl->opn_mode & MSG_MODE_RX_CNT) != 0) {
     #if defined MSG_CNT_WORD                                             // {10}
             transfer_length -= 2;
     #else
@@ -781,13 +898,13 @@ extern void fnSciRxByte(unsigned char ch, QUEUE_HANDLE Channel)
     }
 #endif
 #if defined MODBUS_RTU                                                   // {14}
-    if (RTU_RX_MODE & rx_ctl->opn_mode) {                                // inter-space timer needs to be started
+    if ((RTU_RX_MODE & rx_ctl->opn_mode) != 0) {                         // inter-space timer needs to be started
         fnRetrigger_T1_5_monitor(Channel);                               // retrigger the chosen timer to monitor the 1.5 character interval
     }
 #endif
 #if defined SERIAL_SUPPORT_ESCAPE                                        // escape sequence
-    if (RX_ESC_MODE & rx_ctl->opn_mode) {
-        if (rx_ctl->ucState & ESCAPE_SEQUENCE) {
+    if ((RX_ESC_MODE & rx_ctl->opn_mode) != 0) {
+        if ((rx_ctl->ucState & ESCAPE_SEQUENCE) != 0) {
             rx_ctl->ucState &= ~ESCAPE_SEQUENCE;
         }
         else if (rx_ctl->ucMessageFilter == ch) {
@@ -795,7 +912,7 @@ extern void fnSciRxByte(unsigned char ch, QUEUE_HANDLE Channel)
             return;                                                      // we don't save this character yet
         }
         else {
-            if (MSG_MODE & rx_ctl->opn_mode) {
+            if ((MSG_MODE & rx_ctl->opn_mode) != 0) {
                 if (rx_ctl->ucMessageTerminator == ch) {
                     iBlockBuffer = 1;
                 }
@@ -803,7 +920,7 @@ extern void fnSciRxByte(unsigned char ch, QUEUE_HANDLE Channel)
         }
     }
     else {
-        if (MSG_MODE & rx_ctl->opn_mode) {
+        if ((MSG_MODE & rx_ctl->opn_mode) != 0) {
             if (rx_ctl->ucMessageTerminator == ch) {
                 iBlockBuffer = 1;
             }
@@ -811,7 +928,7 @@ extern void fnSciRxByte(unsigned char ch, QUEUE_HANDLE Channel)
     }
 #else
     #if defined SUPPORT_MSG_MODE
-    if (MSG_MODE & rx_ctl->opn_mode) {
+    if ((MSG_MODE & rx_ctl->opn_mode) != 0) {
         if (rx_ctl->ucMessageTerminator == ch) {
             iBlockBuffer = 1;
         }
@@ -820,7 +937,7 @@ extern void fnSciRxByte(unsigned char ch, QUEUE_HANDLE Channel)
 #endif
 
 #if defined SERIAL_SUPPORT_XON_XOFF                                      // XON XOFF support
-    if (rx_ctl->opn_mode & USE_XON_OFF) {
+    if ((rx_ctl->opn_mode & USE_XON_OFF) != 0) {
         if (XOFF_CODE == ch) {
     #if defined SERIAL_SUPPORT_DMA                                       // {18}
             if (tx_ctl->ucDMA_mode & UART_TX_DMA) {
@@ -863,11 +980,11 @@ extern void fnSciRxByte(unsigned char ch, QUEUE_HANDLE Channel)
 
     if (iBlockBuffer == 0) {
         if (rx_ctl->tty_queue.chars < rx_ctl->tty_queue.buf_length) {    // never overwrite contents of buffer
-            ++rx_ctl->tty_queue.chars;
-#if defined (SUPPORT_MSG_CNT) && defined (SUPPORT_MSG_MODE)
+            rx_ctl->tty_queue.chars++;                                   // increment the total character count
+#if (defined SUPPORT_MSG_CNT && defined SUPPORT_MSG_MODE) || defined UART_BREAK_SUPPORT
             rx_ctl->msgchars++;                                          // update the present message length
 #endif
-            *(rx_ctl->tty_queue.put) = ch;                               // put received character in input buffer
+            *(rx_ctl->tty_queue.put) = ch;                               // put received character in to the input buffer
             if (++rx_ctl->tty_queue.put >= rx_ctl->tty_queue.buffer_end) { // wrap in circular buffer
                 rx_ctl->tty_queue.put = rx_ctl->tty_queue.QUEbuffer;     // wrap to beginning
             }
@@ -968,10 +1085,10 @@ extern void fnSciRxByte(unsigned char ch, QUEUE_HANDLE Channel)
 extern void fnSciRxMsg(QUEUE_HANDLE channel)                             // {11}
 {
     TTYQUE *rx_ctl = rx_control[channel];
-    #if defined SERIAL_SUPPORT_DMA
-    unsigned char *ptrNextHalfBuffer;
-    QUEUE_TRANSFER halfBufferLength;
-    if ((rx_ctl->ucDMA_mode & UART_RX_DMA) != 0) {
+    #if defined SERIAL_SUPPORT_DMA && defined SERIAL_SUPPORT_DMA_RX
+    unsigned char *ptrNextHalfBuffer = 0;
+    QUEUE_TRANSFER halfBufferLength = 0;
+    if ((rx_ctl->ucDMA_mode & UART_RX_DMA) != 0) {                       // if the received is operating in DMA mode
         halfBufferLength = rx_ctl->msgchars;
         rx_ctl->msgchars = fnGetDMACount(channel, halfBufferLength);     // get the actual received character count
 
@@ -998,13 +1115,13 @@ extern void fnSciRxMsg(QUEUE_HANDLE channel)                             // {11}
         rx_ctl->tty_queue.chars += rx_ctl->msgchars;
     }
     #endif
-    if ((rx_ctl->opn_mode & MSG_BREAK_MODE) != 0) {
-        if ((rx_ctl->opn_mode & MSG_MODE_RX_CNT) != 0) {
+    if ((rx_ctl->opn_mode & MSG_BREAK_MODE) != 0) {                      // a break detection is signalling that the message reception is complete
+        if ((rx_ctl->opn_mode & MSG_MODE_RX_CNT) != 0) {                 // put the frame length into the receive buffer in receive count mode
     #if defined MSG_CNT_WORD
-            unsigned char *ptrLen = (unsigned char *)&rx_ctl->msgchars;
+            unsigned char *ptrLen = (unsigned char *)&rx_ctl->msgchars;  // the length is two bytes wide
     #endif
             unsigned char *ptrBuffer;
-            rx_ctl->msgs += 2;                                           // a new message length and data message is ready
+            rx_ctl->msgs += 2;                                           // a new message length and data message is ready (counted as two messages)
     #if defined MSG_CNT_WORD
             ptrBuffer = rx_ctl->tty_queue.put - rx_ctl->msgchars - 2;    // move back to start of this message
             rx_ctl->tty_queue.put += 2;
@@ -1032,25 +1149,43 @@ extern void fnSciRxMsg(QUEUE_HANDLE channel)                             // {11}
             *ptrBuffer = (unsigned char)rx_ctl->msgchars;                // write the length of the message at first position (doesn't include the terminator in this mode)
             rx_ctl->tty_queue.chars++;                                   // include the length of next message
     #endif
-    #if defined SERIAL_SUPPORT_DMA                                       // {27}
-            if (rx_ctl->ucDMA_mode & UART_RX_DMA) {
+    #if defined SERIAL_SUPPORT_DMA && defined SERIAL_SUPPORT_DMA_RX      // {27}
+            if ((rx_ctl->ucDMA_mode & UART_RX_DMA) != 0) {
                 rx_ctl->tty_queue.put = ptrNextHalfBuffer;               // set to next half of buffer
                 rx_ctl->msgchars = halfBufferLength;                     // reset for next message
             }
             else {
-                rx_ctl->msgchars = 0;                                    // reset for next message
+                rx_ctl->msgchars = 0;                                    // reset present message length for next message use
             }
     #else
             rx_ctl->msgchars = 0;                                        // reset for next message
     #endif
         }
         else {
-            rx_ctl->msgs++;
+            rx_ctl->msgs++;                                              // count the data that has been received as a single message
+            fnPostFrameEvent(rx_ctl->wake_task, (unsigned char)TTY_BREAK_FRAME_RECEPTION, channel, rx_ctl->msgchars);
+            rx_ctl->msgchars = 0;                                        // reset for next frame
+            return;
         }
         if (rx_ctl->wake_task != 0) {                                    // wake up an input task, if defined
             uTaskerStateChange(rx_ctl->wake_task, UTASKER_ACTIVATE);     // wake up service interface task
         }
     }
+}
+#endif
+
+#if defined UART_EXTENDED_MODE && defined UART_SUPPORT_IDLE_LINE_INTERRUPT && !(defined RUN_IN_FREE_RTOS && defined FREE_RTOS_UART)
+extern int fnSciRxIdle(QUEUE_HANDLE channel)
+{
+    #if defined SERIAL_SUPPORT_DMA && defined SERIAL_SUPPORT_DMA_RX
+    TTYQUE *rx_ctl = rx_control[channel];
+    if ((rx_ctl->ucDMA_mode & UART_RX_DMA) != 0) {                       // if the received is operating in DMA mode
+        if (rx_ctl->wake_task != 0) {                                    // wake up an input task, if defined
+            uTaskerStateChange(rx_ctl->wake_task, UTASKER_ACTIVATE);     // wake up service interface task
+        }
+    }
+    #endif
+    return 0;
 }
 #endif
 
@@ -1062,7 +1197,7 @@ extern void fnRTS_change(QUEUE_HANDLE Channel, int iState)
     TTYQUE *tx_ctl = tx_control[Channel];
 
     if (iState != 0) {                                                   // line has just gone active - we are allowed to transmit
-        if (tx_ctl->ucState & TX_WAIT) {                                 // {31} if the state was blocking transmission
+        if ((tx_ctl->ucState & TX_WAIT) != 0) {                          // {31} if the state was blocking transmission
             tx_ctl->ucState &= ~TX_WAIT;                                 // unblock transmitter
             send_next_byte(Channel, tx_ctl);                             // restart transmission, if paused {5}
         }
@@ -1070,7 +1205,7 @@ extern void fnRTS_change(QUEUE_HANDLE Channel, int iState)
     else {                                                               // line has just gone inactive - we are not allowed to transmit
         tx_ctl->ucState |= TX_WAIT;                                      // block transmission
     #if defined SERIAL_SUPPORT_DMA
-        if (tx_ctl->ucDMA_mode & UART_TX_DMA) {
+        if ((tx_ctl->ucDMA_mode & UART_TX_DMA) != 0) {
             fnAbortDMA_transmission(Channel, tx_ctl);                    // abort DMA transmission
         }
     #endif

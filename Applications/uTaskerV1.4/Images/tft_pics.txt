@@ -1,0 +1,12 @@
+// This file is used as input to which bit maps are to be added to the graphic widgets code (bmp should be 24 bit color or mono-chrome)
+
+
+uTasker.bmp -i uTaskerPic1               // input uTasker.bmp. It should be inverted (top/bottom) and the uTasker bitmap array is called uTaskerPic1
+uTasker_256x192.bmp -16 i uTasker16      // generate RGB565 16 bit colour format
+clock_face.bmp -16 i clock               // generate RGB565 16 bit colour format
+usb_off.bmp -16 i usb_off                // generate RGB565 16 bit colour format
+slide_end.bmp -16 i test1                // generate RGB565 16 bit colour format
+slide_sliver.bmp -16 i test2
+grab.bmp -16 i grab
+eth_off.bmp -16 i eth_off
+// end

@@ -1,18 +1,26 @@
 "--endian=little" 
 
-"--cpu=Cortex-M4" 
+"--cpu=Cortex-M0+" 
 
 "--fpu=None" 
 
 "-p" 
 
-"D:\Programs\IAR Systems\Embedded Workbench 7.5\arm\CONFIG\debugger\NXP\MK20DN128xxx5.ddf" 
+"D:\Programs\IAR Systems\Embedded Workbench 7.5\arm\CONFIG\debugger\NXP\MKE15Z256xxx7.ddf" 
 
 "--drv_verify_download" 
 
 "--semihosting=none" 
 
-"--device=MK20DN128xxx5" 
+"--device=MKE15Z256xxx7" 
+
+"--drv_mtb_regbase=0xF0000000" 
+
+"--drv_mtb_dwtregbase=0xF0001000" 
+
+"--drv_mtb_minramaddr=0x1FFFE000" 
+
+"--drv_mtb_maxramaddr=0x20005FFF" 
 
 
 

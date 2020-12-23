@@ -11,7 +11,7 @@
     File:      STM32Sim.c
     Project:   Single Chip Embedded Internet
     ---------------------------------------------------------------------
-    Copyright (C) M.J.Butcher Consulting 2004..2019
+    Copyright (C) M.J.Butcher Consulting 2004..2020
     *********************************************************************
     08.09.2012 Adapt RTC for F2/F4 devices                               {1}
     09.09.2012 Handle additional functions                               {2}
@@ -25,6 +25,8 @@
     02.02.2017 Adapt for us tick resolution
     06.09.2017 Add ADC simulation                                        {10}
     26.09.2018 Correct fnMapPortBit()                                    {11}
+    19.03.2019 Add general DMA simulation for peripheral use (in development)
+    04.07.2019 Allow blocking code I2C interrupt simulation              {12}
 
 */  
 
@@ -70,6 +72,8 @@ static unsigned long ulGPIODRIVE_VALUE[PORTS_AVAILABLE] = {0};
     static unsigned short usCAN_time = 0;                                // CAN timestamp
 #endif
 
+unsigned char uninitialisedRAM[16];
+
 unsigned long vector_ram[(sizeof(VECTOR_TABLE))/sizeof(unsigned long)];  // long word aligned
 
 static unsigned char ucPortFunctions[PORTS_AVAILABLE][PORT_WIDTH] = {{0}};
@@ -100,6 +104,9 @@ static void fnSetDevice(unsigned short *port_inits)
     RCC_ICSCR = 0x106f0089;
     RCC_PLLCFGR = 0x00001000;
     RCC_PLLSAI1CFGR = 0x00001000;
+#elif defined _STM32H7XX
+    RCC_CR = RCC_CR_HSION;
+    RCC_RSR = (RCC_RSR_PORRSTF | RCC_RSR_PINRSTF | RCC_RSR_BORRSTF | RCC_RSR_D2RSTF | RCC_RSR_D1RSTF | RCC_RSR_CPURSTF);
 #else
     RCC_CR = (0x00000080 | RCC_CR_HSIRDY | RCC_CR_HSION);                // reset and clock control
     RCC_CSR = (RCC_CSR_PINRSTF | RCC_CSR_PORRSTF);
@@ -111,7 +118,7 @@ static void fnSetDevice(unsigned short *port_inits)
     GPIOE_IDR = ulGPIOIN[4] = *port_inits++;
     GPIOF_IDR = ulGPIOIN[5] = *port_inits++;
     GPIOG_IDR = ulGPIOIN[6] = *port_inits++;
-#if defined _STM32F2XX || defined _STM32F4XX || defined _STM32F7XX || defined _STM32L432 || defined _STM32L4X5 || defined _STM32L4X6
+#if defined _STM32F2XX || defined _STM32F4XX || defined _STM32F7XX || defined _STM32H7XX || defined _STM32L432 || defined _STM32L4X5 || defined _STM32L4X6
     GPIOH_IDR = ulGPIOIN[7] = *port_inits++;
     GPIOI_IDR = ulGPIOIN[8] = *port_inits++;
     #if defined _STM32F7XX
@@ -119,12 +126,15 @@ static void fnSetDevice(unsigned short *port_inits)
     GPIOK_IDR = ulGPIOIN[10] = *port_inits++;
     #endif
 
-    #if defined _STM32F7XX
+    #if defined _STM32H7XX
+    PWR_CR1 = PWR_CR_SVOS_SCALE_3;
+    #elif defined _STM32F7XX
     PWR_CR = PWR_CR_VOS_1;
     #else
     PWR_CR = PWR_CR_VOS;
     #endif
-    #if defined _STM32L4X5 || defined _STM32L4X6
+    #if defined _STM32H7XX
+    #elif defined _STM32L4X5 || defined _STM32L4X6
     RCC_AHB1ENR = RCC_AHB1ENR_FLASHEN;
     RCC_PLLCFGR = 0x00001000;
     #elif !defined _STM32L432
@@ -143,7 +153,9 @@ static void fnSetDevice(unsigned short *port_inits)
 #else
     RCC_AHB1ENR = (RCC_AHB1ENR_FLITFEN | RCC_AHB1ENR_SRAMEN);
 #endif
-#if defined _STM32L0x1
+#if defined _STM32H7XX
+    FLASH_ACR = (FLASH_ACR_LATENCY_SEVEN_WAITS | FLASH_ACR_WRHIGHFREQ_3);
+#elif defined _STM32L0x1
     FLASH_PECR = 0x0000007;
     FLASH_SR = 0x0000000c;
     FLASH_OPTR = 0x807000aa;
@@ -167,7 +179,7 @@ static void fnSetDevice(unsigned short *port_inits)
     GPIOD_MODER = 0xffffffff;
     GPIOE_MODER = 0xffffffff;
     GPIOH_MODER = 0xffffffff;
-#elif defined _STM32F2XX || defined _STM32F4XX || defined _STM32F7XX || defined _STM32L432 || defined _STM32F031 || defined _STM32L4X5 || defined _STM32L4X6
+#elif defined _STM32F2XX || defined _STM32F4XX || defined _STM32F7XX || defined _STM32H7XX || defined _STM32L432 || defined _STM32F031 || defined _STM32L4X5 || defined _STM32L4X6
     GPIOA_MODER = 0xa8000000;
     GPIOB_MODER = 0x00000280;
     GPIOB_OSPEEDR = 0x000000c0;
@@ -190,7 +202,7 @@ static void fnSetDevice(unsigned short *port_inits)
     GPIOG_CRH = 0x44444444;
 #endif
 
-#if defined _STM32F7XX || defined _STM32L432 || defined _STM32L0x1 || defined _STM32F031 || defined _STM32L4X5 || defined _STM32L4X6
+#if defined _STM32F7XX || defined _STM32L432 || defined _STM32L0x1 || defined _STM32F031 || defined _STM32L4X5 || defined _STM32L4X6 || defined _STM32H7XX
     USART1_ISR = (0x02000000 | USART_ISR_TXE | USART_ISR_TC);
     USART2_ISR = (0x02000000 | USART_ISR_TXE | USART_ISR_TC);
     #if USARTS_AVAILABLE > 2
@@ -226,7 +238,7 @@ static void fnSetDevice(unsigned short *port_inits)
     #if UARTS_AVAILABLE > 1
     UART5_SR  = 0x00c0;
     #endif
-    #if defined _STM32F2XX || defined _STM32F4XX
+    #if defined _STM32F2XX || defined _STM32F4XX || defined _STM32H7XX
     USART6_SR = 0x00c0;
     #endif
     #if CHIP_HAS_UARTS > 6
@@ -255,7 +267,7 @@ static void fnSetDevice(unsigned short *port_inits)
     ETH_MACCR   = 0x00008000;
 
     IWDG_RLR = 0xfff;                                                    // independent watchdog
-#if defined _STM32L432 || defined _STM32L0x1
+#if defined _STM32L432 || defined _STM32L0x1 || defined _STM32H7XX
     IWDG_WINR = 0xfff;
 #endif
 #if defined USB_DEVICE_AVAILABLE                                         // USB FS device
@@ -273,22 +285,23 @@ static void fnSetDevice(unsigned short *port_inits)
     OTG_FS_DIEPINT0 = OTG_FS_DIEPINT1 = OTG_FS_DIEPINT2 = OTG_FS_DIEPINT3 = OTG_FS_DIEPINT_TXFE;
     OTG_FS_DSTS     = 0x00000010;
     OTG_FS_DOEPCTL0 = OTG_FS_DOEPCTL_USBAEP;
+#endif
 
-    FSMC_BCR1  = (FSMC_BCR_WAITEN | FSMC_BCR_WREN | FSMC_BCR_FACCEN | FSMC_BCR_MWD_16 | FSMC_BCR_MTYP_NOR_FLASH); // FSMC
-    FSMC_BCR2  = (FSMC_BCR_WAITEN | FSMC_BCR_WREN | FSMC_BCR_FACCEN | FSMC_BCR_MWD_16 | FSMC_BCR_MTYP_SRAM_ROM);
-    FSMC_BCR3  = (FSMC_BCR_WAITEN | FSMC_BCR_WREN | FSMC_BCR_FACCEN | FSMC_BCR_MWD_16 | FSMC_BCR_MTYP_SRAM_ROM);
-    FSMC_BCR4  = (FSMC_BCR_WAITEN | FSMC_BCR_WREN | FSMC_BCR_FACCEN | FSMC_BCR_MWD_16 | FSMC_BCR_MTYP_SRAM_ROM);
+#if defined FSMC_BLOCK
+    FSMC_BCR1 = (FSMC_BCR_WAITEN | FSMC_BCR_WREN | FSMC_BCR_FACCEN | FSMC_BCR_MWD_16 | FSMC_BCR_MTYP_NOR_FLASH); // FSMC
+    FSMC_BCR2 = (FSMC_BCR_WAITEN | FSMC_BCR_WREN | FSMC_BCR_FACCEN | FSMC_BCR_MWD_16 | FSMC_BCR_MTYP_SRAM_ROM);
+    FSMC_BCR3 = (FSMC_BCR_WAITEN | FSMC_BCR_WREN | FSMC_BCR_FACCEN | FSMC_BCR_MWD_16 | FSMC_BCR_MTYP_SRAM_ROM);
+    FSMC_BCR4 = (FSMC_BCR_WAITEN | FSMC_BCR_WREN | FSMC_BCR_FACCEN | FSMC_BCR_MWD_16 | FSMC_BCR_MTYP_SRAM_ROM);
 
-    FSMC_BTR1  = 0x0fffffff;
-    FSMC_BTR2  = 0x0fffffff;
-    FSMC_BTR3  = 0x0fffffff;
-    FSMC_BTR4  = 0x0fffffff;
+    FSMC_BTR1 = 0x0fffffff;
+    FSMC_BTR2 = 0x0fffffff;
+    FSMC_BTR3 = 0x0fffffff;
+    FSMC_BTR4 = 0x0fffffff;
     FSMC_BWTR1 = 0x0fffffff;
     FSMC_BWTR2 = 0x0fffffff;
     FSMC_BWTR3 = 0x0fffffff;
     FSMC_BWTR4 = 0x0fffffff;
 #endif
-
 
     ADC1_HTR = 0x00000fff;                                               // ADC
     ADC2_HTR = 0x00000fff;
@@ -320,7 +333,7 @@ static unsigned char ucFLASH[SIZE_OF_FLASH];                             // copy
 
 extern void fnInitialiseDevice(void *port_inits)
 {
-    uMemset(ucFLASH, 0xff, sizeof(ucFLASH));                             // we start with deleted FLASH memory contents
+    memset(ucFLASH, 0xff, sizeof(ucFLASH));                              // we start with deleted FLASH memory contents
     fnPrimeFileSystem();                                                 // the project can then set parameters or files as required
     fnSetDevice((unsigned short *)port_inits);                           // set device registers to startup condition (if not zerod)
 }
@@ -450,7 +463,7 @@ extern unsigned long fnSimInts(char *argv[])
 		        iInts &= ~CHANNEL_0_SERIAL_INT;                          // interrupt has been handled
                 fnLogTx0((unsigned char)USART1_TDR);
                 ulNewActions |= SEND_COM_0;
-    #if defined _STM32F7XX || defined _STM32L432 || defined _STM32L0x1 || defined _STM32F031 || defined _STM32L4X5 || defined _STM32L4X6
+    #if defined _STM32F7XX || defined _STM32L432 || defined _STM32L0x1 || defined _STM32F031 || defined _STM32L4X5 || defined _STM32L4X6 || defined _STM32H7XX
                 USART1_ISR |= USART_ISR_TXE;
     #else
                 USART1_SR |= USART_SR_TXE;
@@ -476,7 +489,7 @@ extern unsigned long fnSimInts(char *argv[])
 		        iInts &= ~CHANNEL_1_SERIAL_INT;                          // interrupt has been handled
                 fnLogTx1((unsigned char)USART2_TDR);
                 ulNewActions |= SEND_COM_1;
-    #if defined _STM32F7XX || defined _STM32L432 || defined _STM32L0x1 || defined _STM32F031 || defined _STM32L4X5 || defined _STM32L4X6
+    #if defined _STM32F7XX || defined _STM32L432 || defined _STM32L0x1 || defined _STM32F031 || defined _STM32L4X5 || defined _STM32L4X6 || defined _STM32H7XX
                 USART2_ISR |= USART_ISR_TXE;
     #else
                 USART2_SR |= USART_SR_TXE;
@@ -502,13 +515,13 @@ extern unsigned long fnSimInts(char *argv[])
 		        iInts &= ~CHANNEL_2_SERIAL_INT;                          // interrupt has been handled
                 fnLogTx2((unsigned char)USART3_TDR);
                 ulNewActions |= SEND_COM_2;
-        #if defined _STM32F7XX || defined _STM32L432 || defined _STM32L0x1 || defined _STM32L4X5 || defined _STM32L4X6
+        #if defined _STM32F7XX || defined _STM32L432 || defined _STM32L0x1 || defined _STM32L4X5 || defined _STM32L4X6 || defined _STM32H7XX
                 USART3_ISR |= USART_ISR_TXE;
         #else
                 USART3_SR |= USART_SR_TXE;
         #endif
                 if ((USART3_CR1 & USART_CR1_TXEIE) != 0) {               // if tx interrupts enabled
-                    if ((IRQ32_63_SER & (1 << (irq_USART3_ID - 32))) != 0) { // if USART 3 interrupt is not disabled
+                    if (fnGenInt(irq_USART3_ID) != 0) {                  // if USART 3 interrupt is not disabled
                         ptrVect->processor_interrupts.irq_USART3();      // call the interrupt handler
                     }
                 }
@@ -529,13 +542,13 @@ extern unsigned long fnSimInts(char *argv[])
 		        iInts &= ~CHANNEL_3_SERIAL_INT;                          // interrupt has been handled
                 fnLogTx3((unsigned char)UART4_TDR);
                 ulNewActions |= SEND_COM_3;
-        #if defined _STM32F7XX || defined _STM32L432 || defined _STM32L0x1 || defined _STM32L4X5 || defined _STM32L4X6
+        #if defined _STM32F7XX || defined _STM32L432 || defined _STM32L0x1 || defined _STM32L4X5 || defined _STM32L4X6 || defined _STM32H7XX
                 UART4_ISR |= USART_ISR_TXE;
         #else
                 UART4_SR |= USART_SR_TXE;
         #endif
                 if ((UART4_CR1 & USART_CR1_TXEIE) != 0) {                // if tx interrupts enabled
-                    if ((IRQ32_63_SER & (1 << (irq_UART4_ID - 32))) != 0) { // if UART 4 interrupt is not disabled
+                    if (fnGenInt(irq_UART4_ID) != 0) {                   // if UART 4 interrupt is not disabled
                         ptrVect->processor_interrupts.irq_UART4();       // call the interrupt handler
                     }
                 }
@@ -556,13 +569,13 @@ extern unsigned long fnSimInts(char *argv[])
 		        iInts &= ~CHANNEL_4_SERIAL_INT;                          // interrupt has been handled
                 fnLogTx4((unsigned char)UART5_TDR);
                 ulNewActions |= SEND_COM_4;
-        #if defined _STM32F7XX || defined _STM32L432 || defined _STM32L0x1 || defined _STM32L4X5 || defined _STM32L4X6
+        #if defined _STM32F7XX || defined _STM32L432 || defined _STM32L0x1 || defined _STM32L4X5 || defined _STM32L4X6 || defined _STM32H7XX
                 UART5_ISR |= USART_ISR_TXE;
         #else
                 UART5_SR |= USART_SR_TXE;
         #endif
                 if ((UART5_CR1 & USART_CR1_TXEIE) != 0) {                // if tx interrupts enabled
-                    if ((IRQ32_63_SER & (1 << (irq_UART5_ID - 32))) != 0) { // if UART 5 interrupt is not disabled
+                    if (fnGenInt(irq_UART5_ID) != 0) {                   // if UART 5 interrupt is not disabled
                         ptrVect->processor_interrupts.irq_UART5();       // call the interrupt handler
                     }
                 }
@@ -571,10 +584,10 @@ extern unsigned long fnSimInts(char *argv[])
         }
 	}
 #endif
-#if defined _STM32F2XX || defined _STM32F4XX || defined _STM32F7XX || defined _STM32L4X5 || defined _STM32L4X6
-	if ((iInts & CHANNEL_5_SERIAL_INT) && (argv)) {
+#if defined _STM32F2XX || defined _STM32F4XX || defined _STM32F7XX || defined _STM32H7XX || defined _STM32L4X5 || defined _STM32L4X6
+	if (((iInts & CHANNEL_5_SERIAL_INT) != 0) && (argv != 0)) {
         ptrCnt = (int *)argv[THROUGHPUT_UART5];
-        if (*ptrCnt) {
+        if (*ptrCnt != 0) {
             if (--(*ptrCnt) == 0) {
                 iMasks |= CHANNEL_5_SERIAL_INT;                          // enough serial interupts handled in this tick period
             }
@@ -589,20 +602,20 @@ extern unsigned long fnSimInts(char *argv[])
                 ulNewActions |= SEND_COM_5;
         #if defined _STM32F7XX
                 USART6_ISR |= USART_ISR_TXE;
-        #elif defined _STM32L4X5 || defined _STM32L4X6
+        #elif defined _STM32L4X5 || defined _STM32L4X6 || defined _STM32H7XX
                 LPUART1_ISR |= USART_ISR_TXE;
         #else
                 USART6_SR |= USART_SR_TXE;
         #endif
         #if defined _STM32L4X5 || defined _STM32L4X6
-                if (LPUART1_CR1 & USART_CR1_TXEIE) {                     // if tx interrupts enabled
-                    if (IRQ64_95_SER & (1 << (irq_LPUART1_ID - 64))) {   // if LPUART1 interrupt is not disabled
+                if ((LPUART1_CR1 & USART_CR1_TXEIE) != 0) {              // if tx interrupts enabled
+                    if (fnGenInt(irq_LPUART1_ID) != 0) {                 // if LPUART1 interrupt is not disabled
                         ptrVect->processor_interrupts.irq_LPUART1();     // call the interrupt handler
                     }
                 }
         #else
-                if (USART6_CR1 & USART_CR1_TXEIE) {                      // if tx interrupts enabled
-                    if (IRQ64_95_SER & (1 << (irq_USART6_ID - 64))) {    // if USART 6 interrupt is not disabled
+                if ((USART6_CR1 & USART_CR1_TXEIE) != 0) {               // if tx interrupts enabled
+                    if (fnGenInt(irq_USART6_ID) != 0) {                  // if USART 6 interrupt is not disabled
                         ptrVect->processor_interrupts.irq_USART6();      // call the interrupt handler
                     }
                 }
@@ -625,13 +638,13 @@ extern unsigned long fnSimInts(char *argv[])
 		        iInts &= ~CHANNEL_6_SERIAL_INT;                          // interrupt has been handled
                 fnLogTx6((unsigned char)UART7_TDR);
                 ulNewActions |= SEND_COM_6;
-        #if defined _STM32F7XX
+        #if defined _STM32F7XX || defined _STM32H7XX
                 UART7_ISR |= USART_ISR_TXE;
         #else
                 UART7_SR |= USART_SR_TXE;
         #endif
                 if ((UART7_CR1 & USART_CR1_TXEIE) != 0) {                // if tx interrupts enabled
-                    if (IRQ64_95_SER & (1 << (irq_UART7_ID - 64))) {     // if UART 7 interrupt is not disabled
+                    if (fnGenInt(irq_UART7_ID) != 0) {                   // if UART 7 interrupt is not disabled
                         ptrVect->processor_interrupts.irq_UART7();       // call the interrupt handler
                     }
                 }
@@ -650,13 +663,13 @@ extern unsigned long fnSimInts(char *argv[])
 		        iInts &= ~CHANNEL_7_SERIAL_INT;                          // interrupt has been handled
                 fnLogTx7((unsigned char)UART8_TDR);
                 ulNewActions |= SEND_COM_7;
-        #if defined _STM32F7XX
+        #if defined _STM32F7XX || defined _STM32H7XX
                 UART8_ISR |= USART_ISR_TXE;
         #else
                 UART8_SR |= USART_SR_TXE;
         #endif
                 if ((UART8_CR1 & USART_CR1_TXEIE) != 0) {                // if tx interrupts enabled
-                    if (IRQ64_95_SER & (1 << (irq_UART8_ID - 64))) {     // if UART 8 interrupt is not disabled
+                    if (fnGenInt(irq_UART8_ID) != 0) {                   // if UART 8 interrupt is not disabled
                         ptrVect->processor_interrupts.irq_UART8();       // call the interrupt handler
                     }
                 }
@@ -667,8 +680,14 @@ extern unsigned long fnSimInts(char *argv[])
 #endif
 
     if ((iInts & I2C_INT0) != 0) {
-        ptrCnt = (int *)argv[THROUGHPUT_I2C0];
-        if (*ptrCnt) {
+        int iSingleIrqCnt = 2;
+        if (argv == 0) {                                                 // {12} if called without parameter allow a single interrupt to be simulated
+            ptrCnt = &iSingleIrqCnt;
+        }
+        else {
+            ptrCnt = (int *)argv[THROUGHPUT_I2C0];
+        }
+        if (*ptrCnt != 0) {
             if (--(*ptrCnt) == 0) {
                 iMasks |= I2C_INT0;                                      // enough I2C interupts handled in this tick period
             }
@@ -676,54 +695,15 @@ extern unsigned long fnSimInts(char *argv[])
 #if defined I2C_INTERFACE
 		        iInts &= ~I2C_INT0;
                 if ((I2C1_CR2 & (I2C_CR2_ITBUFEN)) != 0) {               // if tx interrupts enabled
-                    if (IRQ0_31_SER & (1 << irq_I2C1_EV_ID)) {           // if I2C1 interrupt is not disabled
+                    if (fnGenInt(irq_I2C1_EV_ID) != 0) {                 // if I2C1 interrupt is not disabled
                         ptrVect->processor_interrupts.irq_I2C1_EV();     // call the interrupt handler
                     }
                 }
-#endif
-            }
-        }
-    }
-    if (iInts & I2C_INT1) {                                              // {3}
-        ptrCnt = (int *)argv[THROUGHPUT_I2C1];
-        if (*ptrCnt) {
-            if (--(*ptrCnt) == 0) {
-                iMasks |= I2C_INT1;                                      // enough I2C interupts handled in this tick period
-            }
-            else {
-#if defined I2C_INTERFACE
-		        iInts &= ~I2C_INT1;
-                if ((I2C2_CR2 & (I2C_CR2_ITBUFEN)) != 0) {               // if tx interrupts enabled
-                    if (IRQ32_63_SER & (1 << (irq_I2C2_EV_ID - 32))) {   // if I2C2 interrupt is not disabled
-                        ptrVect->processor_interrupts.irq_I2C2_EV();     // call the interrupt handler
-                    }
-                }
-#endif
-            }
-        }
-    }
-#if CHIP_HAS_I2C > 2                                                     // {3}
-    if (iInts & I2C_INT2) {
-        ptrCnt = (int *)argv[THROUGHPUT_I2C2];
-        if (*ptrCnt) {
-            if (--(*ptrCnt) == 0) {
-                iMasks |= I2C_INT2;                                      // enough I2C interupts handled in this tick period
-            }
-            else {
-#if defined I2C_INTERFACE
-		        iInts &= ~I2C_INT2;
-                I2C3_SR1 |= I2C_SR1_TxE;                                 // transmitter buffer empty
-                I2C3_SR1 &= ~(I2C_SR1_BTF);                              // transfer not yet complete
-                if ((I2C3_CR2 & (I2C_CR2_ITBUFEN)) != 0) {               // if tx interrupts enabled
-                    if (IRQ64_95_SER & (1 << (irq_I2C3_EV_ID - 64))) {   // if I2C3 interrupt is not disabled
-                        ptrVect->processor_interrupts.irq_I2C3_EV();     // call the interrupt handler
-                    }
-                }
-                if ((iInts & I2C_INT2) == 0) {
-                    I2C3_SR1 |= (I2C_SR1_BTF | I2C_SR1_SB);              // transfer complete or start complete
-                    if ((I2C3_CR2 & (I2C_CR2_ITEVTEN)) != 0) {           // if event interrupts enabled
-                        if (IRQ64_95_SER & (1 << (irq_I2C3_EV_ID - 64))) { // if I2C3 interrupt is not disabled
-                            ptrVect->processor_interrupts.irq_I2C3_EV(); // call the interrupt handler
+                if ((iInts & I2C_INT0) == 0) {
+                    I2C1_SR1 |= (I2C_SR1_BTF | I2C_SR1_SB);              // transfer complete or start complete
+                    if ((I2C1_CR2 & (I2C_CR2_ITEVTEN)) != 0) {           // if event interrupts enabled
+                        if (fnGenInt(irq_I2C1_EV_ID) != 0) {             // if I2C1 interrupt is not disabled
+                            ptrVect->processor_interrupts.irq_I2C1_EV(); // call the interrupt handler
                         }
                     }
                 }
@@ -731,15 +711,82 @@ extern unsigned long fnSimInts(char *argv[])
             }
         }
     }
+    if ((iInts & I2C_INT1) != 0) {                                       // {3}
+        int iSingleIrqCnt = 2;
+        if (argv == 0) {                                                 // {12} if called without parameter allow a single interrupt to be simulated
+            ptrCnt = &iSingleIrqCnt;
+        }
+        else {
+            ptrCnt = (int *)argv[THROUGHPUT_I2C1];
+        }
+        if (*ptrCnt != 0) {
+            if (--(*ptrCnt) == 0) {
+                iMasks |= I2C_INT1;                                      // enough I2C interupts handled in this tick period
+            }
+            else {
+#if defined I2C_INTERFACE
+		        iInts &= ~I2C_INT1;
+                if ((I2C2_CR2 & (I2C_CR2_ITBUFEN)) != 0) {               // if tx interrupts enabled
+                    if (fnGenInt(irq_I2C2_EV_ID) != 0) {                 // if I2C2 interrupt is not disabled
+                        ptrVect->processor_interrupts.irq_I2C2_EV();     // call the interrupt handler
+                    }
+                }
+                if ((iInts & I2C_INT1) == 0) {
+                    I2C2_SR1 |= (I2C_SR1_BTF | I2C_SR1_SB);              // transfer complete or start complete
+                    if ((I2C2_CR2 & (I2C_CR2_ITEVTEN)) != 0) {           // if event interrupts enabled
+                        if (fnGenInt(irq_I2C2_EV_ID) != 0) {             // if I2C2 interrupt is not disabled
+                            ptrVect->processor_interrupts.irq_I2C2_EV(); // call the interrupt handler
+                        }
+                    }
+                }
+#endif
+            }
+        }
+    }
+#if CHIP_HAS_I2C > 2                                                     // {3}
+    if ((iInts & I2C_INT2) != 0) {
+        int iSingleIrqCnt = 2;
+        if (argv == 0) {                                                 // {12} if called without parameter allow a single interrupt to be simulated
+            ptrCnt = &iSingleIrqCnt;
+        }
+        else {
+            ptrCnt = (int *)argv[THROUGHPUT_I2C2];
+        }
+        if (*ptrCnt != 0) {
+            if (--(*ptrCnt) == 0) {
+                iMasks |= I2C_INT2;                                      // enough I2C interupts handled in this tick period
+            }
+            else {
+    #if defined I2C_INTERFACE
+		        iInts &= ~I2C_INT2;
+                I2C3_SR1 |= I2C_SR1_TxE;                                 // transmitter buffer empty
+                I2C3_SR1 &= ~(I2C_SR1_BTF);                              // transfer not yet complete
+                if ((I2C3_CR2 & (I2C_CR2_ITBUFEN)) != 0) {               // if tx interrupts enabled
+                    if (fnGenInt(irq_I2C3_EV_ID) != 0) {                 // if I2C3 interrupt is not disabled
+                        ptrVect->processor_interrupts.irq_I2C3_EV();     // call the interrupt handler
+                    }
+                }
+                if ((iInts & I2C_INT2) == 0) {
+                    I2C3_SR1 |= (I2C_SR1_BTF | I2C_SR1_SB);              // transfer complete or start complete
+                    if ((I2C3_CR2 & (I2C_CR2_ITEVTEN)) != 0) {           // if event interrupts enabled
+                        if (fnGenInt(irq_I2C3_EV_ID) != 0) {             // if I2C3 interrupt is not disabled
+                            ptrVect->processor_interrupts.irq_I2C3_EV(); // call the interrupt handler
+                        }
+                    }
+                }
+    #endif
+            }
+        }
+    }
 #endif
 #if defined USB_INTERFACE && defined USB_DEVICE_AVAILABLE
-    if (iInts & USB_INT) {
+    if ((iInts & USB_INT) != 0) {
         int iEndpoint = 0;
         iInts &= ~USB_INT;
         while ((iEndpoint < NUMBER_OF_USB_ENDPOINTS) && (ulEndpointInt != 0)) {
             if (ulEndpointInt & (1 << iEndpoint)) {
                 ulEndpointInt &= ~(1 << iEndpoint);
-                fnCheckUSBOut(0, iEndpoint);
+                fnCheckUSBOut(0, 0, iEndpoint);
             }
             iEndpoint++;
         }
@@ -748,13 +795,262 @@ extern unsigned long fnSimInts(char *argv[])
     return ulNewActions;
 }
 
+#if (defined _STM32F2XX || defined _STM32F4XX || defined _STM32F7XX || defined _STM32H7XX)
+static void fnSetDMAFlags(STM32_DMA *ptrDMA_controller, int iStream, unsigned long ulFlagRef)
+{
+    if ((ulFlagRef & DMA_LISR_HTIF0) != 0) {
+        switch (iStream) {
+        case 0:
+            ptrDMA_controller->DMA_LISR |= (DMA_LISR_HTIF0);
+            break;
+        case 1:
+            ptrDMA_controller->DMA_LISR |= (DMA_LISR_HTIF1);
+            break;
+        case 2:
+            ptrDMA_controller->DMA_LISR |= (DMA_LISR_HTIF2);
+            break;
+        case 3:
+            ptrDMA_controller->DMA_LISR |= (DMA_LISR_HTIF3);
+            break;
+        case 4:
+            ptrDMA_controller->DMA_HISR |= (DMA_HISR_HTIF4);
+            break;
+        case 5:
+            ptrDMA_controller->DMA_HISR |= (DMA_HISR_HTIF5);
+            break;
+        case 6:
+            ptrDMA_controller->DMA_HISR |= (DMA_HISR_HTIF6);
+            break;
+        case 7:
+            ptrDMA_controller->DMA_HISR |= (DMA_HISR_HTIF7);
+            break;
+        }
+    }
+    if ((ulFlagRef & DMA_LISR_TCIF0) != 0) {
+        switch (iStream) {
+        case 0:
+            ptrDMA_controller->DMA_LISR |= (DMA_LISR_TCIF0);
+            break;
+        case 1:
+            ptrDMA_controller->DMA_LISR |= (DMA_LISR_TCIF1);
+            break;
+        case 2:
+            ptrDMA_controller->DMA_LISR |= (DMA_LISR_TCIF2);
+            break;
+        case 3:
+            ptrDMA_controller->DMA_LISR |= (DMA_LISR_TCIF3);
+            break;
+        case 4:
+            ptrDMA_controller->DMA_HISR |= (DMA_HISR_TCIF4);
+            break;
+        case 5:
+            ptrDMA_controller->DMA_HISR |= (DMA_HISR_TCIF5);
+            break;
+        case 6:
+            ptrDMA_controller->DMA_HISR |= (DMA_HISR_TCIF6);
+            break;
+        case 7:
+            ptrDMA_controller->DMA_HISR |= (DMA_HISR_TCIF7);
+            break;
+        }
+    }
+}
+#endif
+
+static int fnSimulateDMA(unsigned long ulDmaTriggerSource)
+{
+#if (defined _STM32F2XX || defined _STM32F4XX || defined _STM32F7XX || defined _STM32H7XX)
+    int iReturn = 0;
+    int iInterruptFired = 0;
+    VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
+    STM32_DMA *ptrDMA_controller;
+    STM32_DMA_STREAM *ptrDMAstream;
+    int iInterruptID;
+    int iStream = (ulDmaTriggerSource & 0x7);
+    if ((ulDmaTriggerSource & DMA_CONTROLLER_REF_2) != 0) {              // set a pointer to the DMA controller to be used
+        if (IS_POWERED_UP(AHB1, RCC_AHB1ENR_DMA2EN) == 0) {
+            return 0;                                                    // not enabled
+        }
+        ptrDMA_controller = (STM32_DMA *)DMA2_BLOCK;
+        if (iStream >= 5) {
+            iInterruptID = (irq_DMA2_Stream5_ID + (iStream - 5));
+        }
+        else {
+            iInterruptID = (irq_DMA2_Stream0_ID + iStream);
+        }
+    }
+    else {
+        if (IS_POWERED_UP(AHB1, RCC_AHB1ENR_DMA1EN) == 0) {
+            return 0;                                                    // not enabled
+        }
+        ptrDMA_controller = (STM32_DMA *)DMA1_BLOCK;
+        if (iStream == 7) {
+            iInterruptID = irq_DMA1_Stream7_ID;
+        }
+        else {
+            iInterruptID = (irq_DMA1_Stream0_ID + iStream);
+        }
+    }
+    ptrDMAstream = &ptrDMA_controller->DMA_stream[iStream];              // select the stream registers to be used
+
+    if ((ptrDMAstream->DMA_SxCR & DMA_SxCR_EN) != 0) {                   // if enabled
+        unsigned short usLength = (unsigned short)ptrDMAstream->DMA_SxNDTR; // the transfer length
+        unsigned char *ptrDestination = 0;
+        unsigned char *ptrSource = 0;
+        switch (ptrDMAstream->DMA_SxCR & (DMA_SxCR_DIR_M2P | DMA_SxCR_DIR_M2M | DMA_SxCR_DIR_P2M)) {
+        case DMA_SxCR_DIR_P2M:
+            ptrDestination = (unsigned char *)ptrDMAstream->DMA_SxM0AR;
+            ptrSource = (unsigned char *)ptrDMAstream->DMA_SxPAR;
+            break;
+        case DMA_SxCR_DIR_M2P:
+            ptrSource = (unsigned char *)ptrDMAstream->DMA_SxM0AR;
+            ptrDestination = (unsigned char *)ptrDMAstream->DMA_SxPAR;
+            break;
+        case DMA_SxCR_DIR_M2M:
+            if ((ulDmaTriggerSource & DMA_CONTROLLER_REF_2) == 0) {
+                _EXCEPTION("Onyl DMA controller 2 can do memory to memory transfers!!");
+            }
+            ptrDestination = (unsigned char *)ptrDMAstream->DMA_SxM0AR;
+            ptrSource = (unsigned char *)ptrDMAstream->DMA_SxPAR;
+            break;
+        }
+        switch (ptrDMAstream->DMA_SxCR & (DMA_SxCR_PSIZE_32 | DMA_SxCR_PSIZE_16)) {
+        case DMA_SxCR_PSIZE_8:
+            if ((ptrDMAstream->DMA_SxCR & (DMA_SxCR_MSIZE_32 | DMA_SxCR_MSIZE_16)) != DMA_SxCR_MSIZE_8) {
+                _EXCEPTION("Source and destination sizes are not equal!!");
+            }
+            if (ptrDMAstream->DMA_SxNDTR != 0) {
+                *ptrDestination = *ptrSource;
+                if ((ptrDMAstream->DMA_SxCR & DMA_SxCR_MINC) != 0) {
+                    ptrDMAstream->DMA_SxM0AR = (ptrDMAstream->DMA_SxM0AR + 1);
+                }
+                if ((ptrDMAstream->DMA_SxCR & DMA_SxCR_PINC) != 0) {
+                    ptrDMAstream->DMA_SxPAR = (ptrDMAstream->DMA_SxPAR + 1);
+                }
+                ptrDMAstream->DMA_SxNDTR--;
+                if (ptrDMAstream->DMA_SxNDTR == 0) {                     // counted down to zero
+                    fnSetDMAFlags(ptrDMA_controller, iStream, DMA_LISR_TCIF0);
+                    ptrDMAstream->DMA_SxCR &= ~(DMA_SxCR_EN);            // disable operation
+                    if ((ptrDMAstream->DMA_SxCR & DMA_SxCR_TCIE) != 0) { // if transfer interrupt is enabled
+                        iInterruptFired = 1;
+                    }
+                }
+                else {
+                    iReturn = 1;                                         // not completed
+                }
+            }
+            break;
+        case DMA_SxCR_PSIZE_16:
+            if ((ptrDMAstream->DMA_SxCR & (DMA_SxCR_MSIZE_32 | DMA_SxCR_MSIZE_16)) != DMA_SxCR_MSIZE_16) {
+                _EXCEPTION("Source and destination sizes are not equal!!");
+            }
+            while (usLength-- != 0) {
+                *(unsigned short *)ptrDestination = *(unsigned short *)ptrSource;
+                if ((ptrDMAstream->DMA_SxCR & DMA_SxCR_MINC) != 0) {
+                    ptrDestination += sizeof(unsigned short);
+                }
+                if ((ptrDMAstream->DMA_SxCR & DMA_SxCR_PINC) != 0) {
+                    ptrSource += sizeof(unsigned short);
+                }
+            }
+            ptrDMAstream->DMA_SxNDTR = 0;
+            fnSetDMAFlags(ptrDMA_controller, iStream, (DMA_LISR_TCIF0 | DMA_LISR_HTIF0));
+            ptrDMAstream->DMA_SxCR &= ~(DMA_SxCR_EN);
+            if ((ptrDMAstream->DMA_SxCR & DMA_SxCR_TCIE) != 0) {         // if transfer interrupt is enabled
+                iInterruptFired = 1;
+            }
+            break;
+        case DMA_SxCR_PSIZE_32:
+            if ((ptrDMAstream->DMA_SxCR & (DMA_SxCR_MSIZE_32 | DMA_SxCR_MSIZE_16)) != DMA_SxCR_MSIZE_32) {
+                _EXCEPTION("Source and destination sizes are not equal!!");
+            }
+            while (usLength-- != 0) {
+                *(unsigned long *)ptrDestination = *(unsigned long *)ptrSource;
+                if ((ptrDMAstream->DMA_SxCR & DMA_SxCR_MINC) != 0) {
+                    ptrDestination += sizeof(unsigned long);
+                }
+                if ((ptrDMAstream->DMA_SxCR & DMA_SxCR_PINC) != 0) {
+                    ptrSource += sizeof(unsigned long);
+                }
+            }
+            ptrDMAstream->DMA_SxNDTR = 0;
+            fnSetDMAFlags(ptrDMA_controller, iStream, (DMA_LISR_TCIF0 | DMA_LISR_HTIF0));
+            ptrDMAstream->DMA_SxCR &= ~(DMA_SxCR_EN);
+            break;
+        }
+        if ((iInterruptFired != 0) && (fnGenInt(iInterruptID) != 0)) {   // if the DMA channel interrupt is enabled
+            switch (iInterruptID) {
+            case irq_DMA1_Stream0_ID:
+                ptrVect->processor_interrupts.irq_DMA1_Stream0();        // call the interrupt handler for DMA controller 1 channel 0
+                break;
+            case irq_DMA1_Stream1_ID:
+                ptrVect->processor_interrupts.irq_DMA1_Stream1();        // call the interrupt handler for DMA controller 1 channel 1
+                break;
+            case irq_DMA1_Stream2_ID:
+                ptrVect->processor_interrupts.irq_DMA1_Stream2();        // call the interrupt handler for DMA controller 1 channel 2
+                break;
+            case irq_DMA1_Stream3_ID:
+                ptrVect->processor_interrupts.irq_DMA1_Stream3();        // call the interrupt handler for DMA controller 1 channel 3
+                break;
+            case irq_DMA1_Stream4_ID:
+                ptrVect->processor_interrupts.irq_DMA1_Stream4();        // call the interrupt handler for DMA controller 1 channel 4
+                break;
+            case irq_DMA1_Stream5_ID:
+                ptrVect->processor_interrupts.irq_DMA1_Stream5();        // call the interrupt handler for DMA controller 1 channel 5
+                break;
+            case irq_DMA1_Stream6_ID:
+                ptrVect->processor_interrupts.irq_DMA1_Stream6();        // call the interrupt handler for DMA controller 1 channel 6
+                break;
+            case irq_DMA1_Stream7_ID:
+                ptrVect->processor_interrupts.irq_DMA1_Stream7();        // call the interrupt handler for DMA controller 1 channel 7
+                break;
+            case irq_DMA2_Stream0_ID:
+                ptrVect->processor_interrupts.irq_DMA2_Stream0();        // call the interrupt handler for DMA controller 2 channel 0
+                break;
+            case irq_DMA2_Stream1_ID:
+                ptrVect->processor_interrupts.irq_DMA2_Stream1();        // call the interrupt handler for DMA controller 2 channel 1
+                break;
+            case irq_DMA2_Stream2_ID:
+                ptrVect->processor_interrupts.irq_DMA2_Stream2();        // call the interrupt handler for DMA controller 2 channel 2
+                break;
+            case irq_DMA2_Stream3_ID:
+                ptrVect->processor_interrupts.irq_DMA2_Stream3();        // call the interrupt handler for DMA controller 2 channel 3
+                break;
+            case irq_DMA2_Stream4_ID:
+                ptrVect->processor_interrupts.irq_DMA2_Stream4();        // call the interrupt handler for DMA controller 2 channel 4
+                break;
+            case irq_DMA2_Stream5_ID:
+                ptrVect->processor_interrupts.irq_DMA2_Stream5();        // call the interrupt handler for DMA controller 2 channel 5
+                break;
+            case irq_DMA2_Stream6_ID:
+                ptrVect->processor_interrupts.irq_DMA2_Stream6();        // call the interrupt handler for DMA controller 2 channel 6
+                break;
+            case irq_DMA2_Stream7_ID:
+                ptrVect->processor_interrupts.irq_DMA2_Stream7();        // call the interrupt handler for DMA controller 2 channel 7
+                break;
+            }
+        }
+    }
+    return iReturn;
+#else
+    return 0;
+#endif
+}
+
+
 // Process simulated DMA
 //
 extern unsigned long fnSimDMA(char *argv[])
 {
 #if defined DMA_MEMCPY_SET
     if (argv == 0) {                                                     // memory to memory transfer
-    #if (defined _STM32F2XX || defined _STM32F4XX || defined _STM32F7XX) // {7} memory to memory transfers are only suppoirted on DMA2
+    #if (defined _STM32F2XX || defined _STM32F4XX || defined _STM32F7XX || defined _STM32H7XX) // {7} memory to memory transfers are only supported on DMA2
+        #if MEMCPY_CHANNEL > 7
+        while (fnSimulateDMA(DMA_CONTROLLER_REF_2 | (MEMCPY_CHANNEL - 8)) > 0) {}
+        #else
+        while (fnSimulateDMA(DMA_CONTROLLER_REF_1 | MEMCPY_CHANNEL) > 0) {}
+        #endif
+#if 0
         if ((DMA2_S1CR & DMA_SxCR_EN) != 0) {                            // if enabled
             unsigned short usLength = (unsigned short)DMA2_S1NDTR;       // the transfer length
             unsigned char *ptrDestination = (unsigned char *)DMA2_S1M0AR;
@@ -810,8 +1106,9 @@ extern unsigned long fnSimDMA(char *argv[])
             DMA2_LISR = (DMA_LISR_TCIF1 | DMA_LISR_HTIF1);
             DMA2_S1CR &= ~(DMA_SxCR_EN);
         }
+#endif
     #else        
-        if (DMA_CCR_MEMCPY & DMA1_CCR1_EN) {                             // if enabled
+        if ((DMA_CCR_MEMCPY & DMA1_CCR1_EN) != 0) {                      // if enabled
             unsigned short usLength = (unsigned short)DMA_CNDTR_MEMCPY;  // the transfer length
             unsigned char *ptrSource = (unsigned char *)DMA_CMAR_MEMCPY;
             unsigned char *ptrDestination = (unsigned char *)DMA_CPAR_MEMCPY;
@@ -821,7 +1118,7 @@ extern unsigned long fnSimDMA(char *argv[])
 
             while (usLength-- != 0) {
                 *ptrDestination = *ptrSource;
-                if (DMA_CCR_MEMCPY & DMA1_CCR1_PINC) {
+                if ((DMA_CCR_MEMCPY & DMA1_CCR1_PINC) != 0) {
                     ptrDestination++;
                 }
                 if (DMA_CCR_MEMCPY & DMA1_CCR1_MINC) {
@@ -839,7 +1136,356 @@ extern unsigned long fnSimDMA(char *argv[])
         return 0;
     }
 #endif
-    return 0;
+    {
+#if defined SERIAL_INTERFACE && defined SERIAL_SUPPORT_DMA
+        int *ptrCnt;
+#endif
+        int _iDMA = iDMA;
+        unsigned long ulNewActions = 0;
+        unsigned long ulChannel = 0x00000001;
+        unsigned long iChannel = 0;
+        while (_iDMA != 0) {                                             // while DMA operations to be performed
+            if ((_iDMA & ulChannel) != 0) {                              // DMA request on this stream     
+                _iDMA &= ~(ulChannel);
+                switch (ulChannel) {
+                case 0x00000001:                                         // DMA controller 1 - stream 0
+#if defined SERIAL_INTERFACE && defined SERIAL_SUPPORT_DMA && ((USARTS_AVAILABLE + UARTS_AVAILABLE + LPUARTS_AVAILABLE) > 7)
+                    if ((UART8_CR3 & USART_CR3_DMAT) != 0) {             // if UART8 is configured for DMA mode of operation
+                        ptrCnt = (int *)argv[THROUGHPUT_UART7];          // the number of characters in each tick period
+                        if (*ptrCnt != 0) {
+                            if (--(*ptrCnt) == 0) {
+                                iMasks |= ulChannel;                     // enough serial DMA transfers handled in this tick period
+                            }
+                            else {
+                                iDMA &= ~ulChannel;
+                                if (fnSimulateDMA(DMA1_STREAM_0_UART8_TX) > 0) { // process the trigger
+                                    iDMA |= ulChannel;                   // further DMA triggers
+                                }
+                                else {
+                                    //fnUART_Tx_int(7);                    // handle possible pending interrupt after DMA completion
+                                }
+    #if defined UART8_TDR
+                                fnLogTx7((unsigned char)UART8_TDR);
+    #else
+                                fnLogTx7((unsigned char)UART8_DR);
+    #endif
+                                ulNewActions |= SEND_COM_7;
+                            }
+                        }
+                    }
+#endif
+                    break;
+                case 0x00000002:                                         // DMA controller 1 - stream 1
+#if defined SERIAL_INTERFACE && defined SERIAL_SUPPORT_DMA && ((USARTS_AVAILABLE + UARTS_AVAILABLE + LPUARTS_AVAILABLE) > 6)
+                    if ((UART7_CR3 & USART_CR3_DMAT) != 0) {             // if UART7 is configured for DMA mode of operation
+                        ptrCnt = (int *)argv[THROUGHPUT_UART6];          // the number of characters in each tick period
+                        if (*ptrCnt != 0) {
+                            if (--(*ptrCnt) == 0) {
+                                iMasks |= ulChannel;                     // enough serial DMA transfers handled in this tick period
+                            }
+                            else {
+                                iDMA &= ~ulChannel;
+                                if (fnSimulateDMA(DMA1_STREAM_1_UART7_TX) > 0) { // process the trigger
+                                    iDMA |= ulChannel;                   // further DMA triggers
+                                }
+                                else {
+                                    //fnUART_Tx_int(6);                    // handle possible pending interrupt after DMA completion
+                                }
+    #if defined UART7_TDR
+                                fnLogTx6((unsigned char)UART7_TDR);
+    #else
+                                fnLogTx6((unsigned char)UART7_DR);
+    #endif
+                                ulNewActions |= SEND_COM_6;
+                            }
+                        }
+                    }
+#endif
+                    break;
+                case 0x00000004:                                         // DMA controller 1 - stream 2
+                    break;
+                case 0x00000008:                                         // DMA controller 1 - stream 3
+#if defined SERIAL_INTERFACE && defined SERIAL_SUPPORT_DMA && !defined USART3_NOT_PRESENT
+                    if ((USART3_CR3 & USART_CR3_DMAT) != 0) {            // if USART3 is configured for DMA mode of operation
+                        ptrCnt = (int *)argv[THROUGHPUT_UART2];          // the number of characters in each tick period
+                        if (*ptrCnt != 0) {
+                            if (--(*ptrCnt) == 0) {
+                                iMasks |= ulChannel;                     // enough serial DMA transfers handled in this tick period
+                            }
+                            else {
+                                iDMA &= ~ulChannel;
+                                if (fnSimulateDMA(DMA1_STREAM_3_USART3_TX) > 0) { // process the trigger
+                                    iDMA |= ulChannel;                   // further DMA triggers
+                                }
+                                else {
+                                  //fnUART_Tx_int(2);                    // handle possible pending interrupt after DMA completion
+                                }
+    #if defined USART3_TDR
+                                fnLogTx2((unsigned char)USART3_TDR);
+    #else
+	                            fnLogTx2((unsigned char)USART3_DR);
+    #endif
+                                ulNewActions |= SEND_COM_2;
+                            }
+                        }
+                        break;
+                    }
+#endif
+#if defined DMA_SxCR_CHSEL_0
+                    // SPI2 Rx DMA
+                    //
+                    if (IS_POWERED_UP(APB1, (RCC_APB1ENR_SPI2EN)) != 0) {// if SPI2 powered
+                        if ((SPI2_CR1 & SPICR1_SPE) != 0) {              // if operation enabled
+                            if ((SPI2_CR2 & SPI_CR2_RXDMAEN) != 0) {     // if in DMA reception mode
+                                iDMA &= ~ulChannel;
+                                if (fnSimulateDMA(DMA1_STREAM_3_SPI2_RX) > 0) { // process the trigger
+                                    iDMA |= ulChannel;                   // further DMA triggers
+                                }
+                                break;
+                            }
+                        }
+                    }
+#endif
+                    iMasks |= ulChannel;                                 // no enabled DMA trigger source so ignore this time round
+                    break;
+                case 0x00000010:                                         // DMA controller 1 - stream 4
+#if defined SERIAL_INTERFACE && defined SERIAL_SUPPORT_DMA
+    #if !defined USART3_NOT_PRESENT
+                    if ((USART3_CR3 & USART_CR3_DMAT) != 0) {            // if USART3 is configured for DMA mode of operation
+                        ptrCnt = (int *)argv[THROUGHPUT_UART2];          // the number of characters in each tick period
+                        if (*ptrCnt != 0) {
+                            if (--(*ptrCnt) == 0) {
+                                iMasks |= ulChannel;                     // enough serial DMA transfers handled in this tick period
+                            }
+                            else {
+                                iDMA &= ~ulChannel;
+                                if (fnSimulateDMA(DMA1_STREAM_4_USART3_TX) > 0) { // process the trigger
+                                    iDMA |= ulChannel;                   // further DMA triggers
+                                }
+                                else {
+                                  //fnUART_Tx_int(2);                    // handle possible pending interrupt after DMA completion
+                                }
+    #if defined USART3_TDR
+                                fnLogTx2((unsigned char)USART3_TDR);
+    #else
+	                            fnLogTx2((unsigned char)USART3_DR);
+    #endif
+                                ulNewActions |= SEND_COM_2;
+                            }
+                        }
+                        break;
+                    }
+    #endif
+    #if !defined UART4_NOT_PRESENT
+                    if ((UART4_CR3 & USART_CR3_DMAT) != 0) {             // if UART4 is configured for DMA mode of operation
+                        ptrCnt = (int *)argv[THROUGHPUT_UART3];          // the number of characters in each tick period
+                        if (*ptrCnt != 0) {
+                            if (--(*ptrCnt) == 0) {
+                                iMasks |= ulChannel;                     // enough serial DMA transfers handled in this tick period
+                            }
+                            else {
+                                iDMA &= ~ulChannel;
+                                if (fnSimulateDMA(DMA1_STREAM_4_UART4_TX) > 0) { // process the trigger
+                                    iDMA |= ulChannel;                   // further DMA triggers
+                                }
+                                else {
+                                  //fnUART_Tx_int(3);                    // handle possible pending interrupt after DMA completion
+                                }
+        #if defined UART4_TDR
+                                fnLogTx3((unsigned char)UART4_TDR);
+        #else
+	                            fnLogTx3((unsigned char)UART4_DR);
+        #endif
+                                ulNewActions |= SEND_COM_3;
+                            }
+                        }
+                        break;
+                    }
+    #endif
+#endif
+#if defined DMA_SxCR_CHSEL_0
+                    // SPI2 Tx DMA
+                    //
+                    if (IS_POWERED_UP(APB1, (RCC_APB1ENR_SPI2EN)) != 0) {// if SPI2 powered
+                        if ((SPI2_CR1 & SPICR1_SPE) != 0) {              // if operation enabled
+                            if ((SPI2_CR2 & SPI_CR2_TXDMAEN) != 0) {     // if in DMA transmission mode
+                                iDMA &= ~ulChannel;
+                                if (fnSimulateDMA(DMA1_STREAM_4_SPI2_TX) > 0) { // process the trigger
+                                    iDMA |= ulChannel;                   // further DMA triggers
+                                }
+                                break;
+                            }
+                        }
+                    }
+#endif
+                    iMasks |= ulChannel;                                 // no enabled DMA trigger source so ignore this time round
+                    break;
+                case 0x00000020:                                         // DMA controller 1 - stream 5
+                    break;
+                case 0x00000040:                                         // DMA controller 1 - stream 6
+#if defined SERIAL_INTERFACE && defined SERIAL_SUPPORT_DMA
+                    if ((USART2_CR3 & USART_CR3_DMAT) != 0) {            // if USART2 is configured for DMA mode of operation
+                        ptrCnt = (int *)argv[THROUGHPUT_UART1];          // the number of characters in each tick period
+                        if (*ptrCnt != 0) {
+                            if (--(*ptrCnt) == 0) {
+                                iMasks |= ulChannel;                     // enough serial DMA transfers handled in this tick period
+                            }
+                            else {
+                                iDMA &= ~ulChannel;
+                                if (fnSimulateDMA(DMA1_STREAM_6_USART2_TX) > 0) { // process the trigger
+                                    iDMA |= ulChannel;                   // further DMA triggers
+                                }
+                                else {
+                                  //fnUART_Tx_int(1);                    // handle possible pending interrupt after DMA completion
+                                }
+    #if defined USART2_TDR
+                                fnLogTx1((unsigned char)USART2_TDR);
+    #else
+	                            fnLogTx1((unsigned char)USART2_DR);
+    #endif
+                                ulNewActions |= SEND_COM_1;
+                            }
+                        }
+                    }
+#endif
+                    break;
+                case 0x00000080:                                         // DMA controller 1 - stream 7
+#if defined SERIAL_INTERFACE && defined SERIAL_SUPPORT_DMA && !defined UART5_NOT_PRESENT
+                    if ((UART5_CR3 & USART_CR3_DMAT) != 0) {             // if UART5 is configured for DMA mode of operation
+                        ptrCnt = (int *)argv[THROUGHPUT_UART4];          // the number of characters in each tick period
+                        if (*ptrCnt != 0) {
+                            if (--(*ptrCnt) == 0) {
+                                iMasks |= ulChannel;                     // enough serial DMA transfers handled in this tick period
+                            }
+                            else {
+                                iDMA &= ~ulChannel;
+                                if (fnSimulateDMA(DMA1_STREAM_7_UART5_TX) > 0) { // process the trigger
+                                    iDMA |= ulChannel;                   // further DMA triggers
+                                }
+                                else {
+                                  //fnUART_Tx_int(4);                    // handle possible pending interrupt after DMA completion
+                                }
+    #if defined UART5_TDR
+                                fnLogTx4((unsigned char)UART5_TDR);
+    #else
+	                            fnLogTx4((unsigned char)UART5_DR);
+    #endif
+                                ulNewActions |= SEND_COM_4;
+                            }
+                        }
+                    }
+#endif
+                    break;
+                case 0x00000100:                                         // DMA controller 2 - stream 0
+                    break;
+                case 0x00000200:                                         // DMA controller 2 - stream 1
+                    break;
+                case 0x00000400:                                         // DMA controller 2 - stream 2
+                    break;
+                case 0x00000800:                                         // DMA controller 2 - stream 3
+#if defined DMA_SxCR_CHSEL_0
+                    // SPI1 Tx DMA
+                    //
+                    if (IS_POWERED_UP(APB2, (RCC_APB2ENR_SPI1EN)) != 0) {// if SPI1 powered
+                        if ((SPI1_CR1 & SPICR1_SPE) != 0) {              // if operation enabled
+                            if ((SPI1_CR2 & SPI_CR2_TXDMAEN) != 0) {     // if in DMA transmission mode
+                                iDMA &= ~ulChannel;
+                                if (fnSimulateDMA(DMA2_STREAM_3_SPI1_TX) > 0) { // process the trigger
+                                    iDMA |= ulChannel;                   // further DMA triggers
+                                }
+                                break;
+                            }
+                        }
+                    }
+#endif
+                    break;
+                case 0x00001000:                                         // DMA controller 2 - stream 4
+                    break;
+                case 0x00002000:                                         // DMA controller 2 - stream 5
+                    break;
+                case 0x00004000:                                         // DMA controller 2 - stream 6
+#if defined SERIAL_INTERFACE && defined SERIAL_SUPPORT_DMA
+                    if ((USART6_CR3 & USART_CR3_DMAT) != 0) {            // if USART6 is configured for DMA mode of operation
+                        ptrCnt = (int *)argv[THROUGHPUT_UART5];          // the number of characters in each tick period
+                        if (*ptrCnt != 0) {
+                            if (--(*ptrCnt) == 0) {
+                                iMasks |= ulChannel;                     // enough serial DMA transfers handled in this tick period
+                            }
+                            else {
+                                iDMA &= ~ulChannel;
+                                if (fnSimulateDMA(DMA2_STREAM_6_USART6_TX) > 0) { // process the trigger
+                                    iDMA |= ulChannel;                   // further DMA triggers
+                                }
+                                else {
+                                  //fnUART_Tx_int(5);                    // handle possible pending interrupt after DMA completion
+                                }
+    #if defined USART6_TDR
+                                fnLogTx5((unsigned char)USART6_TDR);
+    #else
+	                            fnLogTx5((unsigned char)USART6_DR);
+    #endif
+                                ulNewActions |= SEND_COM_5;
+                            }
+                        }
+                    }
+#endif
+                    break;
+                case 0x00008000:                                         // DMA controller 2 - stream 7
+#if defined SERIAL_INTERFACE && defined SERIAL_SUPPORT_DMA
+                    if ((USART1_CR3 & USART_CR3_DMAT) != 0) {            // if USART1 is configured for DMA mode of operation
+                        ptrCnt = (int *)argv[THROUGHPUT_UART0];          // the number of characters in each tick period
+                        if (*ptrCnt != 0) {
+                            if (--(*ptrCnt) == 0) {
+                                iMasks |= ulChannel;                     // enough serial DMA transfers handled in this tick period
+                            }
+                            else {
+                                iDMA &= ~ulChannel;
+                                if (fnSimulateDMA(DMA2_STREAM_7_USART1_TX) > 0) { // process the trigger
+                                    iDMA |= ulChannel;                   // further DMA triggers
+                                }
+                                else {
+                                  //fnUART_Tx_int(0);                    // handle possible pending interrupt after DMA completion
+                                }
+    #if defined USART1_TDR
+                                fnLogTx0((unsigned char)USART1_TDR);
+    #else
+	                            fnLogTx0((unsigned char)USART1_DR);
+    #endif
+                                ulNewActions |= SEND_COM_0;
+                            }
+                        }
+                    }
+                    if ((USART6_CR3 & USART_CR3_DMAT) != 0) {            // if USART6 is configured for DMA mode of operation
+                        ptrCnt = (int *)argv[THROUGHPUT_UART5];          // the number of characters in each tick period
+                        if (*ptrCnt != 0) {
+                            if (--(*ptrCnt) == 0) {
+                                iMasks |= ulChannel;                     // enough serial DMA transfers handled in this tick period
+                            }
+                            else {
+                                iDMA &= ~ulChannel;
+                                if (fnSimulateDMA(DMA2_STREAM_7_USART6_TX) > 0) { // process the trigger
+                                    iDMA |= ulChannel;                   // further DMA triggers
+                                }
+                                else {
+                                  //fnUART_Tx_int(5);                    // handle possible pending interrupt after DMA completion
+                                }
+    #if defined USART6_TDR
+                                fnLogTx5((unsigned char)USART6_TDR);
+    #else
+	                            fnLogTx5((unsigned char)USART6_DR);
+    #endif
+                                ulNewActions |= SEND_COM_5;
+                            }
+                        }
+                    }
+#endif
+                    break;
+                }
+            }
+            ulChannel <<= 1;
+        }
+        return ulNewActions;
+    }
 }
 
 // Periodic tick - dummy since the timer is now handled by timer simulator
@@ -864,7 +1510,7 @@ extern void fnSimulateSerialIn(int iPort, unsigned char *ptrDebugIn, unsigned sh
     switch (iPort) {
     case 0:                                                              // USART 1
 	    while (usLen-- != 0) {
-    #if defined _STM32F7XX || defined _STM32L432 || defined _STM32L0x1 || defined _STM32F031 || defined _STM32L4X5 || defined _STM32L4X6
+    #if defined _STM32F7XX || defined _STM32L432 || defined _STM32L0x1 || defined _STM32F031 || defined _STM32L4X5 || defined _STM32L4X6 || defined _STM32H7XX
 		    USART1_RDR = *ptrDebugIn++;                                  // put received byte to input buffer
             USART1_ISR |= USART_ISR_RXNE;
     #else
@@ -881,7 +1527,7 @@ extern void fnSimulateSerialIn(int iPort, unsigned char *ptrDebugIn, unsigned sh
     #if USARTS_AVAILABLE > 2
     case 1:                                                              // USART 2
 	    while (usLen-- != 0) {
-        #if defined _STM32F7XX || defined _STM32L432 || defined _STM32L0x1 || defined _STM32F031 || defined _STM32L4X5 || defined _STM32L4X6
+        #if defined _STM32F7XX || defined _STM32L432 || defined _STM32L0x1 || defined _STM32F031 || defined _STM32L4X5 || defined _STM32L4X6 || defined _STM32H7XX
 		    USART2_RDR = *ptrDebugIn++;                                  // put received byte to input buffer
             USART2_ISR |= USART_ISR_RXNE;
         #else
@@ -899,7 +1545,7 @@ extern void fnSimulateSerialIn(int iPort, unsigned char *ptrDebugIn, unsigned sh
     #if USARTS_AVAILABLE > 2 && !defined USART3_NOT_PRESENT
     case 2:                                                              // USART 3
 	    while (usLen-- != 0) {
-        #if defined _STM32F7XX || defined _STM32L432 || defined _STM32L0x1 || defined _STM32L4X5 || defined _STM32L4X6
+        #if defined _STM32F7XX || defined _STM32L432 || defined _STM32L0x1 || defined _STM32L4X5 || defined _STM32L4X6 || defined _STM32H7XX
 		    USART3_RDR = *ptrDebugIn++;                                  // put received byte to input buffer
             USART3_ISR |= USART_ISR_RXNE;
         #else
@@ -917,7 +1563,7 @@ extern void fnSimulateSerialIn(int iPort, unsigned char *ptrDebugIn, unsigned sh
     #if UARTS_AVAILABLE > 0
     case 3:                                                              // UART 4
 	    while (usLen-- != 0) {
-        #if defined _STM32F7XX || defined _STM32L4X5 || defined _STM32L4X6
+        #if defined _STM32F7XX || defined _STM32L4X5 || defined _STM32L4X6 || defined _STM32H7XX
 		    UART4_RDR = *ptrDebugIn++;                                   // put received byte to input buffer
             UART4_ISR |= USART_ISR_RXNE;
         #else
@@ -935,7 +1581,7 @@ extern void fnSimulateSerialIn(int iPort, unsigned char *ptrDebugIn, unsigned sh
     #if UARTS_AVAILABLE > 1
     case 4:                                                              // UART 5
 	    while (usLen-- != 0) {
-        #if defined _STM32F7XX || defined _STM32L4X5 || defined _STM32L4X6
+        #if defined _STM32F7XX || defined _STM32L4X5 || defined _STM32L4X6 || defined _STM32H7XX
 		    UART5_RDR = *ptrDebugIn++;                                   // put received byte to input buffer
             UART5_ISR |= USART_ISR_RXNE;
         #else
@@ -950,10 +1596,10 @@ extern void fnSimulateSerialIn(int iPort, unsigned char *ptrDebugIn, unsigned sh
 	    }
         break;
     #endif
-    #if defined _STM32F2XX || defined _STM32F4XX || defined _STM32F7XX
+    #if defined _STM32F2XX || defined _STM32F4XX || defined _STM32F7XX || defined _STM32H7XX
     case 5:                                                              // USART 6
 	    while (usLen-- != 0) {
-        #if defined _STM32F7XX
+        #if defined _STM32F7XX || defined _STM32H7XX
 		    USART6_RDR = *ptrDebugIn++;                                  // put received byte to input buffer
             USART6_ISR |= USART_ISR_RXNE;
         #else
@@ -983,7 +1629,7 @@ extern void fnSimulateSerialIn(int iPort, unsigned char *ptrDebugIn, unsigned sh
     #if CHIP_HAS_UARTS > 6
     case 6:                                                              // USART 7
 	    while (usLen-- != 0) {
-        #if defined _STM32F7XX
+        #if defined _STM32F7XX || defined _STM32H7XX
 		    UART7_RDR = *ptrDebugIn++;                                   // put received byte to input buffer
             UART7_ISR |= USART_ISR_RXNE;
         #else
@@ -1001,7 +1647,7 @@ extern void fnSimulateSerialIn(int iPort, unsigned char *ptrDebugIn, unsigned sh
     #if CHIP_HAS_UARTS > 7
     case 7:                                                              // USART 8
 	    while (usLen-- != 0) {
-        #if defined _STM32F7XX
+        #if defined _STM32F7XX || defined _STM32H7XX
 		    UART8_RDR = *ptrDebugIn++;                                   // put received byte to input buffer
             UART8_ISR |= USART_ISR_RXNE;
         #else
@@ -1036,7 +1682,7 @@ extern void fnSimulateModemChange(int iPort, unsigned long ulNewState, unsigned 
         break;
     case 4:
         break;
-    #if defined _STM32F2XX || defined _STM32F4XX || defined _STM32F7XX
+    #if defined _STM32F2XX || defined _STM32F4XX || defined _STM32F7XX || defined _STM32H7XX
     case 5:
         break;
     #endif
@@ -1189,7 +1835,7 @@ static void fnHandleExti(unsigned short usOriginal, unsigned short usNew, unsign
 {
     VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
     int iInputCount = 0;
-    #if defined _STM32F2XX || defined _STM32F4XX || defined _STM32F7XX || defined _STM32L432 || defined _STM32L0x1 || defined _STM32F031 || defined _STM32L4X5 || defined _STM32L4X6
+    #if defined _STM32F2XX || defined _STM32F4XX || defined _STM32F7XX || defined _STM32H7XX || defined _STM32L432 || defined _STM32L0x1 || defined _STM32F031 || defined _STM32L4X5 || defined _STM32L4X6
     unsigned long *ptrMux = SYSCFG_EXTICR1_ADDR;
     #else
     unsigned long *ptrMux = AFIO_EXTICR1_ADD;
@@ -1303,7 +1949,7 @@ extern void fnSimulateInputChange(unsigned char ucPort, unsigned char ucPortBit,
     case _PORTG:
         GPIOG_IDR = ((ulGPIODDR[ucPort] & GPIOG_ODR) | (~ulGPIODDR[ucPort] & ulGPIOIN[ucPort]));
         break;
-#if defined _STM32F2XX || defined _STM32F4XX || defined _STM32F7XX
+#if defined _STM32F2XX || defined _STM32F4XX || defined _STM32F7XX || defined _STM32H7XX
     case _PORTH:
         GPIOH_IDR = ((ulGPIODDR[ucPort] & GPIOH_ODR) | (~ulGPIODDR[ucPort] & ulGPIOIN[ucPort]));
         break;
@@ -1374,7 +2020,7 @@ extern int fnSimulateEthernetIn(unsigned char *ucData, unsigned short usLen, int
 static void fnUpdatePeripheral(int iPort, unsigned long ulPeriph)
 {
     int i = 0;
-#if defined _STM32F2XX || defined _STM32F4XX || defined _STM32F7XX || defined _STM32L432 || defined _STM32L0x1 || defined _STM32F031 || defined _STM32L4X5 || defined _STM32L4X6
+#if defined _STM32F2XX || defined _STM32F4XX || defined _STM32F7XX || defined _STM32H7XX || defined _STM32L432 || defined _STM32L0x1 || defined _STM32F031 || defined _STM32L4X5 || defined _STM32L4X6
     int iHigh = 0;
     int iFunctionShift = 0;
     unsigned long ulMaskMode = 0x00000003;
@@ -1414,7 +2060,7 @@ static void fnUpdatePeripheral(int iPort, unsigned long ulPeriph)
     switch (iPort) {
     case _PORTA:
         while (i < PORT_WIDTH) {
-            if (ulBit & ulPeriph) {                                      // for each port bit that has a peripheral function
+            if ((ulBit & ulPeriph) != 0) {                               // for each port bit that has a peripheral function
                 switch (i) {
                 case 0:
                 case 1:
@@ -1446,6 +2092,12 @@ static void fnUpdatePeripheral(int iPort, unsigned long ulPeriph)
                     }
                     break;
                 case 6:
+                    if ((AFIO_MAPR & SPI1_REMAP) == 0) {
+                        if ((SPI1_CR1 & SPICR1_SPE) != 0) {              // SPI1 is enabled so assume peripheral
+                            ucPortFunctions[iPort][i] = 0;
+                            break;
+                        }
+                    }
                     if ((AFIO_MAPR & TIM3_FULL_REMAP) == 0) {
                         ucPortFunctions[iPort][i] = 1;                   // TIM3_CH1 this matches with the value in STM32_ports.c
                     }                    
@@ -1457,6 +2109,12 @@ static void fnUpdatePeripheral(int iPort, unsigned long ulPeriph)
                         break;
                     }
     #endif
+                    if ((AFIO_MAPR & SPI1_REMAP) == 0) {
+                        if ((SPI1_CR1 & SPICR1_SPE) != 0) {              // SPI1 is enabled so assume peripheral
+                            ucPortFunctions[iPort][i] = 0;
+                            break;
+                        }
+                    }
                     if ((AFIO_MAPR & TIM3_FULL_REMAP) == 0) {
                         ucPortFunctions[iPort][i] = 1;                   // TIM3_CH2 this matches with the value in STM32_ports.c
                     }                    
@@ -1601,8 +2259,12 @@ static void fnUpdatePeripheral(int iPort, unsigned long ulPeriph)
                         ucPortFunctions[iPort][i] = 1;                   // USART3_TX
                     }
         #if defined _CONNECTIVITY_LINE
-                    else if (AFIO_MAPR & SPI3_REMAP) {                   // alternative mapping (SPI3 PA4:PC10:PC11:PC12)
+                    else if ((AFIO_MAPR & SPI3_REMAP) != 0) {            // alternative mapping (SPI3 PA4:PC10:PC11:PC12)
+            #if defined _STM32F107X
+                        ucPortFunctions[iPort][i] = 2;                   // SPI3 this matches with the value in STM32_ports.c
+            #else
                         ucPortFunctions[iPort][i] = 0;                   // SPI3 this matches with the value in STM32_ports.c
+            #endif
                     }
         #endif
     #endif
@@ -1613,16 +2275,24 @@ static void fnUpdatePeripheral(int iPort, unsigned long ulPeriph)
                         ucPortFunctions[iPort][i] = 1;                   // USART3_RX
                     }
         #if defined _CONNECTIVITY_LINE
-                    else if (AFIO_MAPR & SPI3_REMAP) {                   // alternative mapping (SPI3 PA4:PC10:PC11:PC12)
+                    else if ((AFIO_MAPR & SPI3_REMAP) != 0) {            // alternative mapping (SPI3 PA4:PC10:PC11:PC12)
+            #if defined _STM32F107X
+                        ucPortFunctions[iPort][i] = 2;                   // SPI3 this matches with the value in STM32_ports.c
+            #else
                         ucPortFunctions[iPort][i] = 0;                   // SPI3 this matches with the value in STM32_ports.c
+            #endif
                     }
         #endif
     #endif
                     break;
                 case 12:
     #if defined _CONNECTIVITY_LINE
-                    if (AFIO_MAPR & SPI3_REMAP) {                        // alternative mapping (SPI3 PA4:PC10:PC11:PC12)
+                    if ((AFIO_MAPR & SPI3_REMAP) != 0) {                 // alternative mapping (SPI3 PA4:PC10:PC11:PC12)
+        #if defined _STM32F107X
+                        ucPortFunctions[iPort][i] = 2;                   // SPI3 this matches with the value in STM32_ports.c
+        #else
                         ucPortFunctions[iPort][i] = 0;                   // SPI3 this matches with the value in STM32_ports.c
+        #endif
                     }
     #endif
                     break;
@@ -1735,12 +2405,21 @@ static void fnUpdatePeripheral(int iPort, unsigned long ulPeriph)
 
 // We can update port state displays if we want
 //
-extern void fnSimPorts(void)
+extern void fnSimPorts(int iThisPort)
 {
     unsigned long ulNewPeriph;
     int iPort = 0;
+    int iLastPort = PORTS_AVAILABLE;
+    if (iThisPort >= 0) {                                                // specific port being updated
+        iPort = iThisPort;
+        iLastPort = (iThisPort + 1);
+        if (__GPIO_IS_POWERED(iThisPort) == 0) {
+            _EXCEPTION("Port access without port powered up!!!!");
+            return;
+        }
+    }
 
-    while (iPort < PORTS_AVAILABLE) {
+    while (iPort < iLastPort) {
         ulNewPeriph = fnGetPresentPortPeriph(iPort + 1);
         if (ulGPIOPER[iPort] != ulNewPeriph) {
             ulGPIOPER[iPort] = ulNewPeriph;
@@ -1802,7 +2481,7 @@ extern void fnSimPorts(void)
                 iFlagRefresh = PORT_CHANGE;                              // ensure that ports are updated when an output state changes
             }
             break;
-#if defined _STM32F2XX || defined _STM32F4XX || defined _STM32F7XX
+#if defined _STM32F2XX || defined _STM32F4XX || defined _STM32F7XX || defined _STM32H7XX
         case _PORTH:
             if ((GPIOH_ODR & ulGPIODDR[iPort]) != ulGPIODRIVE_VALUE[iPort]) {
                 ulGPIODRIVE_VALUE[iPort] = GPIOH_ODR & ulGPIODDR[iPort]; // new output driven state
@@ -1821,6 +2500,14 @@ extern void fnSimPorts(void)
         }
         iPort++;
     }
+}
+
+extern unsigned long fnCheckPortRead(int iPortRef, unsigned long ulValue)
+{
+    if (__GPIO_IS_POWERED(iPortRef) == 0) {                              // if the port is not powered up
+        _EXCEPTION("Reading from a port that is not powered up!!!!!");
+    }
+    return ulValue;
 }
 
 
@@ -1849,7 +2536,7 @@ extern unsigned long fnGetPresentPortState(int portNr)
         return ((ulGPIODDR[portNr] & GPIOF_ODR) | (~ulGPIODDR[portNr] & ulGPIOIN[portNr]));
     case _PORTG:
         return ((ulGPIODDR[portNr] & GPIOG_ODR) | (~ulGPIODDR[portNr] & ulGPIOIN[portNr]));
-#if defined _STM32F2XX || defined _STM32F4XX || defined _STM32F7XX
+#if defined _STM32F2XX || defined _STM32F4XX || defined _STM32F7XX || defined _STM32H7XX
     case _PORTH:
         return ((ulGPIODDR[portNr] & GPIOH_ODR) | (~ulGPIODDR[portNr] & ulGPIOIN[portNr]));
     case _PORTI:
@@ -1865,7 +2552,7 @@ static unsigned short fnGetPortType(int portNr, int iRequest, int i)
 {
     unsigned short usPeripherals = 0;
     unsigned short usBit = 0x0001;
-#if defined _STM32F2XX || defined _STM32F4XX || defined _STM32F7XX || defined _STM32L432 || defined _STM32L0x1 || defined _STM32F031 || defined _STM32L4X5 || defined _STM32L4X6
+#if defined _STM32F2XX || defined _STM32F4XX || defined _STM32F7XX || defined _STM32H7XX || defined _STM32L432 || defined _STM32L0x1 || defined _STM32F031 || defined _STM32L4X5 || defined _STM32L4X6
     unsigned long ulMask = 0x00000003;
     STM32_GPIO *ptrPort = &STM32.Ports[portNr];
     if (GET_OUTPUTS == iRequest) {
@@ -1958,6 +2645,13 @@ static unsigned short fnGetPortType(int portNr, int iRequest, int i)
                         }
                         break;
     #if defined _CONNECTIVITY_LINE                                       // {4}
+                    case 6:
+                        if ((AFIO_MAPR & SPI1_REMAP) == 0) {
+                            if ((SPI1_CR1 & SPICR1_SPE) != 0) {          // SPI1 is enabled so assume peripheral input
+                                usPeripherals |= usBit;                  // peripheral input
+                            }
+                        }
+                        break;
                     case 7:
                         if (ETH_MACCR & (ETH_MACCR_RE | ETH_MACCR_TE)) { // {5} EMAC is enabled so assume peripheral input
                             usPeripherals |= usBit;                      // peripheral input
@@ -2011,7 +2705,7 @@ static unsigned short fnGetPortType(int portNr, int iRequest, int i)
             }
             switch (iRequest) {
             case GET_OUTPUTS:
-                if ((!(ulReg & ALTERNATIVE_FUNCTION)) && (ulReg & OUTPUT_FAST)) { // mode set to output but not alternative peripheral output
+                if (((ulReg & ALTERNATIVE_FUNCTION) == 0) && ((ulReg & OUTPUT_FAST) != 0)) { // mode set to output but not alternative peripheral output
                     usPeripherals |= usBit;
                 }
                 break;
@@ -2019,7 +2713,7 @@ static unsigned short fnGetPortType(int portNr, int iRequest, int i)
                 if ((ulReg & ALTERNATIVE_FUNCTION) && (ulReg & OUTPUT_FAST)) { // mode set to peripheral output function
                     usPeripherals |= usBit;                              // peripheral output
                 }
-                else if (!(ulReg & OUTPUT_FAST)) {                       // input but could be attached to peripheral
+                else if ((ulReg & OUTPUT_FAST) == 0) {                   // input but could be attached to peripheral
                     switch (i) {
                     case 7:
                         if ((AFIO_MAPR & USART1_REMAPPED) && (USART1_CR1 & USART_CR1_RE)) { // if USART1 rx is enabled
@@ -2303,14 +2997,14 @@ static unsigned char ucRxBank[NUMBER_OF_USB_ENDPOINTS] = {0};            // moni
 
 // Handle data sent by USB
 //
-extern void fnSimUSB(int iType, int iEndpoint, USB_HW *ptrUSB_HW)
+extern void fnSimUSB(int iChannel, int iType, int iEndpoint, USB_HW *ptrUSB_HW)
 {
-    extern void fnChangeUSBState(int iNewState);
+    extern void fnChangeUSBState(int iNewState, int iController);
     switch (iType) {
     case USB_SIM_RESET:
         {
             int x;
-            fnChangeUSBState(0);
+            fnChangeUSBState(0, 0);
             for (x = 0; x < NUMBER_OF_USB_ENDPOINTS; x++) {
                 fnLogUSB(x, 0, 0, (unsigned char *)0xffffffff, 0);       // log reset on each endpoint
             }
@@ -2325,13 +3019,13 @@ extern void fnSimUSB(int iType, int iEndpoint, USB_HW *ptrUSB_HW)
 #endif
         break;
     case USB_SIM_ENUMERATED:                                             // flag that we have completed emumeration
-        fnChangeUSBState(1);
+        fnChangeUSBState(1, 0);
         break;
     case USB_SIM_STALL:
         fnLogUSB(iEndpoint, 0, 1, (unsigned char *)0xffffffff, 0);       // log stall
         break;
     case USB_SIM_SUSPEND:
-        fnChangeUSBState(0);
+        fnChangeUSBState(0, 0);
         break;
     }
 }
@@ -2407,7 +3101,7 @@ static unsigned short fnExtractEndpointLength(unsigned short usUSB_COUNT_RX)
 
 // Inject USB transactions for test purposes
 //
-extern int fnSimulateUSB(int iDevice, int iEndPoint, unsigned char ucPID, unsigned char *ptrDebugIn, unsigned short usLenEvent)
+extern int fnSimulateUSB(int iChannel, int iDevice, int iEndPoint, unsigned char ucPID, unsigned char *ptrDebugIn, unsigned short usLenEvent)
 {
     int iReset = 0;
 #if defined USB_DEVICE_AVAILABLE
@@ -2585,7 +3279,7 @@ extern int fnSimulateUSB(int iDevice, int iEndPoint, unsigned char ucPID, unsign
 
 // Check whether data has been prepared for transmission
 //
-extern void fnCheckUSBOut(int iDevice, int iEndpoint)
+extern void fnCheckUSBOut(int iChannel, int iDevice, int iEndpoint)
 {
 #if defined USB_DEVICE_AVAILABLE
     volatile unsigned long *ptrEndpointControl = USB_EP0R_ADD;
@@ -2679,7 +3373,7 @@ extern unsigned short fnGetEndpointInfo(int iEndpoint)
 }
 #endif
 
-#if !defined DEVICE_WITHOUT_DMA
+#if 0
 static int fnSimulateDMA(unsigned char ucChannel, int iDMA)
 {
     VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
@@ -2841,7 +3535,14 @@ static void fnSimADC(int iChannel)
     }
     if ((ptrADC->ADC_CR1 & ADC_CR1_SCAN) != 0) {                         // if scan mode is enabled
         ulValue = ((ptrADC->ADC_SQR1 & ADC_SQR1_L_MASK) >> ADC_SQR1_L_SHIFT); // the sequence length
-        while (ulSample <= ulValue) {
+        ulValue++;
+    }
+    else {
+        ulChannel  = ptrADC->ADC_SQR3;                                   // single channel
+        ulValue = (ulSample + 1);
+    }
+    while (ulSample < ulValue) {
+        if ((ptrADC->ADC_CR1 & ADC_CR1_SCAN) != 0) {                     // if scan mode is enabled
             if (ulSample >= 12) {
                 ulChannel = (ptrADC->ADC_SQR1 >> ((ulSample - 12) * 5));
             }
@@ -2851,41 +3552,38 @@ static void fnSimADC(int iChannel)
             else {
                 ulChannel = (ptrADC->ADC_SQR3 >> (ulSample * 5));
             }
-            ulChannel &= 0x1f;                                           // the channel being sampled
-            ulSample++;
-            if ((ptrADC->ADC_CR1 & ADC_CR1_AWDEN) != 0) {                // analog watchog mode enabled
-                if (((ptrADC->ADC_CR1 & ADC_CR1_AWDSGL_SINGLE) == 0) || ((ptrADC->ADC_CR1 & ADC_CR1_AWDCH_MASK) == ulChannel)) { // if on all channels or this particular one only
-                    if ((usADC_values[ulChannel] > ptrADC->ADC_HTR) || (usADC_values[ulChannel] < ptrADC->ADC_LTR)) { // check whether the sample value triggers the analog watchog
-                        ptrADC->ADC_SR |= ADC_SR_AWD;
-                        ADC_CSR |= (ADC_CSR_AWD1 << ((iChannel - 1) * 8));
-                        if ((ptrADC->ADC_CR1 & ADC_CR1_AWDIE) != 0) {    // if the analog watchog interrupt is enabled
-                            if ((IRQ0_31_SER & (1 << irq_ADC_ID)) != 0) {// if ADC interrupt is not disabled
-                                ptrVect->processor_interrupts.irq_ADC1_2_3(); // call the interrupt handler
-                            }
+        }
+        ulChannel &= 0x1f;                                               // the channel being sampled
+        ulSample++;
+        if ((ptrADC->ADC_CR1 & ADC_CR1_AWDEN) != 0) {                    // analog watchog mode enabled
+            if (((ptrADC->ADC_CR1 & ADC_CR1_AWDSGL_SINGLE) == 0) || ((ptrADC->ADC_CR1 & ADC_CR1_AWDCH_MASK) == ulChannel)) { // if on all channels or this particular one only
+                if ((usADC_values[ulChannel] > ptrADC->ADC_HTR) || (usADC_values[ulChannel] < ptrADC->ADC_LTR)) { // check whether the sample value triggers the analog watchog
+                    ptrADC->ADC_SR |= ADC_SR_AWD;
+                    ADC_CSR |= (ADC_CSR_AWD1 << ((iChannel - 1) * 8));
+                    if ((ptrADC->ADC_CR1 & ADC_CR1_AWDIE) != 0) {        // if the analog watchog interrupt is enabled
+                        if ((IRQ0_31_SER & (1 << irq_ADC_ID)) != 0) {    // if ADC interrupt is not disabled
+                            ptrVect->processor_interrupts.irq_ADC1_2_3();// call the interrupt handler
                         }
                     }
                 }
             }
-            usADCvalue = fnConvertSimADCvalue(ptrADC, usADC_values[ulChannel]); // convert the standard value to the format used by the present mode
-            ptrADC->ADC_DR = usADCvalue;                                 // put the result into the regular data register
-            if ((ptrADC->ADC_CR2 & ADC_CR2_DMA) != 0) {                  // if in DMA mode
-    #if !defined DEVICE_WITHOUT_DMA
-                fnHandleDMA_triggers(0, 2);                              // process the trigger
-    #endif
-            }
-            else if ((ptrADC->ADC_CR2 & ADC_CR2_EOCS_CONVERSION) != 0) { // if the EOC is set after each individual conversion
-                ptrADC->ADC_SR |= ADC_SR_EOC;
-                ADC_CSR |= (ADC_CSR_EOC1 << ((iChannel - 1) * 8));
-                if ((ptrADC->ADC_CR1 & ADC_CR1_EOCIE) != 0) {            // if the end of conversion interrupt is enabled
-                    if ((IRQ0_31_SER & (1 << irq_ADC_ID)) != 0) {        // if ADC interrupt is not disabled
-                        ptrVect->processor_interrupts.irq_ADC1_2_3();    // call the interrupt handler
-                    }
+        }
+        usADCvalue = fnConvertSimADCvalue(ptrADC, usADC_values[ulChannel]); // convert the standard value to the format used by the present mode
+        ptrADC->ADC_DR = usADCvalue;                                     // put the result into the regular data register
+        if ((ptrADC->ADC_CR2 & ADC_CR2_DMA) != 0) {                      // if in DMA mode
+#if !defined DEVICE_WITHOUT_DMA
+          //fnSimulateDMA(DMA2_CHANNEL_2_ADC3);                          // process the trigger
+#endif
+        }
+        else if ((ptrADC->ADC_CR2 & ADC_CR2_EOCS_CONVERSION) != 0) {     // if the EOC is set after each individual conversion
+            ptrADC->ADC_SR |= ADC_SR_EOC;
+            ADC_CSR |= (ADC_CSR_EOC1 << ((iChannel - 1) * 8));
+            if ((ptrADC->ADC_CR1 & ADC_CR1_EOCIE) != 0) {                // if the end of conversion interrupt is enabled
+                if (fnGenInt(irq_ADC_ID) != 0) {                         // if ADC interrupt is not disabled
+                    ptrVect->processor_interrupts.irq_ADC1_2_3();        // call the interrupt handler
                 }
             }
         }
-    }
-    else {
-        _EXCEPTION("To do");
     }
     if (((ptrADC->ADC_CR2 & ADC_CR2_EOCS_CONVERSION) == 0) && ((ptrADC->ADC_CR2 & ADC_CR2_DMA) == 0)) { // if the EOC is set after sequence conversion (not DMA mode)
         ptrADC->ADC_SR |= ADC_SR_EOC;
@@ -3022,7 +3720,7 @@ extern int fnSimTimers(void)
         }
     }
 #if defined SUPPORT_RTC                                                  // {1}
-    #if defined _STM32F2XX || defined _STM32F4XX || defined _STM32F7XX
+    #if defined _STM32F2XX || defined _STM32F4XX || defined _STM32F7XX || defined _STM32H7XX
     if (RCC_BDCR & RCC_BDCR_RTCEN) {                                     // if RTC is enabled
         if (!(RTC_ISR & (RTC_ISR_INIT))) {                               // if not in initialisation mode
             static unsigned long _RTC_SSR = 0;
@@ -3112,11 +3810,11 @@ extern int fnSimTimers(void)
         if (TIM2_CNT >= TIM2_ARR) {
             TIM2_CNT = 0;
             TIM2_SR |= TIM_SR_UIF;
-            if (TIM2_CR1 & TIM_CR1_OPM) {                                // single-shot mode
+            if ((TIM2_CR1 & TIM_CR1_OPM) != 0) {                         // single-shot mode
                 TIM2_CR1 = 0;                                            // automatically disable further operation
             }
             if ((TIM2_DIER & TIM_DIER_UIE) != 0) {                       // overflow interrupt enabled
-                if ((IRQ0_31_SER & (1 << irq_TIM2_ID)) != 0) {           // if TIM2 interrupt is not disabled
+                if (fnGenInt(irq_TIM2_ID) != 0) {                        // if TIM2 interrupt is not disabled
                     ptrVect->processor_interrupts.irq_TIM2();            // call the interrupt handler
                 }
             }
@@ -3135,7 +3833,7 @@ extern int fnSimTimers(void)
                 TIM3_CR1 = 0;                                            // automatically disable further operation
             }
             if ((TIM3_DIER & TIM_DIER_UIE) != 0) {                       // overflow interrupt enabled
-                if ((IRQ0_31_SER & (1 << irq_TIM3_ID)) != 0) {           // if TIM3 interrupt is not disabled
+                if (fnGenInt(irq_TIM3_ID) != 0) {                        // if TIM3 interrupt is not disabled
                     ptrVect->processor_interrupts.irq_TIM3();            // call the interrupt handler
                 }
             }
@@ -3150,18 +3848,17 @@ extern int fnSimTimers(void)
         if (TIM4_CNT >= TIM4_ARR) {
             TIM4_CNT = 0;
             TIM4_SR |= TIM_SR_UIF;
-            if (TIM4_CR1 & TIM_CR1_OPM) {                                // single-shot mode
+            if ((TIM4_CR1 & TIM_CR1_OPM) != 0) {                         // single-shot mode
                 TIM4_CR1 = 0;                                            // automatically disable further operation
             }
-            if (TIM4_DIER & TIM_DIER_UIE) {                              // overflow interrupt enabled
-                if (IRQ0_31_SER & (1 << irq_TIM4_ID)) {                  // if TIM4 interrupt is not disabled
+            if ((TIM4_DIER & TIM_DIER_UIE) != 0) {                       // overflow interrupt enabled
+                if (fnGenInt(irq_TIM4_ID) != 0) {                        // if TIM4 interrupt is not disabled
                     ptrVect->processor_interrupts.irq_TIM4();            // call the interrupt handler
                 }
             }
         }
         TIM4_CNT &= 0xffff;
     }
-
     if (((RCC_APB1ENR & RCC_APB1ENR_TIM5EN) != 0) && ((TIM5_CR1 & TIM_CR1_CEN) != 0)) { // timer 5 is enabled
         unsigned long ulTickCount = ((TICK_RESOLUTION/1000) * ((PCLK1 * 2)/1000)); // count per tick period with no prescaler
         ulTickCount /= (TIM5_PSC + 1);                                   // respect the prescaler
@@ -3169,11 +3866,11 @@ extern int fnSimTimers(void)
         if (TIM5_CNT >= TIM5_ARR) {
             TIM5_CNT = 0;
             TIM5_SR |= TIM_SR_UIF;
-            if (TIM5_CR1 & TIM_CR1_OPM) {                                // single-shot mode
+            if ((TIM5_CR1 & TIM_CR1_OPM) != 0) {                         // single-shot mode
                 TIM5_CR1 = 0;                                            // automatically disable further operation
             }
-            if (TIM5_DIER & TIM_DIER_UIE) {                              // overflow interrupt enabled
-                if (IRQ32_63_SER & (1 << (irq_TIM5_ID - 32))) {          // if TIM5 interrupt is not disabled
+            if ((TIM5_DIER & TIM_DIER_UIE) != 0) {                       // overflow interrupt enabled
+                if (fnGenInt(irq_TIM5_ID) != 0) {                        // if TIM5 interrupt is not disabled
                     ptrVect->processor_interrupts.irq_TIM5();            // call the interrupt handler
                 }
             }
@@ -3189,11 +3886,11 @@ extern int fnSimTimers(void)
         if (TIM9_CNT >= TIM10_ARR) {
             TIM9_CNT = 0;
             TIM9_SR |= TIM_SR_UIF;
-            if (TIM9_CR1 & TIM_CR1_OPM) {                                // single-shot mode
+            if ((TIM9_CR1 & TIM_CR1_OPM) != 0) {                         // single-shot mode
                 TIM9_CR1 = 0;                                            // automatically disable further operation
             }
-            if (TIM9_DIER & TIM_DIER_UIE) {                              // overflow interrupt enabled
-                if (IRQ0_31_SER & (1 << (irq_TIM1_BRK_TIM9_ID))) {       // if TIM9 interrupt is not disabled
+            if ((TIM9_DIER & TIM_DIER_UIE) != 0) {                       // overflow interrupt enabled
+                if (fnGenInt(irq_TIM1_BRK_TIM9_ID) != 0) {               // if TIM9 interrupt is not disabled
                     ptrVect->processor_interrupts.irq_TIM1_BRK_TIM9();   // call the interrupt handler
                 }
             }
@@ -3209,11 +3906,11 @@ extern int fnSimTimers(void)
         if (TIM10_CNT >= TIM10_ARR) {
             TIM10_CNT = 0;
             TIM10_SR |= TIM_SR_UIF;
-            if (TIM10_CR1 & TIM_CR1_OPM) {                               // single-shot mode
+            if ((TIM10_CR1 & TIM_CR1_OPM) != 0) {                        // single-shot mode
                 TIM10_CR1 = 0;                                           // automatically disable further operation
             }
-            if (TIM10_DIER & TIM_DIER_UIE) {                             // overflow interrupt enabled
-                if (IRQ0_31_SER & (1 << (irq_TIM1_UP_TIM10_ID))) {       // if TIM10 interrupt is not disabled
+            if ((TIM10_DIER & TIM_DIER_UIE) != 0) {                      // overflow interrupt enabled
+                if (fnGenInt(irq_TIM1_UP_TIM10_ID) != 0) {               // if TIM10 interrupt is not disabled
                     ptrVect->processor_interrupts.irq_TIM1_UP_TIM10();   // call the interrupt handler
                 }
             }
@@ -3229,11 +3926,11 @@ extern int fnSimTimers(void)
         if (TIM11_CNT >= TIM10_ARR) {
             TIM11_CNT = 0;
             TIM11_SR |= TIM_SR_UIF;
-            if (TIM11_CR1 & TIM_CR1_OPM) {                               // single-shot mode
+            if ((TIM11_CR1 & TIM_CR1_OPM) != 0) {                        // single-shot mode
                 TIM11_CR1 = 0;                                           // automatically disable further operation
             }
-            if (TIM11_DIER & TIM_DIER_UIE) {                             // overflow interrupt enabled
-                if (IRQ0_31_SER & (1 << (irq_TIM1_TRG_COM_TIM11_ID))) {  // if TIM10 interrupt is not disabled
+            if ((TIM11_DIER & TIM_DIER_UIE) != 0) {                      // overflow interrupt enabled
+                if (fnGenInt(irq_TIM1_TRG_COM_TIM11_ID) != 0) {          // if TIM11 interrupt is not disabled
                     ptrVect->processor_interrupts.irq_TIM1_TRG_COM_TIM11(); // call the interrupt handler
                 }
             }
@@ -3242,18 +3939,18 @@ extern int fnSimTimers(void)
     }
     #endif
     #if defined TIMER_12_AVAILABLE
-    if ((RCC_APB1ENR & RCC_APB1ENR_TIM12EN) && (TIM12_CR1 & TIM_CR1_CEN)) { // timer 13 is enabled
+    if ((RCC_APB1ENR & RCC_APB1ENR_TIM12EN) && (TIM12_CR1 & TIM_CR1_CEN)) { // timer 12 is enabled
         unsigned long ulTickCount = ((TICK_RESOLUTION/1000) * ((PCLK1 * 2)/1000)); // count per tick period with no prescaler
         ulTickCount /= (TIM12_PSC + 1);                                  // respect the prescaler
         TIM12_CNT += ulTickCount;
         if (TIM12_CNT >= TIM10_ARR) {
             TIM12_CNT = 0;
             TIM12_SR |= TIM_SR_UIF;
-            if (TIM12_CR1 & TIM_CR1_OPM) {                               // single-shot mode
+            if ((TIM12_CR1 & TIM_CR1_OPM) != 0) {                        // single-shot mode
                 TIM12_CR1 = 0;                                           // automatically disable further operation
             }
-            if (TIM12_DIER & TIM_DIER_UIE) {                             // overflow interrupt enabled
-                if (IRQ32_63_SER & (1 << (irq_TIM8_BRK_TIM12_ID - 32))) {// if TIM12 interrupt is not disabled
+            if ((TIM12_DIER & TIM_DIER_UIE) != 0) {                      // overflow interrupt enabled
+                if (fnGenInt(irq_TIM8_BRK_TIM12_ID) != 0) {              // if TIM12 interrupt is not disabled
                     ptrVect->processor_interrupts.irq_TIM8_BRK_TIM12();  // call the interrupt handler
                 }
             }
@@ -3269,12 +3966,12 @@ extern int fnSimTimers(void)
         if (TIM13_CNT >= TIM10_ARR) {
             TIM13_CNT = 0;
             TIM13_SR |= TIM_SR_UIF;
-            if (TIM13_CR1 & TIM_CR1_OPM) {                               // single-shot mode
+            if ((TIM13_CR1 & TIM_CR1_OPM) != 0) {                        // single-shot mode
                 TIM13_CR1 = 0;                                           // automatically disable further operation
             }
-            if (TIM13_DIER & TIM_DIER_UIE) {                             // overflow interrupt enabled
-                if (IRQ32_63_SER & (1 << (irq_TIM8_UP_TIM13_ID - 32))) { // if TIM10 interrupt is not disabled
-                    ptrVect->processor_interrupts.irq_TIM8_UP_TIM13(); // call the interrupt handler
+            if ((TIM13_DIER & TIM_DIER_UIE) != 0) {                      // overflow interrupt enabled
+                if (IRQ32_63_SER & (1 << (irq_TIM8_UP_TIM13_ID - 32))) { // if TIM13 interrupt is not disabled
+                    ptrVect->processor_interrupts.irq_TIM8_UP_TIM13();   // call the interrupt handler
                 }
             }
         }
@@ -3289,11 +3986,11 @@ extern int fnSimTimers(void)
         if (TIM14_CNT >= TIM10_ARR) {
             TIM14_CNT = 0;
             TIM14_SR |= TIM_SR_UIF;
-            if (TIM14_CR1 & TIM_CR1_OPM) {                               // single-shot mode
+            if ((TIM14_CR1 & TIM_CR1_OPM) != 0) {                        // single-shot mode
                 TIM14_CR1 = 0;                                           // automatically disable further operation
             }
-            if (TIM14_DIER & TIM_DIER_UIE) {                             // overflow interrupt enabled
-                if (IRQ32_63_SER & (1 << (irq_TIM8_TRG_COM_TIM14_ID - 32))) { // if TIM10 interrupt is not disabled
+            if ((TIM14_DIER & TIM_DIER_UIE) != 0) {                      // overflow interrupt enabled
+                if (fnGenInt(irq_TIM8_TRG_COM_TIM14_ID) != 0) {          // if TIM14 interrupt is not disabled
                     ptrVect->processor_interrupts.irq_TIM8_TRG_COM_TIM14(); // call the interrupt handler
                 }
             }
@@ -3323,7 +4020,7 @@ static const unsigned char monthDays[]={31,28,31,30,31,30,31,31,30,31,30,31};
 //
 extern void fnInitInternalRTC(char *argv[])
 {
-#if defined _STM32F2XX || defined _STM32F4XX || defined _STM32F7XX
+#if defined _STM32F2XX || defined _STM32F4XX || defined _STM32F7XX || defined _STM32H7XX
     unsigned long ulRegister;
 #endif
     unsigned short *ptrShort = (unsigned short *)*argv;
@@ -3367,7 +4064,7 @@ extern void fnInitInternalRTC(char *argv[])
     ulStartTime *= 60;                                                   // convert minutes to seconds
     ulStartTime += RTC_SEC;                                              // add seconds in present minute
 
-#if defined _STM32F2XX || defined _STM32F4XX || defined _STM32F7XX       // {1}
+#if defined _STM32F2XX || defined _STM32F4XX || defined _STM32F7XX || defined _STM32H7XX // {1}
     ulRegister  = (RTC_SEC%10);
     ulRegister |= ((RTC_SEC/10) << 4);
     ulRegister |= ((RTC_MIN%10) << 8);
@@ -3398,18 +4095,18 @@ extern void fnInitInternalRTC(char *argv[])
 #if defined SUPPORT_TOUCH_SCREEN && defined MB785_GLCD_MODE
 extern void fnSTMPE811(int iX, int iY);
 
-extern void fnPenPressed(int iX, int iY)
+extern void fnPenPressed(int iX, int iY, int iPenRef)
 {
     fnSTMPE811(iX, iY);
     fnSimulateInputChange(PORT_EXT_TOUCH_IRQ_PORT, (15 - PORT_EXT_TOUCH_IRQ_PORT_BIT), CLEAR_INPUT);
 }
 
-extern void fnPenMoved(int iX, int iY)
+extern void fnPenMoved(int iX, int iY, int iPenRef)
 {
     fnSTMPE811(iX, iY);
 }
 
-extern void fnPenLifted(void)
+extern void fnPenLifted(int iPenRef)
 {
     fnSTMPE811(-1, -1);
     fnSimulateInputChange(PORT_EXT_TOUCH_IRQ_PORT, (15 - PORT_EXT_TOUCH_IRQ_PORT_BIT), CLEAR_INPUT);
@@ -3794,6 +4491,12 @@ extern void fnSimCAN(int iChannel, int iBufferNumber, int iSpecial)
     #endif
     }
 }
+
+extern void fnSimulateCanIn(int iChannel, unsigned long ilID, int iRTR, unsigned char *ptrData, unsigned char ucDLC)
+{
+    static unsigned short usTimeStamp = 0;
+    fnCAN_reception(iChannel, ucDLC, ptrData, ilID, ilID, iRTR, usTimeStamp++, 0);
+}
 #endif
 
 #if 1 //defined RUN_IN_FREE_RTOS
@@ -3836,7 +4539,9 @@ extern void fnUpdateOperatingDetails(void)
     #if !defined NO_STATUS_BAR
     extern void fnPostOperatingDetails(char *ptrDetails);
     unsigned long ulHCLK;
+    #if !defined _STM32H7XX
     unsigned long ulAPB1;
+    #endif
     #if defined RCC_CFGR_PPRE2_HCLK_DIV2
     unsigned long ulAPB2;
     #endif
@@ -3846,7 +4551,9 @@ extern void fnUpdateOperatingDetails(void)
     ptrBuffer = fnBufferDec((SIZE_OF_FLASH/1024), 0, ptrBuffer);
     ptrBuffer = uStrcpy(ptrBuffer, "k, SRAM = ");
     ptrBuffer = fnBufferDec((SIZE_OF_RAM/1024), 0, ptrBuffer);
-    ptrBuffer = uStrcpy(ptrBuffer, "k, HCLK = ");
+    #if defined _STM32H7XX
+    ulHCLK = (PLL_OUTPUT_FREQ >> (RCC_D1CFGR & RCC_D1CFGR_HPRE_MASK));   // HCLK according to register setting
+    #else
     ulHCLK = (PLL_OUTPUT_FREQ >> ((RCC_CFGR & RCC_CFGR_HPRE_SYSCLK_DIV512) >> 4)); // HCLK according to register setting
     if ((RCC_CFGR & RCC_CFGR_PPRE1_HCLK_DIV2) != 0) {                    // if divide enabled
         #if defined _STM32L432 || defined _STM32L0x1
@@ -3858,6 +4565,7 @@ extern void fnUpdateOperatingDetails(void)
     else {
         ulAPB1 = ulHCLK;
     }
+    #endif
     #if defined RCC_CFGR_PPRE2_HCLK_DIV2
     if ((RCC_CFGR & RCC_CFGR_PPRE2_HCLK_DIV2) != 0) {                    // if divide enabled
         #if defined _STM32L432 || defined _STM32L0x1
@@ -3870,8 +4578,18 @@ extern void fnUpdateOperatingDetails(void)
         ulAPB2 = ulHCLK;
     }
     #endif
+    ptrBuffer = uStrcpy(ptrBuffer, "k, HCLK = ");
     ptrBuffer = fnBufferDec(ulHCLK, 0, ptrBuffer);
-    #if defined RCC_CFGR_PPRE2_HCLK_DIV2
+    #if defined _STM32H7XX
+    ptrBuffer = uStrcpy(ptrBuffer, ", APB1 = ");
+    ptrBuffer = fnBufferDec((ulHCLK>>((RCC_D2CFGR & RCC_D2CFGR_D2PPRE1_MASK) >> 4)), 0, ptrBuffer);
+    ptrBuffer = uStrcpy(ptrBuffer, ", APB2 = ");
+    ptrBuffer = fnBufferDec((ulHCLK >> ((RCC_D2CFGR & RCC_D2CFGR_D2PPRE2_MASK) >> 8)), 0, ptrBuffer);
+    ptrBuffer = uStrcpy(ptrBuffer, ", APB3 = ");
+    ptrBuffer = fnBufferDec((ulHCLK >> ((RCC_D1CFGR & RCC_D1CFGR_D1PPRE_MASK) >> 4)), 0, ptrBuffer);
+    ptrBuffer = uStrcpy(ptrBuffer, ", APB4 = ");
+    ptrBuffer = fnBufferDec((ulHCLK >> ((RCC_D3CFGR & RCC_D3CFGR_D3PPRE_MASK) >> 4)), 0, ptrBuffer);
+    #elif defined RCC_CFGR_PPRE2_HCLK_DIV2
     ptrBuffer = uStrcpy(ptrBuffer, ", APB1 = ");
     ptrBuffer = fnBufferDec(ulAPB1, 0, ptrBuffer);
     ptrBuffer = uStrcpy(ptrBuffer, ", APB2 = ");

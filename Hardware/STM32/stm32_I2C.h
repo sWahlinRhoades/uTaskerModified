@@ -11,9 +11,10 @@
     File:      stm32_I2C.h
     Project:   Single Chip Embedded Internet
     ---------------------------------------------------------------------
-    Copyright (C) M.J.Butcher Consulting 2004..2018
+    Copyright (C) M.J.Butcher Consulting 2004..2020
     *********************************************************************
     20.11.2018 Reworked to avoid polling during start condition wait and with option [NO_REPEATED_START_ON_WRITE] to force STOP/START instead of repeated start between back-to-back messages
+    16.11.2020 I2C simulation extended to support multipe I2C buses       {1}
 
 */
 
@@ -91,7 +92,7 @@ static void _I2C_Interrupt(QUEUE_HANDLE Channel)
         }
         else {                                                           // following message waiting
 #if defined NO_REPEATED_START_ON_WRITE
-            ptrRegs->I2C_CR1 = (I2C_CR1_PE | I2C_CR1_ACK | I2C_CR1_START | I2C_CR1_STOP); // set transmit mode and command start condition to be sent
+            ptrRegs->I2C_CR1 = (I2C_CR1_PE | I2C_CR1_ACK | I2C_CR1_START | I2C_CR1_STOP); // set transmit mode and command stop/start condition to be sent
 #else
             ptrRegs->I2C_CR1 = (I2C_CR1_PE | I2C_CR1_ACK | I2C_CR1_START); // set transmit mode and command start condition to be sent
 #endif
@@ -187,7 +188,7 @@ static void _I2C_Interrupt(QUEUE_HANDLE Channel)
         if (tx_control->ucPresentLen != 0) {
             tx_control->ucPresentLen--;
     #if defined _WINDOWS
-            ptrRegs->I2C_DR = fnSimI2C_devices(I2C_RX_DATA, 0);          // simulate the interrupt directly
+            ptrRegs->I2C_DR = fnSimI2C_devices(Channel, I2C_RX_DATA, 0); // {1} simulate the interrupt directly
             iInts |= (I2C_INT0 << Channel);
     #endif
         }
@@ -206,7 +207,7 @@ static void _I2C_Interrupt(QUEUE_HANDLE Channel)
             tx_control->I2C_queue.get = tx_control->I2C_queue.QUEbuffer; // handle the ring buffer
         }
     #if defined _WINDOWS
-        fnSimI2C_devices(I2C_TX_DATA, (unsigned char)ptrRegs->I2C_DR);
+        fnSimI2C_devices(Channel, I2C_TX_DATA, (unsigned char)ptrRegs->I2C_DR); // {1}
         iInts |= (I2C_INT0 << Channel);
     #endif
     }
@@ -251,7 +252,7 @@ extern void fnConfigI2C(I2CTABLE *pars)
     switch (pars->Channel) {
     case 0:
         POWER_UP(APB1, (RCC_APB1ENR_I2C1EN));                            // enable clocks to I2C1
-    #if defined _STM32F2XX || defined _STM32F4XX || defined _STM32F7XX
+    #if defined _STM32F2XX || defined _STM32F4XX || defined _STM32F7XX || defined _STM32H7XX
         #if defined I2C1_ALT_PINS_3                                      // {30}
         _CONFIG_PERIPHERAL_OUTPUT(B, (PERIPHERAL_I2C1_2_3), (PORTB_BIT6 | PORTB_BIT7), (OUTPUT_MEDIUM | OUTPUT_OPEN_DRAIN));
         #elif defined I2C1_ALT_PINS_2                                    // {28}
@@ -271,8 +272,11 @@ extern void fnConfigI2C(I2CTABLE *pars)
     #if I2C_AVAILABLE > 1
     case 1:                                                              // channel 1 (I2C2)
         POWER_UP(APB1, (RCC_APB1ENR_I2C2EN));                            // enable clocks to I2C2
-        #if defined _STM32F2XX || defined _STM32F4XX || defined _STM32F7XX
-            #if defined I2C2_ALT_PINS_2                                  // {5}
+        #if defined _STM32F2XX || defined _STM32F4XX || defined _STM32F7XX || defined _STM32H7XX
+            #if defined I2C2_ALT_PINS_3
+        _CONFIG_PERIPHERAL_OUTPUT(B, (PERIPHERAL_I2C1_I2C2), (PORTB_BIT9), (OUTPUT_MEDIUM | OUTPUT_OPEN_DRAIN));
+        _CONFIG_PERIPHERAL_OUTPUT(B, (PERIPHERAL_I2C1_2_3), (PORTB_BIT10), (OUTPUT_MEDIUM | OUTPUT_OPEN_DRAIN));
+            #elif defined I2C2_ALT_PINS_2                                // {5}
         _CONFIG_PERIPHERAL_OUTPUT(H, (PERIPHERAL_I2C1_2_3), (PORTH_BIT4 | PORTH_BIT5), (OUTPUT_MEDIUM | OUTPUT_OPEN_DRAIN));
             #elif defined I2C2_ALT_PINS_1
         _CONFIG_PERIPHERAL_OUTPUT(F, (PERIPHERAL_I2C1_2_3), (PORTF_BIT0 | PORTF_BIT1), (OUTPUT_MEDIUM | OUTPUT_OPEN_DRAIN));
@@ -310,13 +314,23 @@ extern void fnConfigI2C(I2CTABLE *pars)
     }
     ptrRegs->I2C_CR1 = 0;                                                // remove reset
     ptrRegs->I2C_CR2 = (PCLK1/1000000);
-    if (pars->usSpeed == 400) {                                          // high speed 400k (peripheral input clock frequency must be at least 4 MHz)
-        ptrRegs->I2C_TRISE = ((((PCLK1/1000000) * 300)/1000) + 1);       // set maximum rise time to 300ns in fast mode
-        ptrRegs->I2C_CCR = (I2C_CCR_FS | I2C_CCR_DUTY_16_9 | ((PCLK1 + (25 * 400000))/(25 * 400000)));
-    }
-    else {                                                               // 100k (peripheral input clock frequency must be at least 2 MHz)
-        ptrRegs->I2C_TRISE = ((PCLK1/1000000) + 1);                      // set maximum rise time to 1us in normal mode
-        ptrRegs->I2C_CCR = ((PCLK1 + 2 * 100000)/(2 * 100000));          // set the clock speed to 100kHz
+    switch (pars->usSpeed) {
+    case 1000:                                                           // 1Mb/s
+        ptrRegs->I2C_TRISE = ((((PCLK1 / 1000000) * 12) / 1000) + 1);    // set maximum rise time to 12ns in 1M-mode
+        ptrRegs->I2C_CCR = (I2C_CCR_FS | I2C_CCR_DUTY_16_9 | ((PCLK1 + (25 * 1000000)) / (25 * 1000000)));
+        break;
+    case 400:
+        // High speed 400k (peripheral input clock frequency must be at least 4 MHz)
+        //
+        ptrRegs->I2C_TRISE = ((((PCLK1 / 1000000) * 300) / 1000) + 1);   // set maximum rise time to 300ns in fast mode
+        ptrRegs->I2C_CCR = (I2C_CCR_FS | I2C_CCR_DUTY_16_9 | ((PCLK1 + (25 * 400000)) / (25 * 400000)));
+        break;
+    default:
+        // 100k (peripheral input clock frequency must be at least 2 MHz)
+        //
+        ptrRegs->I2C_TRISE = ((PCLK1 / 1000000) + 1);                      // set maximum rise time to 1us in normal mode
+        ptrRegs->I2C_CCR = ((PCLK1 + 2 * 100000) / (2 * 100000));          // set the clock speed to 100kHz
+        break;
     }
     ptrRegs->I2C_CR1 = (I2C_CR1_ACK | I2C_CR1_PE);                       // activate I2C interface
     #if defined _WINDOWS
@@ -338,7 +352,7 @@ extern void fnTxI2C(I2CQue *ptI2CQue, QUEUE_HANDLE Channel)
         if ((ptrRegs->I2C_SR2 & (I2C_SR2_BUSY | I2C_SR2_MSL)) == I2C_SR2_BUSY) { // {8} check whether the bus is busy before initiating data transfer (the master bit is set if this is a repeated start, where the SCL line will be at '0')
             // If the bus is busy it means that SDA and SCL are not both at '1' - since we support only master mode this probably means a hardware error or missing pull-up resistors
             //
-            return;                                                      // we return to avoid the processor waiting indefinitely for the start bit to be send but the problem should be resolved before futher operation is possible
+            return;                                                      // we return to avoid the processor waiting indefinitely for the start bit to be send but the problem should be resolved before further operation is possible
         }
 
         ptrRegs->I2C_CR1 = (I2C_CR1_PE | I2C_CR1_ACK | I2C_CR1_START);   // set transmit mode and command start condition to be sent
@@ -381,7 +395,7 @@ extern void fnTxI2C(I2CQue *ptI2CQue, QUEUE_HANDLE Channel)
     ptrRegs->I2C_CR2 |= (I2C_CR2_ITBUFEN | I2C_CR2_ITEVTEN | I2C_CR2_ITERREN); // {9} generate interrupt when address has been sent or on error
     #if defined _WINDOWS
     ptrRegs->I2C_SR1 = (I2C_SR1_TxE | I2C_SR1_ADDR);
-    fnSimI2C_devices(I2C_ADDRESS, (unsigned char)ptrRegs->I2C_DR);       // simulate address transmission
+    fnSimI2C_devices(Channel, I2C_ADDRESS, (unsigned char)ptrRegs->I2C_DR); // {1} simulate address transmission
     iInts |= (I2C_INT0 << Channel);
     #endif
 }

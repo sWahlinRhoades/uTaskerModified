@@ -11,9 +11,9 @@
     File:      stm32_ENET.h
     Project:   Single Chip Embedded Internet
     ---------------------------------------------------------------------
-    Copyright (C) M.J.Butcher Consulting 2004..2018
+    Copyright (C) M.J.Butcher Consulting 2004..2020
     *********************************************************************
-
+    26.03.2019 Enable LAN8720 interrupt when interrupt mode is used      {33}
 */
 
 /* =================================================================== */
@@ -120,7 +120,7 @@ extern signed char fnEthernetEvent(unsigned char *ucEvent, ETHERNET_FRAME *rx_fr
     #define FULL_DUPLEX_FLAG       DUPLEX_STATUS_FULL_DUPLEX
 #elif defined _LAN8720 || defined _LAN8740 || defined _LAN8742           // {12}
     #define READ_INTERRUPT_FLAGS   (0x1d << ETH_MACMIIAR_MR_SHIFT)
-    #define LINK_CHANGE_INTERRUPTS (0x0050)                              // auto-negotiation complete or link-down
+    #define LINK_CHANGE_INTERRUPTS (LAN8720_INTERRUPT_LINK_DOWN | LAN8720_INTERRUPT_AUTO_NEG_COMPLETE) // auto-negotiation complete or link-down
     #define READ_STATE             (0x1f << ETH_MACMIIAR_MR_SHIFT)
     #define SPEED_100M             0x0004                                // bit indicating 10M speed (used inverted for compatibility)
     #define FULL_DUPLEX_FLAG       0x0010                                // flag indicating full duplex link
@@ -220,18 +220,18 @@ extern void fnCheckEthLinkState(void)
     int_phy_message[MSG_SOURCE_TASK] = INTERRUPT_EVENT;
     int_phy_message[MSG_INTERRUPT_EVENT] = UNKNOWN_INTERRUPT;
     #endif
-    if (usInterrupt & LINK_CHANGE_INTERRUPTS) {                          // change of link state detected or auto-negotiation complete
+    if ((usInterrupt & LINK_CHANGE_INTERRUPTS) != 0) {                   // change of link state detected or auto-negotiation complete
         usInterrupt = fnReadMII_PHY(GENERIC_BASIC_STATUS_REGISTER);      // read whether the link is up or not
     }
     else {
         return;                                                          // ignore if no change
     }
-    if (usInterrupt & (PHY_AUTO_NEGOTIATION_COMPLETE | PHY_LINK_IS_UP)) {// since auto-negotiation has just completed ensure that MAC settings are synchronised
+    if ((usInterrupt & (PHY_AUTO_NEGOTIATION_COMPLETE | PHY_LINK_IS_UP)) != 0) {// since auto-negotiation has just completed ensure that MAC settings are synchronised
         usInterrupt = fnReadMII_PHY(READ_STATE);                         // check the  details of link
     #if !defined _KS8721 && !defined _ST802RT1B
         usInterrupt ^= SPEED_100M;                                       // invert the flag for compatibility
     #endif
-        if (usInterrupt & SPEED_100M) {                                  // if at least 100 half duplex it indicates a 100MHz link
+        if ((usInterrupt & SPEED_100M) != 0) {                           // if at least 100 half duplex it indicates a 100MHz link
            ETH_MACCR |= ETH_MACCR_FES;                                   // ensure EMAC is set to 100MHz mode
     #if defined INTERRUPT_TASK_PHY
             int_phy_message[MSG_INTERRUPT_EVENT] = LAN_LINK_UP_100;
@@ -243,7 +243,7 @@ extern void fnCheckEthLinkState(void)
             int_phy_message[MSG_INTERRUPT_EVENT] = LAN_LINK_UP_10;
     #endif
         }
-        if (usInterrupt & FULL_DUPLEX_FLAG) {
+        if ((usInterrupt & FULL_DUPLEX_FLAG) != 0) {
             ETH_MACCR &= ~(ETH_MACCR_IFG_64);
             ETH_MACCR |= (ETH_MACCR_IFG_96 | ETH_MACCR_DM);
     #if defined INTERRUPT_TASK_PHY
@@ -398,13 +398,14 @@ static void fnEnableMulticastHash(unsigned char ucHashRef)
 //
 extern void fnConfigureMulticastIPV6(void)
 {
+    unsigned char ucHashRef;
     unsigned char ucMac[MAC_LENGTH];                                     // set hash according to the multicast address 0x33 0x33 0xff XX XX XX (where XX XX XX are the last three bytes of the IPV6 IP address) as used by ND (neighbor discovery)
     ucMac[0] = 0x33;
     ucMac[1] = 0x33;
     ucMac[2] = 0xff;
-    ucMac[3] = ucLinkLocalIPv6Address[3 + (IPV6_LENGTH - MAC_LENGTH)];
-    ucMac[4] = ucLinkLocalIPv6Address[4 + (IPV6_LENGTH - MAC_LENGTH)];
-    ucMac[5] = ucLinkLocalIPv6Address[5 + (IPV6_LENGTH - MAC_LENGTH)];
+    ucMac[3] = ucLinkLocalIPv6Address[DEFAULT_NETWORK][3 + (IPV6_LENGTH - MAC_LENGTH)];
+    ucMac[4] = ucLinkLocalIPv6Address[DEFAULT_NETWORK][4 + (IPV6_LENGTH - MAC_LENGTH)];
+    ucMac[5] = ucLinkLocalIPv6Address[DEFAULT_NETWORK][5 + (IPV6_LENGTH - MAC_LENGTH)];
     ucHashRef = fnCalculateHash(ucMac);
     fnEnableMulticastHash(ucHashRef);
     #if defined USE_IGMP
@@ -492,11 +493,11 @@ extern int fnConfigEthernet(ETHTABLE *pars)
     unsigned short usMIIData;
     STM32_BD *ptrBd, *ptrFirstTxBd;
     unsigned char *ptrBuffer;
-#if defined ETHERNET_RMII && (defined _STM32F2XX || defined _STM32F4XX || defined _STM32F7XX) // {6}
+#if defined ETHERNET_RMII && (defined _STM32F2XX || defined _STM32F4XX || defined _STM32F7XX || defined _STM32H7XX) // {6}
     POWER_UP(APB2, RCC_APB2ENR_SYSCFGEN);                                // power up the system configuration controller
     SYSCFG_PMC = SYSCFG_PMC_MII_RMII_SEL;                                // enable RMII mode (performed while the MAC is in reset and before MAC clocks have been enabled)
 #endif
-#if defined ETHERNET_RMII && (defined _STM32F2XX || defined _STM32F4XX || defined _STM32F7XX) // {6}
+#if defined ETHERNET_RMII && (defined _STM32F2XX || defined _STM32F4XX || defined _STM32F7XX || defined _STM32H7XX) // {6}
     POWER_UP(AHB1, (RCC_AHB1ENR_ETHMACEN | RCC_AHB1ENR_ETHMACTXEN | RCC_AHB1ENR_ETHMACRXEN)); // {14} enable clocks to Ethernet controller modules
     // RMII mode
     //
@@ -510,7 +511,6 @@ extern int fnConfigEthernet(ETHTABLE *pars)
     #elif defined ETH_TXD_G                                              // locate TXD0 and TXD1 on port G rather than port B
     _CONFIG_PERIPHERAL_OUTPUT(B, (PERIPHERAL_ETH), (ETH_TXEN_B_11), (OUTPUT_FAST | OUTPUT_PUSH_PULL));
     _CONFIG_PERIPHERAL_OUTPUT(G, (PERIPHERAL_ETH), (ETH_TXD0_G_13 | ETH_TXD1_G_14), (OUTPUT_FAST | OUTPUT_PUSH_PULL));
-    #elif defined ETH_TXD1_B
     #else
     _CONFIG_PERIPHERAL_OUTPUT(B, (PERIPHERAL_ETH), (ETH_TXD0_B_12 | ETH_TXD1_B_13 | ETH_TXEN_B_11), (OUTPUT_FAST | OUTPUT_PUSH_PULL));
     #endif
@@ -558,20 +558,20 @@ extern int fnConfigEthernet(ETHTABLE *pars)
     POWER_UP(AHB1, (RCC_AHB1ENR_ETHMACEN | RCC_AHB1ENR_ETHMACTXEN | RCC_AHB1ENR_ETHMACRXEN)); // {14} enable clocks to Ethernet controller modules
     // MII mode
     //
-        #if !defined _STM32F2XX && !defined _STM32F4XX && !defined _STM32F7XX
+        #if !defined _STM32F2XX && !defined _STM32F4XX && !defined _STM32F7XX && !defined _STM32H7XX
     _PERIPHERAL_REMOVE_REMAP(MII_RMII_SEL);                              // select MII interface mode rather than RMII
     _PERIPHERAL_REMAP(ETH_REMAP);                                        // remap certain MII pins (PD8:PD9:PD10:PD11:PD12)
         #endif
         #if defined ETHERNET_DRIVE_PHY_25MHZ                             // configure the MCO output to drive 25MHz PHY clock
     RCC_CFGR |= (RCC_CFGR_MCO1_XT1);                                     // select MCO to be equal to the 25MHz external crystal (note that it is recommended to set this after reset, before configuring the clocks to avoid glitches - since the clock is not yet driven to the PHY this is not respected)
-            #if defined _STM32F2XX || defined _STM32F4XX || defined _STM32F7XX
+            #if defined _STM32F2XX || defined _STM32F4XX || defined _STM32F7XX || defined _STM32H7XX
     _CONFIG_PERIPHERAL_OUTPUT(A, (PERIPHERAL_SYS), (MCO1_A_8), (OUTPUT_FAST | OUTPUT_PUSH_PULL)); // drive 25MHz clock to the PHY
             #else
     _CONFIG_PERIPHERAL_OUTPUT(A, (PERIPHERAL_SYS), (MCO_A_8), (OUTPUT_FAST | OUTPUT_PUSH_PULL)); // drive 25MHz clock to the PHY
             #endif
         #endif
     _CONFIG_PERIPHERAL_OUTPUT(A, (PERIPHERAL_ETH), (ETH_MDIO_A_2), (OUTPUT_FAST | OUTPUT_PUSH_PULL));
-        #if defined _STM32F2XX || defined _STM32F4XX || defined _STM32F7XX
+        #if defined _STM32F2XX || defined _STM32F4XX || defined _STM32F7XX || defined _STM32H7XX
     _CONFIG_PERIPHERAL_OUTPUT(G, (PERIPHERAL_ETH), (ETH_TXEN_G_11 | ETH_TXD0_G_13 | ETH_TXD1_G_14), (OUTPUT_FAST | OUTPUT_PUSH_PULL));
     _CONFIG_PERIPHERAL_OUTPUT(B, (PERIPHERAL_ETH), (ETH_TXD3_B_8), (OUTPUT_FAST | OUTPUT_PUSH_PULL));
     _CONFIG_PERIPHERAL_OUTPUT(C, (PERIPHERAL_ETH), (ETH_MDC_C_1 | ETH_TXD2_C_2), (OUTPUT_FAST | OUTPUT_PUSH_PULL));
@@ -728,6 +728,9 @@ extern int fnConfigEthernet(ETHTABLE *pars)
     interrupt_setup.int_port_bit = PHY_INTERRUPT;                        // the input connected
     interrupt_setup.int_port_sense = (IRQ_FALLING_EDGE);                 // interrupt on this edge
     fnConfigureInterrupt(&interrupt_setup);                              // configure test interrupt
+    #if defined _LAN8720                                                 // {33}
+    fnWriteMII_PHY(LAN8720_INTERRUPT_MASK_REGISTER, (LAN8720_INTERRUPT_AUTO_NEG_COMPLETE | LAN8720_INTERRUPT_LINK_DOWN/* | LAN8720_INTERRUPT_ENERGYON*/)); // enable interrupt on line state changes
+    #endif
 #endif
 
 #if defined _DP83848

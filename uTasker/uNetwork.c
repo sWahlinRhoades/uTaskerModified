@@ -11,7 +11,7 @@
     File:      uNetwork.c
     Project:   Single Chip Embedded Internet
     ---------------------------------------------------------------------
-    Copyright (C) M.J.Butcher Consulting 2004..2016
+    Copyright (C) M.J.Butcher Consulting 2004..2018
     *********************************************************************
     10.03.2007 Sequence number correction                                {1}
     08.03.2007 Improve global message sequence number handling           {2}
@@ -123,7 +123,7 @@ extern QUEUE_TRANSFER fnDistributedTx(unsigned char *output_buffer, QUEUE_TRANSF
     unsigned char  ucType = NO_ACK_REQ;
 #endif
 
-    if ((!Ethernet_handle[0]) || (!OurNetworkNumber)) {                  // trying to send before network ready...
+    if ((Ethernet_handle[0] == 0) || (OurNetworkNumber == 0)) {          // trying to send before network ready...
         return 0;
     }
     if (output_buffer[MSG_DESTINATION_NODE] == GLOBAL_MESSAGE) {

@@ -1,28 +1,67 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
-# Visual Studio 14
-VisualStudioVersion = 14.0.25420.1
+# Visual Studio 15
+VisualStudioVersion = 15.0.28307.1000
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "uTaskerOpenSource", "uTaskerV1-4.vcxproj", "{F08CCFCE-B19A-4F3C-9FA7-CF907BB6F36F}"
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "uTaskerProject", "uTaskerV1-4.vcxproj", "{F08CCFCE-B19A-4F3C-9FA7-CF907BB6F36F}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
-		uTasker Kinetis plus GNU build|Win32 = uTasker Kinetis plus GNU build|Win32
-		uTasker Kinetis|Win32 = uTasker Kinetis|Win32
-		uTasker STM32 plus GNU build|Win32 = uTasker STM32 plus GNU build|Win32
-		uTasker STM32|Win32 = uTasker STM32|Win32
+		uTasker AVR32|x86 = uTasker AVR32|x86
+		uTasker Coldfire plus GNU build|x86 = uTasker Coldfire plus GNU build|x86
+		uTasker Coldfire|x86 = uTasker Coldfire|x86
+		uTasker i.MX plus GNU build|x86 = uTasker i.MX plus GNU build|x86
+		uTasker i.MX RT - SSL plus GCC build|x86 = uTasker i.MX RT - SSL plus GCC build|x86
+		uTasker i.MX RT - SSL|x86 = uTasker i.MX RT - SSL|x86
+		uTasker i.MX WIFI|x86 = uTasker i.MX WIFI|x86
+		uTasker i.MX|x86 = uTasker i.MX|x86
+		uTasker Kinetis - SSL plus GNU build|x86 = uTasker Kinetis - SSL plus GNU build|x86
+		uTasker Kinetis - SSL|x86 = uTasker Kinetis - SSL|x86
+		uTasker Kinetis plus GNU build|x86 = uTasker Kinetis plus GNU build|x86
+		uTasker Kinetis|x86 = uTasker Kinetis|x86
+		uTasker Luminary plus GNU build|x86 = uTasker Luminary plus GNU build|x86
+		uTasker Luminary|x86 = uTasker Luminary|x86
+		uTasker STM32 plus GNU build|x86 = uTasker STM32 plus GNU build|x86
+		uTasker STM32|x86 = uTasker STM32|x86
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
-		{F08CCFCE-B19A-4F3C-9FA7-CF907BB6F36F}.uTasker Kinetis plus GNU build|Win32.ActiveCfg = uTasker Kinetis plus GNU build|Win32
-		{F08CCFCE-B19A-4F3C-9FA7-CF907BB6F36F}.uTasker Kinetis plus GNU build|Win32.Build.0 = uTasker Kinetis plus GNU build|Win32
-		{F08CCFCE-B19A-4F3C-9FA7-CF907BB6F36F}.uTasker Kinetis|Win32.ActiveCfg = uTasker Kinetis|Win32
-		{F08CCFCE-B19A-4F3C-9FA7-CF907BB6F36F}.uTasker Kinetis|Win32.Build.0 = uTasker Kinetis|Win32
-		{F08CCFCE-B19A-4F3C-9FA7-CF907BB6F36F}.uTasker STM32 plus GNU build|Win32.ActiveCfg = uTasker STM32 plus GNU build|Win32
-		{F08CCFCE-B19A-4F3C-9FA7-CF907BB6F36F}.uTasker STM32 plus GNU build|Win32.Build.0 = uTasker STM32 plus GNU build|Win32
-		{F08CCFCE-B19A-4F3C-9FA7-CF907BB6F36F}.uTasker STM32|Win32.ActiveCfg = uTasker STM32|Win32
-		{F08CCFCE-B19A-4F3C-9FA7-CF907BB6F36F}.uTasker STM32|Win32.Build.0 = uTasker STM32|Win32
+		{F08CCFCE-B19A-4F3C-9FA7-CF907BB6F36F}.uTasker AVR32|x86.ActiveCfg = uTasker AVR32|Win32
+		{F08CCFCE-B19A-4F3C-9FA7-CF907BB6F36F}.uTasker AVR32|x86.Build.0 = uTasker AVR32|Win32
+		{F08CCFCE-B19A-4F3C-9FA7-CF907BB6F36F}.uTasker Coldfire plus GNU build|x86.ActiveCfg = uTasker Coldfire plus GNU build|Win32
+		{F08CCFCE-B19A-4F3C-9FA7-CF907BB6F36F}.uTasker Coldfire plus GNU build|x86.Build.0 = uTasker Coldfire plus GNU build|Win32
+		{F08CCFCE-B19A-4F3C-9FA7-CF907BB6F36F}.uTasker Coldfire|x86.ActiveCfg = uTasker Coldfire|Win32
+		{F08CCFCE-B19A-4F3C-9FA7-CF907BB6F36F}.uTasker Coldfire|x86.Build.0 = uTasker Coldfire|Win32
+		{F08CCFCE-B19A-4F3C-9FA7-CF907BB6F36F}.uTasker i.MX plus GNU build|x86.ActiveCfg = uTasker i.MX plus GNU build|Win32
+		{F08CCFCE-B19A-4F3C-9FA7-CF907BB6F36F}.uTasker i.MX plus GNU build|x86.Build.0 = uTasker i.MX plus GNU build|Win32
+		{F08CCFCE-B19A-4F3C-9FA7-CF907BB6F36F}.uTasker i.MX RT - SSL plus GCC build|x86.ActiveCfg = uTasker i.MX RT - SSL plus GCC build|Win32
+		{F08CCFCE-B19A-4F3C-9FA7-CF907BB6F36F}.uTasker i.MX RT - SSL plus GCC build|x86.Build.0 = uTasker i.MX RT - SSL plus GCC build|Win32
+		{F08CCFCE-B19A-4F3C-9FA7-CF907BB6F36F}.uTasker i.MX RT - SSL|x86.ActiveCfg = uTasker i.MX RT - SSL|Win32
+		{F08CCFCE-B19A-4F3C-9FA7-CF907BB6F36F}.uTasker i.MX RT - SSL|x86.Build.0 = uTasker i.MX RT - SSL|Win32
+		{F08CCFCE-B19A-4F3C-9FA7-CF907BB6F36F}.uTasker i.MX WIFI|x86.ActiveCfg = uTasker i.MX WIFI|Win32
+		{F08CCFCE-B19A-4F3C-9FA7-CF907BB6F36F}.uTasker i.MX WIFI|x86.Build.0 = uTasker i.MX WIFI|Win32
+		{F08CCFCE-B19A-4F3C-9FA7-CF907BB6F36F}.uTasker i.MX|x86.ActiveCfg = uTasker i.MX|Win32
+		{F08CCFCE-B19A-4F3C-9FA7-CF907BB6F36F}.uTasker i.MX|x86.Build.0 = uTasker i.MX|Win32
+		{F08CCFCE-B19A-4F3C-9FA7-CF907BB6F36F}.uTasker Kinetis - SSL plus GNU build|x86.ActiveCfg = uTasker Kinetis - SSL plus GNU build|Win32
+		{F08CCFCE-B19A-4F3C-9FA7-CF907BB6F36F}.uTasker Kinetis - SSL plus GNU build|x86.Build.0 = uTasker Kinetis - SSL plus GNU build|Win32
+		{F08CCFCE-B19A-4F3C-9FA7-CF907BB6F36F}.uTasker Kinetis - SSL|x86.ActiveCfg = uTasker Kinetis - SSL|Win32
+		{F08CCFCE-B19A-4F3C-9FA7-CF907BB6F36F}.uTasker Kinetis - SSL|x86.Build.0 = uTasker Kinetis - SSL|Win32
+		{F08CCFCE-B19A-4F3C-9FA7-CF907BB6F36F}.uTasker Kinetis plus GNU build|x86.ActiveCfg = uTasker Kinetis plus GNU build|Win32
+		{F08CCFCE-B19A-4F3C-9FA7-CF907BB6F36F}.uTasker Kinetis plus GNU build|x86.Build.0 = uTasker Kinetis plus GNU build|Win32
+		{F08CCFCE-B19A-4F3C-9FA7-CF907BB6F36F}.uTasker Kinetis|x86.ActiveCfg = uTasker Kinetis|Win32
+		{F08CCFCE-B19A-4F3C-9FA7-CF907BB6F36F}.uTasker Kinetis|x86.Build.0 = uTasker Kinetis|Win32
+		{F08CCFCE-B19A-4F3C-9FA7-CF907BB6F36F}.uTasker Luminary plus GNU build|x86.ActiveCfg = uTasker Luminary plus GNU build|Win32
+		{F08CCFCE-B19A-4F3C-9FA7-CF907BB6F36F}.uTasker Luminary plus GNU build|x86.Build.0 = uTasker Luminary plus GNU build|Win32
+		{F08CCFCE-B19A-4F3C-9FA7-CF907BB6F36F}.uTasker Luminary|x86.ActiveCfg = uTasker Luminary|Win32
+		{F08CCFCE-B19A-4F3C-9FA7-CF907BB6F36F}.uTasker Luminary|x86.Build.0 = uTasker Luminary|Win32
+		{F08CCFCE-B19A-4F3C-9FA7-CF907BB6F36F}.uTasker STM32 plus GNU build|x86.ActiveCfg = uTasker STM32 plus GNU build|Win32
+		{F08CCFCE-B19A-4F3C-9FA7-CF907BB6F36F}.uTasker STM32 plus GNU build|x86.Build.0 = uTasker STM32 plus GNU build|Win32
+		{F08CCFCE-B19A-4F3C-9FA7-CF907BB6F36F}.uTasker STM32|x86.ActiveCfg = uTasker STM32|Win32
+		{F08CCFCE-B19A-4F3C-9FA7-CF907BB6F36F}.uTasker STM32|x86.Build.0 = uTasker STM32|Win32
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {74EFE198-AA04-4FB8-983D-1022EA56D98F}
 	EndGlobalSection
 EndGlobal

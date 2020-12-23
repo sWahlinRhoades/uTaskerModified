@@ -11,7 +11,7 @@
     File:      modbus_app.c
     Project:   uTasker project
     ---------------------------------------------------------------------
-    Copyright (C) M.J.Butcher Consulting 2004..2016
+    Copyright (C) M.J.Butcher Consulting 2004..2020
     *********************************************************************
     02.09.2009 Adjust gateway parameter to respect present use           // {1}
     07.11.2011 Don't use fnMODBUS_Master_send() when there is no master functionality {2}
@@ -93,21 +93,21 @@ static const MODBUS_PARS cMODBUS_default = {
     },
     {
     #if MODBUS_SERIAL_INTERFACES > 1
-        (CHAR_8 + NO_PARITY + ONE_STOP + CHAR_MODE),                     // serial interface settings (ASCII mode uses 7 bits) - serial port 0
+        (CHAR_8 | NO_PARITY | ONE_STOP | CHAR_MODE),                     // serial interface settings (ASCII mode uses 7 bits) - serial port 0
     #endif
-        (CHAR_8 + NO_PARITY + ONE_STOP + CHAR_MODE),                     // serial interface settings (ASCII mode uses 7 bits) - serial port 1
+        (CHAR_8 | NO_PARITY | ONE_STOP | CHAR_MODE),                     // serial interface settings (ASCII mode uses 7 bits) - serial port 1
     },
     {
     #if MODBUS_SERIAL_INTERFACES > 1
-        SERIAL_BAUD_19200,                                               // baud rate of serial interface - serial port 0
+        SERIAL_BAUD_115200,                                              // baud rate of serial interface - serial port 0
     #endif
-        SERIAL_BAUD_19200,                                               // baud rate of serial interface - serial port 1
+        SERIAL_BAUD_115200,                                              // baud rate of serial interface - serial port 1
     },
     {
     #if MODBUS_SERIAL_INTERFACES > 1
         (MODBUS_MODE_ASCII | MODBUS_SERIAL_MASTER | MODBUS_RS485_POSITIVE /*MODBUS_RS485_NEGATIVE*/),// default to RTU mode as master - serial port 0
     #endif
-        (MODBUS_MODE_ASCII | MODBUS_SERIAL_SLAVE | /*MODBUS_SERIAL_GATEWAY | */MODBUS_RS485_POSITIVE), // default to RTU mode as slave - serial port 1
+        (MODBUS_MODE_RTU | MODBUS_SERIAL_SLAVE | /*MODBUS_SERIAL_GATEWAY | */MODBUS_RS485_POSITIVE), // default to RTU mode as slave - serial port 1
     },
     #if defined MODBUS_GATE_WAY_QUEUE
     {
@@ -240,13 +240,6 @@ static const MODBUS_CONFIG modbus_configuration = {
     &test_holding_regs,                                                  // read/write input registers
 };
 
-static const MODBUS_CONFIG modbus_partial_configuration = {
-    &test_discretes,                                                     // read-only discrete input configuration
-    &test_coils,                                                         // read/write coil configuration
-    &test_input_regs,                                                    // read-only input registers
-    &test_holding_regs,                                                  // read/write input registers
-};
-
 static const MODBUS_CALLBACKS modbus_slave_callbacks = {
     fnMODBUSPreFunction,
     fnMODBUSPostFunction,
@@ -285,11 +278,15 @@ static void fnGetMODBUS_parameters(void)
     if (ptrMODBUS_pars == 0) {
         ptrMODBUS_pars = uMalloc(sizeof(MODBUS_PARS));
     }
+#if defined USE_PARAMETER_BLOCK
     if (fnGetPar((PAR_MODBUS | TEMPORARY_PARAM_SET), (unsigned char *)ptrMODBUS_pars, sizeof(MODBUS_PARS)) < 0) {
         if ((fnGetPar(PAR_MODBUS, (unsigned char *)ptrMODBUS_pars, sizeof(MODBUS_PARS)) < 0) || (MODBUS_PAR_BLOCK_VERSION != ptrMODBUS_pars->ucModbusParVersion)) {
+#endif
             uMemcpy(ptrMODBUS_pars, (unsigned char *)&cMODBUS_default, sizeof(MODBUS_PARS)); // no valid parameters available - set defaults
+#if defined USE_PARAMETER_BLOCK
         }
     }
+#endif
     uMemcpy(&temp_pars->modbus_parameters, ptrMODBUS_pars, sizeof(MODBUS_PARS)); // copy the working parameters to a temporary set
 }
 
@@ -330,7 +327,6 @@ static int fnMODBUSPreFunction(int iType, MODBUS_RX_FUNCTION *modbus_rx_function
         input_regs[3] ^= 0xff00;
         input_regs[4] ^= 0x00ff;
         break;
-
     case PREPARE_FIFO_READ:                                              // return the FIFO queue length (maximum 31)
         return 2;                                                        // test 2 byte FIFO queue (return 0 if not supported)
     case DO_FIFO_READ:                                                   // return FIFO content - incrementing FIFO read position on each call
@@ -466,9 +462,9 @@ static int fnGateway(int iType, MODBUS_RX_FUNCTION *modbus_rx_function)
 }
 #endif
 
-static unsigned char ucNexttestPort = 0;;
-
 #if defined USE_MODBUS_MASTER
+static unsigned char ucNexttestPort = 0;
+
 // This routine is called by the MODBUS interface after a master transaction to a slave has completed
 // It can be used to handle the response or error
 //
@@ -662,7 +658,7 @@ static void fnModbusTest(unsigned char ucTestPort)
         iTestNumber = 0;                                                 // repeat
     case 0:
         {
-            static MODBUS_READ_QUANTITY read_coils = { 10, 11};          // starting at coil address 57 read 11 coils
+            static MODBUS_READ_QUANTITY read_coils = {10, 11};           // starting at coil address 57 read 11 coils
             fnMODBUS_Master_send(ucMasterTestPort, TEST_SLAVE_ADDRESS, MODBUS_READ_COILS, (void *)&read_coils);
 #if defined TEST_QUEUE
             read_coils.usStartAddress--;
@@ -682,7 +678,7 @@ static void fnModbusTest(unsigned char ucTestPort)
         break;
     case 2:
         {
-            static const MODBUS_READ_QUANTITY read_holding_regs = {2, 1}; // starting at register address 2 read 1 inputs
+            static const MODBUS_READ_QUANTITY read_holding_regs = {2, 1};// starting at register address 2 read 1 inputs
             fnMODBUS_Master_send(ucMasterTestPort, TEST_SLAVE_ADDRESS, MODBUS_READ_HOLDING_REGISTERS, (void *)&read_holding_regs);
         }
         break;
@@ -873,9 +869,22 @@ extern void fnInitModbus(void)
     fnShareMODBUS_port((usModbusPort - 1), &modbus_configuration, &modbus_slave_callbacks, 3); // additional MODBUS slave sharing port 2 TCP - bus address 3
     #endif
 #endif
-#if MODBUS_TCP_MASTERS > 0 && defined MODBUS_TCP
+#if defined MODBUS_TCP_MASTERS && (MODBUS_TCP_MASTERS > 0) && defined MODBUS_TCP
     #if defined _WINDOWS && defined PSEUDO_LOOPBACK
-    fnAddARP(&network.ucOurIP[0], (unsigned char *)cucBroadcast, ARP_FIXED_IP); // prime our own IP address in the ARP table to allow internal loop back testing - only for simulation!
+    {
+        ARP_DETAILS arp_details;
+    #if IP_INTERFACE_COUNT > 1
+        arp_details.Tx_handle = 0;                                       // the interface handle associated with the ARP entry
+    #endif
+    #if defined ARP_VLAN_SUPPORT
+        arp_details.usVLAN_ID = 0xffff;                                  // VLAN ID for checking with ARP entries (0xffff means no VLAN tag)
+    #endif
+        arp_details.ucType = ARP_FIXED_IP;                               // the type of ARP entry (ARP_FIXED_IP, ARP_TEMP_IP, ARP_PERMANENT_IP)
+    #if IP_NETWORK_COUNT > 1
+        arp_details.ucNetworkID = 0;                                     // the network that ARP activity belongs to
+    #endif
+        fnAddARP(&network.ucOurIP[0], (unsigned char *)cucBroadcast, &arp_details); // prime our own IP address in the ARP table to allow internal loop back testing - only for simulation!
+    }
     #endif
     fnInitialiseMODBUS_port(++usModbusPort, 0, 0, fnMODBUSmaster);       // initialise MODBUS TCP MASTER
     fnInitialiseMODBUS_port(++usModbusPort, 0, 0, fnMODBUSmaster);       // initialise MODBUS TCP MASTER

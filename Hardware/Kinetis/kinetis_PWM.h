@@ -11,7 +11,7 @@
     File:      kinetis_PWM.h
     Project:   Single Chip Embedded Internet
     ---------------------------------------------------------------------
-    Copyright (C) M.J.Butcher Consulting 2004..2017
+    Copyright (C) M.J.Butcher Consulting 2004..2019
     *********************************************************************
     22.07.2014 Add clock source selection to TPM                         {1}
     04.01.2016 Added DMA buffer to PWM support                           {2}
@@ -19,6 +19,17 @@
     16.12.2016 Correct PWM interrupt clear                               {4}
     04.01.2017 Don't adjust the RC clock setting when the processor is running from it {5}
     05.03.2017 Add PWM_NO_OUTPUT option to allow PWM channel operation without connecting to an output {6}
+    24.04.2017 Add DMA based frequence control opton (eg. for stepper motors) {7}
+    20.05.2017 PWM output configuration moded to kinetis.c [kinetis_timer_pins.h] so that it can be shared by capture input use
+    20.11.2017 Add KE15 PWM channel output enable                        {8}
+    19.03.2018 Add PWM clock source from TRGMUX settings                 {9}
+    10.04.2018 Add KL27 clock inputs                                     {10}
+    05.05.2018 Add user defined target register option for DMA operation {11}
+    08.05.2018 Add channel interrupt support (in addition to period interrupts) {12}
+    29.08.2018 Correct FTM2 clock gating for K64, K65 and K66            {13}
+    05.10.2018 Add combined channel pairs to support phases shifted output pairs {14}
+    08.10.2018 Correct support for channel interrupts on multiple timers {15}
+    19.10.2018 Add option to modulate UART Tx outputs                    {16}
 
 */
 
@@ -46,10 +57,34 @@ static __interrupt void _PWM_Interrupt_5(void);
     #endif
 
 /* =================================================================== */
+/*                              local consts                           */
+/* =================================================================== */
+
+static const unsigned char ucSumChannels[FLEX_TIMERS_AVAILABLE + 1] = {      // {12}
+    0,
+    FLEX_TIMERS_0_CHANNELS,
+    (FLEX_TIMERS_0_CHANNELS + FLEX_TIMERS_1_CHANNELS),
+#if FLEX_TIMERS_AVAILABLE > 2
+    (FLEX_TIMERS_0_CHANNELS + FLEX_TIMERS_1_CHANNELS + FLEX_TIMERS_2_CHANNELS),
+#endif
+#if FLEX_TIMERS_AVAILABLE > 3
+    (FLEX_TIMERS_0_CHANNELS + FLEX_TIMERS_1_CHANNELS + FLEX_TIMERS_2_CHANNELS + FLEX_TIMERS_3_CHANNELS),
+#endif
+#if FLEX_TIMERS_AVAILABLE > 4
+    (FLEX_TIMERS_0_CHANNELS + FLEX_TIMERS_1_CHANNELS + FLEX_TIMERS_2_CHANNELS + FLEX_TIMERS_3_CHANNELS + FLEX_TIMERS_4_CHANNELS),
+#endif
+#if FLEX_TIMERS_AVAILABLE > 5
+    (FLEX_TIMERS_0_CHANNELS + FLEX_TIMERS_1_CHANNELS + FLEX_TIMERS_2_CHANNELS + FLEX_TIMERS_3_CHANNELS + FLEX_TIMERS_4_CHANNELS + FLEX_TIMERS_5_CHANNELS),
+#endif
+};
+
+/* =================================================================== */
 /*                      local variable definitions                     */
 /* =================================================================== */
 
-static void (*_PWM_TimerHandler[FLEX_TIMERS_AVAILABLE])(void) = {0};     // user interrupt handlers
+static void (*_PWM_TimerHandler[FLEX_TIMERS_AVAILABLE])(void) = {0};     // user period interrupt handlers
+static void(*_PWM_ChannelHandler[FLEX_TIMERS_CHANNEL_COUNT])(void) = {0};// {12} user channel interrupt handlers
+static unsigned char ucEnabledChannelInterrupts[FLEX_TIMERS_AVAILABLE] = {0}; // {15} enabled channel flags for each timer
 
 static void (*_PWM_TimerInterrupt[FLEX_TIMERS_AVAILABLE])(void) = {
     _PWM_Interrupt_0,
@@ -74,8 +109,52 @@ static void (*_PWM_TimerInterrupt[FLEX_TIMERS_AVAILABLE])(void) = {
 /*                   PWM cycle Interrupt Handlers                      */
 /* =================================================================== */
 
+#if defined _WINDOWS                                                     // reset channel event flags when simulating
+static void fnResetChannelEventFlags(int iTimerRef, FLEX_TIMER_MODULE *ptrTimer)
+{
+    int iChannel = 0;
+    while (iChannel < (ucSumChannels[iTimerRef + 1] - ucSumChannels[iTimerRef])) { // for each channel
+        ptrTimer->FTM_channel[iChannel++].FTM_CSC &= ~FTM_CSC_CHF;       // reset the channel event flag
+    }
+}
+#endif
+
+
+static void fnHandleChannels(int iTimer, unsigned char ucPendingChannels)
+{
+    int iHandlerRef = ucSumChannels[iTimer];
+    unsigned char ucChannel = 0x1;
+    while (ucPendingChannels != 0) {                                     // while channels are pending
+        if ((ucPendingChannels & ucChannel) != 0) {                      // if interrupt pending on this channel
+            if (_PWM_ChannelHandler[iHandlerRef] != 0) {                 // if there is a user handler installed
+                uDisable_Interrupt();
+                    _PWM_ChannelHandler[iHandlerRef]();                  // call user interrupt handler
+                uEnable_Interrupt();
+            }
+            ucPendingChannels &= ~(ucChannel);                           // reset handled channel flag
+        }
+        iHandlerRef++;
+        ucChannel <<= 1;
+    }
+}
+
 static __interrupt void _PWM_Interrupt_0(void)
 {
+    unsigned char ucPendingChannels = (unsigned char)(FTM0_STATUS & ucEnabledChannelInterrupts[0]); // {15}
+    if (ucPendingChannels != 0) {
+    #if defined KINETIS_KL
+        WRITE_ONE_TO_CLEAR(FTM0_STATUS, (FTM_STATUS_CH7F | FTM_STATUS_CH6F | FTM_STATUS_CH5F | FTM_STATUS_CH4F | FTM_STATUS_CH3F | FTM_STATUS_CH2F | FTM_STATUS_CH1F | FTM_STATUS_CH0F)); // reset the flags (hardware ensures that any flags being set between the previous read and the clear are not cleared)
+    #else
+        FTM0_STATUS &= ~(FTM_STATUS_CH7F | FTM_STATUS_CH6F | FTM_STATUS_CH5F | FTM_STATUS_CH4F | FTM_STATUS_CH3F | FTM_STATUS_CH2F | FTM_STATUS_CH1F | FTM_STATUS_CH0F); // reset the flags (hardware ensures that any flags being set between the previous read and the clear are not cleared)
+    #endif
+    #if defined _WINDOWS                                                 // reset channel event flags when simulating
+        fnResetChannelEventFlags(0, (FLEX_TIMER_MODULE *)FTM_BLOCK_0);
+    #endif
+        fnHandleChannels(0, ucPendingChannels);
+    }
+    if ((FTM0_SC & FTM_SC_TOF) == 0) {                                   // if no period interrupt we return (probably it was a channel interrupt)
+        return;
+    }
     FTM0_SC &= ~(FTM_SC_TOF);                                            // {4} clear interrupt (read when set and write 0 to reset)
     if (_PWM_TimerHandler[0] != 0) {                                     // if there is a user handler installed
         uDisable_Interrupt();
@@ -87,6 +166,21 @@ static __interrupt void _PWM_Interrupt_0(void)
     #if FLEX_TIMERS_AVAILABLE > 1
 static __interrupt void _PWM_Interrupt_1(void)
 {
+    unsigned char ucPendingChannels = (unsigned char)(FTM1_STATUS & ucEnabledChannelInterrupts[1]); // {15}
+    if (ucPendingChannels != 0) {
+    #if defined KINETIS_KL
+        WRITE_ONE_TO_CLEAR(FTM1_STATUS, (FTM_STATUS_CH7F | FTM_STATUS_CH6F | FTM_STATUS_CH5F | FTM_STATUS_CH4F | FTM_STATUS_CH3F | FTM_STATUS_CH2F | FTM_STATUS_CH1F | FTM_STATUS_CH0F)); // reset the flags (hardware ensures that any flags being set between the previous read and the clear are not cleared)
+    #else
+        FTM1_STATUS &= ~(FTM_STATUS_CH7F | FTM_STATUS_CH6F | FTM_STATUS_CH5F | FTM_STATUS_CH4F | FTM_STATUS_CH3F | FTM_STATUS_CH2F | FTM_STATUS_CH1F | FTM_STATUS_CH0F); // reset the flags (hardware ensures that any flags being set between the previous read and the clear are not cleared)
+    #endif
+    #if defined _WINDOWS                                                 // reset channel event flags when simulating
+        fnResetChannelEventFlags(1, (FLEX_TIMER_MODULE *)FTM_BLOCK_1);
+    #endif
+        fnHandleChannels(1, ucPendingChannels);
+    }
+    if ((FTM1_SC & FTM_SC_TOF) == 0) {                                   // if no period interrupt we return (probably it was a channel interrupt)
+        return;
+    }
     FTM1_SC &= ~(FTM_SC_TOF);                                            // {4} clear interrupt (read when set and write 0 to reset)
     if (_PWM_TimerHandler[1] != 0) {                                     // if there is a user handler installed
         uDisable_Interrupt();
@@ -98,6 +192,21 @@ static __interrupt void _PWM_Interrupt_1(void)
     #if FLEX_TIMERS_AVAILABLE > 2
 static __interrupt void _PWM_Interrupt_2(void)
 {
+    unsigned char ucPendingChannels = (unsigned char)(FTM2_STATUS & ucEnabledChannelInterrupts[2]); // {15}
+    if (ucPendingChannels != 0) {
+    #if defined KINETIS_KL
+        WRITE_ONE_TO_CLEAR(FTM2_STATUS, (FTM_STATUS_CH7F | FTM_STATUS_CH6F | FTM_STATUS_CH5F | FTM_STATUS_CH4F | FTM_STATUS_CH3F | FTM_STATUS_CH2F | FTM_STATUS_CH1F | FTM_STATUS_CH0F)); // reset the flags (hardware ensures that any flags being set between the previous read and the clear are not cleared)
+    #else
+        FTM2_STATUS &= ~(FTM_STATUS_CH7F | FTM_STATUS_CH6F | FTM_STATUS_CH5F | FTM_STATUS_CH4F | FTM_STATUS_CH3F | FTM_STATUS_CH2F | FTM_STATUS_CH1F | FTM_STATUS_CH0F); // reset the flags (hardware ensures that any flags being set between the previous read and the clear are not cleared)
+    #endif
+    #if defined _WINDOWS                                                 // reset channel event flags when simulating
+        fnResetChannelEventFlags(2, (FLEX_TIMER_MODULE *)FTM_BLOCK_2);
+    #endif
+        fnHandleChannels(2, ucPendingChannels);
+    }
+    if ((FTM2_SC & FTM_SC_TOF) == 0) {                                   // if no period interrupt we return (probably it was a channel interrupt)
+        return;
+    }
     FTM2_SC &= ~(FTM_SC_TOF);                                            // {4} clear interrupt (read when set and write 0 to reset)
     if (_PWM_TimerHandler[2] != 0) {                                     // if there is a user handler installed
         uDisable_Interrupt();
@@ -109,6 +218,21 @@ static __interrupt void _PWM_Interrupt_2(void)
     #if FLEX_TIMERS_AVAILABLE > 3
 static __interrupt void _PWM_Interrupt_3(void)
 {
+    unsigned char ucPendingChannels = (unsigned char)(FTM3_STATUS & ucEnabledChannelInterrupts[3]); // {15}
+    if (ucPendingChannels != 0) {
+    #if defined KINETIS_KL
+        WRITE_ONE_TO_CLEAR(FTM3_STATUS, (FTM_STATUS_CH7F | FTM_STATUS_CH6F | FTM_STATUS_CH5F | FTM_STATUS_CH4F | FTM_STATUS_CH3F | FTM_STATUS_CH2F | FTM_STATUS_CH1F | FTM_STATUS_CH0F)); // reset the flags (hardware ensures that any flags being set between the previous read and the clear are not cleared)
+    #else
+        FTM3_STATUS &= ~(FTM_STATUS_CH7F | FTM_STATUS_CH6F | FTM_STATUS_CH5F | FTM_STATUS_CH4F | FTM_STATUS_CH3F | FTM_STATUS_CH2F | FTM_STATUS_CH1F | FTM_STATUS_CH0F); // reset the flags (hardware ensures that any flags being set between the previous read and the clear are not cleared)
+    #endif
+    #if defined _WINDOWS                                                 // reset channel event flags when simulating
+        fnResetChannelEventFlags(3, (FLEX_TIMER_MODULE *)FTM_BLOCK_3);
+    #endif
+        fnHandleChannels(3, ucPendingChannels);
+    }
+    if ((FTM3_SC & FTM_SC_TOF) == 0) {                                   // if no period interrupt we return (probably it was a channel interrupt)
+        return;
+    }
     FTM3_SC &= ~(FTM_SC_TOF);                                            // {4} clear interrupt (read when set and write 0 to reset)
     if (_PWM_TimerHandler[3] != 0) {                                     // if there is a user handler installed
         uDisable_Interrupt();
@@ -120,7 +244,26 @@ static __interrupt void _PWM_Interrupt_3(void)
     #if FLEX_TIMERS_AVAILABLE > 4
 static __interrupt void _PWM_Interrupt_4(void)
 {
+    unsigned char ucPendingChannels = (unsigned char)(FTM4_STATUS & ucEnabledChannelInterrupts[4]); // {15}
+    if (ucPendingChannels != 0) {
+    #if defined KINETIS_KL || defined TPMS_AVAILABLE_TOO
+        WRITE_ONE_TO_CLEAR(FTM4_STATUS, (FTM_STATUS_CH7F | FTM_STATUS_CH6F | FTM_STATUS_CH5F | FTM_STATUS_CH4F | FTM_STATUS_CH3F | FTM_STATUS_CH2F | FTM_STATUS_CH1F | FTM_STATUS_CH0F)); // reset the flags (hardware ensures that any flags being set between the previous read and the clear are not cleared)
+    #else
+        FTM4_STATUS &= ~(FTM_STATUS_CH7F | FTM_STATUS_CH6F | FTM_STATUS_CH5F | FTM_STATUS_CH4F | FTM_STATUS_CH3F | FTM_STATUS_CH2F | FTM_STATUS_CH1F | FTM_STATUS_CH0F); // reset the flags (hardware ensures that any flags being set between the previous read and the clear are not cleared)
+    #endif
+    #if defined _WINDOWS                                                 // reset channel event flags when simulating
+        fnResetChannelEventFlags(4, (FLEX_TIMER_MODULE *)FTM_BLOCK_4);
+    #endif
+        fnHandleChannels(4, ucPendingChannels);
+    }
+    if ((FTM4_SC & FTM_SC_TOF) == 0) {                                   // if no period interrupt we return (probably it was a channel interrupt)
+        return;
+    }
+        #if defined TPMS_AVAILABLE_TOO                                   // TPM1
+    OR_ONE_TO_CLEAR(FTM4_SC, FTM_SC_TOF);                                // clear interrupt (write 1 to reset)
+        #else
     FTM4_SC &= ~(FTM_SC_TOF);                                            // clear interrupt (read when set and write 0 to reset)
+        #endif
     if (_PWM_TimerHandler[4] != 0) {                                     // if there is a user handler installed
         uDisable_Interrupt();
             _PWM_TimerHandler[4]();                                      // call user interrupt handler
@@ -131,7 +274,26 @@ static __interrupt void _PWM_Interrupt_4(void)
     #if FLEX_TIMERS_AVAILABLE > 5
 static __interrupt void _PWM_Interrupt_5(void)
 {
+    unsigned char ucPendingChannels = (unsigned char)(FTM5_STATUS & ucEnabledChannelInterrupts[5]); // {15}
+    if (ucPendingChannels != 0) {
+    #if defined KINETIS_KL || defined TPMS_AVAILABLE_TOO
+        WRITE_ONE_TO_CLEAR(FTM5_STATUS, (FTM_STATUS_CH7F | FTM_STATUS_CH6F | FTM_STATUS_CH5F | FTM_STATUS_CH4F | FTM_STATUS_CH3F | FTM_STATUS_CH2F | FTM_STATUS_CH1F | FTM_STATUS_CH0F)); // reset the flags (hardware ensures that any flags being set between the previous read and the clear are not cleared)
+    #else
+        FTM5_STATUS &= ~(FTM_STATUS_CH7F | FTM_STATUS_CH6F | FTM_STATUS_CH5F | FTM_STATUS_CH4F | FTM_STATUS_CH3F | FTM_STATUS_CH2F | FTM_STATUS_CH1F | FTM_STATUS_CH0F); // reset the flags (hardware ensures that any flags being set between the previous read and the clear are not cleared)
+    #endif
+    #if defined _WINDOWS                                                 // reset channel event flags when simulating
+        fnResetChannelEventFlags(5, (FLEX_TIMER_MODULE *)FTM_BLOCK_5);
+    #endif
+        fnHandleChannels(5, ucPendingChannels);
+    }
+    if ((FTM5_SC & FTM_SC_TOF) == 0) {                                   // if no period interrupt we return (probably it was a channel interrupt)
+        return;
+    }
+        #if defined TPMS_AVAILABLE_TOO                                   // TPM2
+    OR_ONE_TO_CLEAR(FTM5_SC, FTM_SC_TOF);                                // clear interrupt (write 1 to reset)
+        #else
     FTM5_SC &= ~(FTM_SC_TOF);                                            // clear interrupt (read when set and write 0 to reset)
+        #endif
     if (_PWM_TimerHandler[5] != 0) {                                     // if there is a user handler installed
         uDisable_Interrupt();
             _PWM_TimerHandler[5]();                                      // call user interrupt handler
@@ -143,7 +305,7 @@ static __interrupt void _PWM_Interrupt_5(void)
 
 #if defined _PWM_CONFIG_CODE
         {
-    #if FLEX_TIMERS_AVAILABLE > 4 && defined TPMS_AVAILABLE
+    #if FLEX_TIMERS_AVAILABLE > 4 && defined TPMS_AVAILABLE_TOO
             int iTPM_type = 0;
     #endif
             PWM_INTERRUPT_SETUP *ptrPWM_settings = (PWM_INTERRUPT_SETUP *)ptrSettings;
@@ -153,389 +315,143 @@ static __interrupt void _PWM_Interrupt_5(void)
             unsigned char ucFlexTimer = (ptrPWM_settings->pwm_reference >> _TIMER_MODULE_SHIFT);
             FLEX_TIMER_MODULE *ptrFlexTimer;
     #if defined KINETIS_KL
-        #if defined TPM_CLOCKED_FROM_MCGIRCLK                            // {1}
-            #if !defined RUN_FROM_LIRC                                   // {5} if the processor is running from the the internal clock we don't change settings here
+        #if !defined KINETIS_WITH_PCC
+            #if defined TPM_CLOCKED_FROM_MCGIRCLK                        // {1}
+                #if !defined RUN_FROM_LIRC                               // {5} if the processor is running from the the internal clock we don't change settings here
             MCG_C1 |= (MCG_C1_IRCLKEN | MCG_C1_IREFSTEN);                // enable internal reference clock and allow it to continue running in stop modes
-                #if defined USE_FAST_INTERNAL_CLOCK
+                    #if defined USE_FAST_INTERNAL_CLOCK
             MCG_SC = MCG_SC_FCRDIV_1;                                    // remove fast IRC divider
             MCG_C2 |= MCG_C2_IRCS;                                       // select fast internal reference clock (4MHz [8MHz for devices with MCG Lite]) as MCGIRCLK
-                #else
+                    #else
             MCG_C2 &= ~MCG_C2_IRCS;                                      // select slow internal reference clock (32kHz [2MHz for devices with MCG Lite]) as MCGIRCLK
+                    #endif
                 #endif
-            #endif
             SIM_SOPT2 |= SIM_SOPT2_TPMSRC_MCGIRCLK;                      // use MCGIRCLK as timer clock source
-        #elif defined TPM_CLOCKED_FROM_OSCERCLK
+            #elif defined TPM_CLOCKED_FROM_OSCERCLK
             OSC0_CR |= (OSC_CR_ERCLKEN | OSC_CR_EREFSTEN);               // enable the external reference clock and keep it enabled in stop mode
             SIM_SOPT2 |= (SIM_SOPT2_TPMSRC_OSCERCLK);                    // use OSCERCLK as timer clock source
-        #else
-            SIM_SOPT2 |= (SIM_SOPT2_PLLFLLSEL | SIM_SOPT2_TPMSRC_MCG);   // use MCGPLLCLK/2 (or MCGFLL if FLL is used)
+            #elif defined TPM_CLOCKED_FROM_IRC48M && defined SIM_SOPT2_PLLFLLSEL_IRC48M && (SIM_SOPT2_PLLFLLSEL_IRC48M != 0)
+            SIM_SOPT2 |= (SIM_SOPT2_PLLFLLSEL_IRC48M | SIM_SOPT2_TPMSRC_MCG); // use IRC48M
+            #else
+            SIM_SOPT2 |= (SIM_SOPT2_PLLFLLSEL | SIM_SOPT2_TPMSRC_MCG);   // use MCGPLLCLK/2 (or MCGFLL if FLL is used) - devices with KINETIS_WITH_MCG_LITE and HIRC48M will use 48MHz
+            #endif
         #endif
     #endif
             switch (ucFlexTimer) {
             case 0:
-                POWER_UP(6, SIM_SCGC6_FTM0);                             // ensure that the FlexTimer module is powered up
+    #if defined KINETIS_WITH_PCC && !defined KINETIS_KE15
+                SELECT_PCC_PERIPHERAL_SOURCE(FTM0, FTM0_PCC_SOURCE);     // select the PCC clock used by FlexTimer/TPM 0
+    #endif
+                POWER_UP_ATOMIC(6, FTM0);                                // ensure that the FlexTimer/TPM module is powered up
     #if defined KINETIS_KL
                 iInterruptID = irq_TPM0_ID;
     #else
                 iInterruptID = irq_FTM0_ID;
     #endif
                 if ((ulMode & PWM_NO_OUTPUT) == 0) {                     // {6}
-                    switch (ptrPWM_settings->pwm_reference & ~_TIMER_MODULE_MASK) { // configure appropriate pin for the PWM output signal
-                    case 0:                                              // timer 0, channel 0
-    #if defined KINETIS_KE
-        #if defined FTM0_0_ON_B
-                        SIM_PINSEL0 |= SIM_PINSEL_FTM0PS0;
-                        _CONFIG_PERIPHERAL(B, 2, (PB_2_FTM0_CH0 | PORT_SRE_FAST | PORT_DSE_HIGH)); // FTM0_CH0 on PB.2 (alt. function 3)
-        #else
-                        SIM_PINSEL0 &= ~SIM_PINSEL_FTM0PS0;
-                        _CONFIG_PERIPHERAL(A, 0, (PA_0_FTM0_CH0 | PORT_SRE_FAST | PORT_DSE_HIGH)); // FTM0_CH0 on PA.0 (alt. function 2)
-        #endif
-    #elif (defined KINETIS_KL02 || defined KINETIS_KL03) && defined TPM0_0_ON_A
-                    _CONFIG_PERIPHERAL(A, 6,(PA_6_TPM0_CH0 | PORT_SRE_FAST | PORT_DSE_HIGH)); // TPM0_CH0 on PA.6 (alt. function 2)
-    #elif defined KINETIS_KL02 || defined KINETIS_KL03 || defined KINETIS_KL04 || defined KINETIS_KL05
-                        _CONFIG_PERIPHERAL(B, 11,(PB_11_TPM0_CH0 | PORT_SRE_FAST | PORT_DSE_HIGH)); // TPM0_CH0 on PB.11 (alt. function 2)
-    #elif (defined KINETIS_KL25 || defined KINETIS_KL26 || defined KINETIS_KL27 || defined KINETIS_KL43) && defined TPM0_0_ON_D
-                        _CONFIG_PERIPHERAL(D, 0, (PD_0_FTM0_CH0 | PORT_SRE_FAST | PORT_DSE_HIGH)); // FTM0_CH0 on PD.0 (alt. function 4)
-    #elif (defined KINETIS_KL25 || defined KINETIS_KL26 || defined KINETIS_KL27 || defined KINETIS_KL43) && defined TPM0_0_ON_E
-                        _CONFIG_PERIPHERAL(E, 24, (PE_24_TPM0_CH0 | PORT_SRE_FAST | PORT_DSE_HIGH)); // TPM0_CH0 on PE.24 (alt. function 3)
-    #elif defined FTM0_0_ON_C
-                        _CONFIG_PERIPHERAL(C, 1, (PC_1_FTM0_CH0 | PORT_SRE_FAST | PORT_DSE_HIGH)); // FTM0_CH0 on PC.1 (alt. function 4)
-    #else
-                        _CONFIG_PERIPHERAL(A, 3, (PA_3_FTM0_CH0 | PORT_SRE_FAST | PORT_DSE_HIGH)); // FTM0_CH0 on PA.3 (alt. function 3)
-    #endif
-                        break;
-                    case 1:                                              // timer 0, channel 1
-    #if defined KINETIS_KE
-        #if defined FTM0_1_ON_B
-                        SIM_PINSEL0 |= SIM_PINSEL_FTM0PS1;
-                        _CONFIG_PERIPHERAL(B, 3, (PB_3_FTM0_CH1 | PORT_SRE_FAST | PORT_DSE_HIGH)); // FTM0_CH1 on PB.3 (alt. function 3)
-        #else
-                        SIM_PINSEL0 &= ~SIM_PINSEL_FTM0PS1;
-                        _CONFIG_PERIPHERAL(A, 1, (PA_1_FTM0_CH1 | PORT_SRE_FAST | PORT_DSE_HIGH)); // FTM0_CH1 on PA.1 (alt. function 2)
-        #endif
-    #elif (defined KINETIS_KL02 || defined KINETIS_KL03) && defined TPM0_1_ON_A
-                        _CONFIG_PERIPHERAL(A, 5, (PA_5_TPM0_CH1 | PORT_SRE_FAST | PORT_DSE_HIGH)); // TPM0_CH1 on PA.5 (alt. function 2)
-    #elif defined KINETIS_KL02 || defined KINETIS_KL03 || defined KINETIS_KL04 || defined KINETIS_KL05
-                        _CONFIG_PERIPHERAL(B, 10,(PB_10_TPM0_CH1 | PORT_SRE_FAST | PORT_DSE_HIGH)); // TPM0_CH1 on PB.10 (alt. function 2)
-    #elif (defined KINETIS_KL25 || defined KINETIS_KL26 || defined KINETIS_KL27 || defined KINETIS_KL43) && defined TPM0_1_ON_D
-                        _CONFIG_PERIPHERAL(D, 1, (PD_1_FTM0_CH1 | PORT_SRE_FAST | PORT_DSE_HIGH)); // FTM0_CH1 on PD.1 (alt. function 4)
-    #elif (defined KINETIS_KL25 || defined KINETIS_KL26 || defined KINETIS_KL27 || defined KINETIS_KL43) && defined TPM0_1_ON_E
-                        _CONFIG_PERIPHERAL(E, 25, (PE_25_TPM0_CH1 | PORT_SRE_FAST | PORT_DSE_HIGH)); // TPM0_CH1 on PE.25 (alt. function 3)
-    #elif defined FTM0_1_ON_C
-                        _CONFIG_PERIPHERAL(C, 2, (PC_2_FTM0_CH1 | PORT_SRE_FAST | PORT_DSE_HIGH)); // FTM0_CH1 on PC.2 (alt. function 4)
-    #else
-                        _CONFIG_PERIPHERAL(A, 4, (PA_4_FTM0_CH1 | PORT_SRE_FAST | PORT_DSE_HIGH)); // FTM0_CH1 on PA.4 (alt. function 3)
-    #endif
-                        break;
-    #if !defined KINETIS_KL02 && !defined KINETIS_KL03 && !defined KINETIS_KE
-                    case 2:                                              // timer 0, channel 2
-        #if defined KINETIS_KL04 || defined KINETIS_KL05
-                        _CONFIG_PERIPHERAL(B, 9, (PB_9_TPM0_CH2 | PORT_SRE_FAST | PORT_DSE_HIGH)); // TPM0_CH2 on PB.9 (alt. function 2)
-        #elif (defined KINETIS_KL25 || defined KINETIS_KL26 || defined KINETIS_KL27 || defined KINETIS_KL43) && defined TPM0_2_ON_D
-                        _CONFIG_PERIPHERAL(D, 2, (PD_2_FTM0_CH2 | PORT_SRE_FAST | PORT_DSE_HIGH)); // FTM0_CH2 on PD.2 (alt. function 4)
-        #elif (defined KINETIS_KL25 || defined KINETIS_KL26 || defined KINETIS_KL27 || defined KINETIS_KL43) && defined TPM0_2_ON_E
-                        _CONFIG_PERIPHERAL(E, 29, (PE_29_TPM0_CH2 | PORT_SRE_FAST | PORT_DSE_HIGH)); // TPM0_CH2 on PE.29 (alt. function 3)
-        #elif defined FTM0_2_ON_C
-                        _CONFIG_PERIPHERAL(C, 3, (PC_3_FTM0_CH2 | PORT_SRE_FAST | PORT_DSE_HIGH)); // FTM0_CH2 on PC.3 (alt. function 4)
-        #else
-                        _CONFIG_PERIPHERAL(A, 5, (PA_5_FTM0_CH2 | PORT_SRE_FAST | PORT_DSE_HIGH)); // FTM0_CH2 on PA.5 (alt. function 3)
-        #endif
-                        break;
-                    case 3:                                              // timer 0, channel 3
-        #if defined KINETIS_KL04 || defined KINETIS_KL05
-                        _CONFIG_PERIPHERAL(B, 8, (PB_8_TPM0_CH3 | PORT_SRE_FAST | PORT_DSE_HIGH)); // TPM0_CH3 on PB.8 (alt. function 2)
-        #elif (defined KINETIS_KL25 || defined KINETIS_KL26 || defined KINETIS_KL27 || defined KINETIS_KL43) && defined TPM0_3_ON_D
-                        _CONFIG_PERIPHERAL(D, 3, (PD_3_FTM0_CH3 | PORT_SRE_FAST | PORT_DSE_HIGH)); // FTM0_CH3 on PD.3 (alt. function 4)
-        #elif (defined KINETIS_KL25 || defined KINETIS_KL26 || defined KINETIS_KL27 || defined KINETIS_KL43) && defined TPM0_3_ON_E
-                        _CONFIG_PERIPHERAL(E, 30, (PE_30_TPM0_CH3 | PORT_SRE_FAST | PORT_DSE_HIGH)); // TPM0_CH3 on PE.30 (alt. function 3)
-        #elif (defined FTM0_3_ON_C && (defined KINETIS_K64  || defined KINETIS_KL43))
-                        _CONFIG_PERIPHERAL(C, 4, (PC_4_FTM0_CH3 | PORT_SRE_FAST | PORT_DSE_HIGH)); // FTM0_CH3 on PC.4 (alt. function 4)
-        #else
-                        _CONFIG_PERIPHERAL(A, 6, (PA_6_FTM0_CH3 | PORT_SRE_FAST | PORT_DSE_HIGH)); // FTM0_CH3 on PA.6 (alt. function 3)
-        #endif
-                        break;
-                    case 4:                                              // timer 0, channel 4
-        #if defined KINETIS_KL04 || defined KINETIS_KL05
-                        _CONFIG_PERIPHERAL(A, 6, (PA_6_TPM0_CH4 | PORT_SRE_FAST | PORT_DSE_HIGH)); // TPM0_CH4 on PA.6 (alt. function 2)
-        #elif (defined KINETIS_KL25 || defined KINETIS_KL26 || defined KINETIS_KL27 || defined KINETIS_KL43) && defined TPM0_4_ON_E
-                        _CONFIG_PERIPHERAL(E, 31, (PE_31_TPM0_CH4 | PORT_SRE_FAST | PORT_DSE_HIGH)); // TPM0_CH4 on PE.31 (alt. function 3)
-        #elif defined FTM0_4_ON_D
-                        _CONFIG_PERIPHERAL(D, 4, (PD_4_FTM0_CH4 | PORT_SRE_FAST | PORT_DSE_HIGH)); // FTM0_CH4 on PD.4 (alt. function 4)
-        #else
-                        _CONFIG_PERIPHERAL(A, 7, (PA_7_FTM0_CH4 | PORT_SRE_FAST | PORT_DSE_HIGH)); // FTM0_CH4 on PA.7 (alt. function 3)
-        #endif
-                        break;
-                    case 5:                                              // timer 0, channel 5
-        #if defined KINETIS_KL04 || defined KINETIS_KL05
-                        _CONFIG_PERIPHERAL(A, 5, (PA_5_TPM0_CH5 | PORT_SRE_FAST | PORT_DSE_HIGH)); // TPM0_CH5 on PA.5 (alt. function 2)
-        #elif (defined KINETIS_KL25 || defined KINETIS_KL26 || defined KINETIS_KL27) && defined TPM0_5_ON_E
-                        _CONFIG_PERIPHERAL(E, 26, (PE_26_TPM0_CH5 | PORT_SRE_FAST | PORT_DSE_HIGH)); // TPM0_CH5 on PE.26 (alt. function 3)
-        #elif defined FTM0_5_ON_D
-                        _CONFIG_PERIPHERAL(D, 5, (PD_5_FTM0_CH5 | PORT_SRE_FAST | PORT_DSE_HIGH)); // FTM0_CH5 on PD.5 (alt. function 4)
-        #else
-                        _CONFIG_PERIPHERAL(A, 0, (PA_0_FTM0_CH5 | PORT_SRE_FAST | PORT_DSE_HIGH)); // FTM0_CH5 on PA.0 (alt. function 3)
-        #endif
-                        break;
-        #if !(defined KINETIS_KL04 || defined KINETIS_KL05)
-                    case 6:                                              // timer 0, channel 6
-            #if defined FTM0_6_ON_D
-                        _CONFIG_PERIPHERAL(D, 6, (PD_6_FTM0_CH6 | PORT_SRE_FAST | PORT_DSE_HIGH)); // FTM0_CH6 on PD.6 (alt. function 4)
-            #else
-                        _CONFIG_PERIPHERAL(A, 1, (PA_1_FTM0_CH6 | PORT_SRE_FAST | PORT_DSE_HIGH)); // FTM0_CH6 on PA.1 (alt. function 3)
-            #endif
-                        break;
-                    case 7:                                              // timer 0, channel 7
-            #if defined FTM0_7_ON_D
-                        _CONFIG_PERIPHERAL(D, 7, (PD_7_FTM0_CH7 | PORT_SRE_FAST | PORT_DSE_HIGH)); // FTM0_CH7 on PD.7 (alt. function 4)
-            #else
-                        _CONFIG_PERIPHERAL(A, 6, (PA_6_FTM0_CH7 | PORT_SRE_FAST | PORT_DSE_HIGH)); // FTM0_CH7 on PA.6 (alt. function 3)
-            #endif
-                        break;
-        #endif
-    #endif
-                    default:
-    #if defined _WINDOWS
-                        _EXCEPTION("Invalid timer channel!!");
-    #endif
-                        return;                                          // invalid channel
-                    }
+                    fnConfigTimerPin(0, ucChannel, (PORT_SRE_FAST | PORT_DSE_HIGH)); // configure the PWM output pin
                 }
                 ptrFlexTimer = (FLEX_TIMER_MODULE *)FTM_BLOCK_0;
                 break;
     #if FLEX_TIMERS_AVAILABLE > 1
             case 1:
-                POWER_UP(6, SIM_SCGC6_FTM1);                             // ensure that the FlexTimer module is powered up
+        #if defined KINETIS_WITH_PCC && !defined KINETIS_KE15
+                SELECT_PCC_PERIPHERAL_SOURCE(FTM1, FTM1_PCC_SOURCE);     // select the PCC clock used by FlexTimer/TPM 1
+        #endif
+                POWER_UP_ATOMIC(6, FTM1);                                // ensure that the FlexTimer module is powered up
+                ptrFlexTimer = (FLEX_TIMER_MODULE *)FTM_BLOCK_1;
         #if defined KINETIS_KL
                 iInterruptID = irq_TPM1_ID;
         #else
                 iInterruptID = irq_FTM1_ID;
         #endif
                 if ((ulMode & PWM_NO_OUTPUT) == 0) {                     // {6}
-                    switch (ptrPWM_settings->pwm_reference & ~_TIMER_MODULE_MASK) { // configure appropriate pin for the PWM output signal
-                    case 0:                                              // timer 1, channel 0
-        #if defined KINETIS_KE
-            #if defined FTM1_0_ON_H
-                        SIM_PINSEL0 |= SIM_PINSEL_FTM1PS0;
-                        _CONFIG_PERIPHERAL(H, 2, (PH_2_FTM1_CH0 | PORT_SRE_FAST | PORT_DSE_HIGH)); // FTM1_CH0 on PH.2 (alt. function 4)
-            #else
-                        SIM_PINSEL0 &= ~SIM_PINSEL_FTM1PS0;
-                        _CONFIG_PERIPHERAL(C, 4, (PC_4_FTM1_CH0 | PORT_SRE_FAST | PORT_DSE_HIGH)); // FTM1_CH0 on PC.4
-            #endif
-        #elif (defined KINETIS_KL02 || defined KINETIS_KL03) && defined TPM1_0_ALT_2
-                        _CONFIG_PERIPHERAL(B, 7, (PB_7_TPM1_CH0 | PORT_SRE_FAST | PORT_DSE_HIGH)); // TPM1_CH0 on PB.7 (alt. function 2)
-        #elif (defined KINETIS_KL02 || defined KINETIS_KL03 || defined KINETIS_KL04 || defined KINETIS_KL05) && defined TPM1_0_ALT
-                        _CONFIG_PERIPHERAL(A, 12, (PA_12_TPM1_CH0 | PORT_SRE_FAST | PORT_DSE_HIGH)); // TPM1_CH0 on PA.12 (alt. function 2)
-        #elif defined KINETIS_KL02 || defined KINETIS_KL03 || defined KINETIS_KL04 || defined KINETIS_KL05
-                        _CONFIG_PERIPHERAL(A, 0, (PA_0_TPM1_CH0 | PORT_SRE_FAST | PORT_DSE_HIGH)); // TPM1_CH0 on PA.0 (alt. function 2)
-        #elif (defined KINETIS_KL25 || defined KINETIS_KL26 || defined KINETIS_KL27 || defined KINETIS_KL43) && defined TPM1_0_ON_E
-                        _CONFIG_PERIPHERAL(E, 20, (PE_20_TPM1_CH0 | PORT_SRE_FAST | PORT_DSE_HIGH)); // TPM1_CH0 on PE.20 (alt. function 3)
-        #elif defined FTM1_0_ON_B
-                        _CONFIG_PERIPHERAL(B, 0, (PB_0_FTM1_CH0 | PORT_SRE_FAST | PORT_DSE_HIGH)); // FTM1_CH0 on PB.0 (alt. function 3)
-        #elif defined FTM1_0_ALT_A
-                        _CONFIG_PERIPHERAL(A, 12, (PA_12_FTM1_CH0 | PORT_SRE_FAST | PORT_DSE_HIGH)); // FTM1_CH0 on PA.12 (alt. function 3)
-        #else
-                        _CONFIG_PERIPHERAL(A, 8, (PA_8_FTM1_CH0 | PORT_SRE_FAST | PORT_DSE_HIGH)); // FTM1_CH0 on PA.8 (alt. function 3)
-        #endif
-                        break;
-                    case 1:                                              // timer 1, channel 1
-        #if defined KINETIS_KE
-            #if defined FTM1_1_ON_E
-                        SIM_PINSEL0 |= SIM_PINSEL_FTM1PS1;
-                        _CONFIG_PERIPHERAL(E, 7, (PE_7_FTM1_CH1 | PORT_SRE_FAST | PORT_DSE_HIGH)); // FTM1_CH1 on PE.7 (alt. function 4)
-            #else
-                        SIM_PINSEL0 &= ~SIM_PINSEL_FTM1PS1;
-                        _CONFIG_PERIPHERAL(C, 5, (PC_5_FTM1_CH1 | PORT_SRE_FAST | PORT_DSE_HIGH)); // FTM1_CH1 on PC.5
-            #endif
-        #elif (defined KINETIS_KL02 || defined KINETIS_KL03) && defined TPM1_1_ALT_2
-                        _CONFIG_PERIPHERAL(B, 6, (PB_6_TPM1_CH0 | PORT_SRE_FAST | PORT_DSE_HIGH)); // TPM1_CH0 on PB.6 (alt. function 2)
-        #elif defined KINETIS_KL02 || defined KINETIS_KL03 || defined KINETIS_KL04 || defined KINETIS_KL05 && defined FTM1_1_ALT
-                        _CONFIG_PERIPHERAL(B, 13, (PB_13_TPM1_CH1 | PORT_SRE_FAST | PORT_DSE_HIGH)); // TPM1_CH1 on PB.13 (alt. function 2)
-        #elif defined KINETIS_KL02 || defined KINETIS_KL03 || defined KINETIS_KL04 || defined KINETIS_KL05
-                        _CONFIG_PERIPHERAL(B, 5, (PB_5_TPM1_CH1 | PORT_SRE_FAST | PORT_DSE_HIGH)); // TPM1_CH1 on PB.5 (alt. function 2)
-        #elif (defined KINETIS_KL25 || defined KINETIS_KL26 || defined KINETIS_KL27 || defined KINETIS_KL43) && defined TPM1_1_ON_E
-                        _CONFIG_PERIPHERAL(E, 21, (PE_21_TPM1_CH1 | PORT_SRE_FAST | PORT_DSE_HIGH)); // TPM1_CH1 on PE.21 (alt. function 3)
-        #elif defined FTM1_1_ON_B
-                        _CONFIG_PERIPHERAL(B, 1, (PB_1_FTM1_CH1 | PORT_SRE_FAST | PORT_DSE_HIGH)); // FTM1_CH1 on PB.1 (alt. function 3)
-        #elif defined FTM1_1_ALT_A
-                        _CONFIG_PERIPHERAL(A, 13, (PA_13_FTM1_CH1 | PORT_SRE_FAST | PORT_DSE_HIGH)); // FTM1_CH1 on PA.13 (alt. function 3)
-        #else
-                        _CONFIG_PERIPHERAL(A, 9, (PA_9_FTM1_CH1 | PORT_SRE_FAST | PORT_DSE_HIGH)); // FTM1_CH1 on PA.9 (alt. function 3)
-        #endif
-                        break;
-                    default:
-                        _EXCEPTION("Invalid timer channel!!");
-                        return;                                          // invalid channel
-                    }
+                    fnConfigTimerPin(1, ucChannel, (PORT_SRE_FAST | PORT_DSE_HIGH)); // configure the PWM output pin
                 }
-                ptrFlexTimer = (FLEX_TIMER_MODULE *)FTM_BLOCK_1;
+                // Handle timer 1 - channel options
+                //
+                switch (ucChannel) {
+                case 0:
+        #if defined SIM_SOPT5_LPUART0TXSRC_TPM1_0                        // {16} LPUART0 modulation
+                    if ((ulMode & PWM_OPTION_MODULATE_LPUART0) != 0) {
+                        SIM_SOPT5 |= SIM_SOPT5_LPUART0TXSRC_TPM1_0;      // the PWM output will be driven onto the LPUART0 Tx line
+                    }
+                    else {
+                        SIM_SOPT5 &= ~(SIM_SOPT5_LPUART0TXSRC_TPM1_0);
+                    }
+        #endif
+        #if defined SIM_SOPT5_LPUART1TXSRC_TPM1_0                        // {16} LPUART1 modulation
+                    if ((ulMode & PWM_OPTION_MODULATE_LPUART1) != 0) {
+                        SIM_SOPT5 |= SIM_SOPT5_LPUART1TXSRC_TPM1_0;      // the PWM output will be driven onto the LPUART1 Tx line
+                    }
+                    else {
+                        SIM_SOPT5 &= ~(SIM_SOPT5_LPUART1TXSRC_TPM1_0);
+                    }
+        #endif
+                    break;
+                default:
+                    break;
+                }
                 break;
     #endif
     #if FLEX_TIMERS_AVAILABLE > 2
-                case 2:                                                  // timer 2
-                    switch (ptrPWM_settings->pwm_reference & ~_TIMER_MODULE_MASK) { // configure appropriate pin for the timer signal
-                    case 0:                                              // timer 2, channel 0
-        #if defined KINETIS_KE15
-            #if defined TPM2_0_ON_C
-                        _CONFIG_PERIPHERAL(C, 5, (PC_5_FTM2_CH0 | PORT_SRE_FAST | PORT_DSE_HIGH)); // FTM2_CH0 on PC.5 (alt. function 2)
-            #elif defined TPM2_0_ON_D_HIGH
-                        _CONFIG_PERIPHERAL(D, 10, (PD_10_FTM2_CH0 | PORT_SRE_FAST | PORT_DSE_HIGH)); // FTM2_CH0 on PD.10 (alt. function 2)
-            #else
-                        _CONFIG_PERIPHERAL(D, 0, (PD_0_FTM2_CH0 | PORT_SRE_FAST | PORT_DSE_HIGH)); // FTM2_CH0 on PD.0 (alt. function 4)
-            #endif
-        #elif defined KINETIS_KE && !defined KINETIS_KE18
-            #if defined FTM2_0_ON_H
-                        SIM_PINSEL0 |= SIM_PINSEL_FTM1PS1;
-                        _CONFIG_PERIPHERAL(H, 0, (PH_0_FTM2_CH0 | PORT_SRE_FAST | PORT_DSE_HIGH)); // FTM2_CH0 on PH.0 (alt. function 2)
-            #elif defined FTM2_0_ON_F
-                        _CONFIG_PERIPHERAL(F, 0, (PF_0_FTM2_CH0 | PORT_SRE_FAST | PORT_DSE_HIGH)); // FTM2_CH0 on PF.0 (alt. function 2)
-            #else
-                        SIM_PINSEL0 &= ~SIM_PINSEL_FTM1PS1;
-                        _CONFIG_PERIPHERAL(C, 0, (PC_0_FTM2_CH0 | PORT_SRE_FAST | PORT_DSE_HIGH)); // FTM2_CH0 on PC.0 (alt. function 2)
-            #endif
-        #elif (defined KINETIS_KL25 || defined KINETIS_KL26 || defined KINETIS_KL27) && defined TPM2_0_ON_E
-                        _CONFIG_PERIPHERAL(E, 22, (PE_22_TPM2_CH0 | PORT_SRE_FAST | PORT_DSE_HIGH)); // TPM2_CH0 on PE.22 (alt. function 3)
-        #elif (defined KINETIS_KL25 || defined KINETIS_KL26 || defined KINETIS_KL27) && defined FTM2_0_ON_B_LOW
-                        _CONFIG_PERIPHERAL(B, 2,  (PB_2_FTM2_CH0 | PORT_SRE_FAST | PORT_DSE_HIGH)); // FTM2_CH0 on PB.2 (alt. function 3)
-        #elif defined FTM2_0_ON_B
-                        _CONFIG_PERIPHERAL(B, 18, (PB_18_FTM2_CH0 | PORT_SRE_FAST | PORT_DSE_HIGH)); // FTM2_CH0 on PB.18 (alt. function 3)
+            case 2:
+        #if defined KINETIS_WITH_PCC && !defined KINETIS_KE15
+                SELECT_PCC_PERIPHERAL_SOURCE(FTM2, FTM2_PCC_SOURCE);     // select the PCC clock used by FlexTimer/TPM 2
+        #endif
+        #if defined KINETIS_KL || defined KINETIS_K22_SF7 || defined KINETIS_K64 || defined KINETIS_K65 || defined KINETIS_K66 || defined KINETIS_KV50 // {13}
+                POWER_UP_ATOMIC(6, FTM2);                                // ensure that the FlexTimer module is powered up
         #else
-                        _CONFIG_PERIPHERAL(A, 10, (PA_10_FTM2_CH0 | PORT_SRE_FAST | PORT_DSE_HIGH)); // FTM2_CH0 on PA.10 (alt. function 3)
+                POWER_UP_ATOMIC(3, FTM2);                                // ensure that the FlexTimer module is powered up
         #endif
-                        break;
-                    case 1:                                              // timer 2, channel 1
-        #if defined KINETIS_KE15
-            #if defined TPM2_1_ON_A
-                        _CONFIG_PERIPHERAL(A, 0, (PA_0_FTM2_CH1 | PORT_SRE_FAST | PORT_DSE_HIGH)); // FTM2_CH1 on PA.0 (alt. function 2)
-            #elif defined TPM2_1_ON_D_HIGH
-                        _CONFIG_PERIPHERAL(D, 11, (PD_11_FTM2_CH1 | PORT_SRE_FAST | PORT_DSE_HIGH)); // FTM2_CH1 on PD.11 (alt. function 2)
-            #else
-                        _CONFIG_PERIPHERAL(D, 1, (PD_1_FTM2_CH1 | PORT_SRE_FAST | PORT_DSE_HIGH)); // FTM2_CH1 on PD.1 (alt. function 4)
-            #endif
-        #elif defined KINETIS_KE && !defined KINETIS_KE18
-            #if defined FTM2_1_ON_H
-                #if defined KINETIS_KE06
-                        SIM_PINSEL1 |= SIM_PINSEL1_FTM2PS0_PTH0;
-                        SIM_PINSEL1 &= ~SIM_PINSEL1_FTM2PS0_PTF0;
-                #else
-                        SIM_PINSEL0 |= SIM_PINSEL_FTM2PS1;
-                #endif
-                        _CONFIG_PERIPHERAL(H, 1, (PH_1_FTM2_CH1 | PORT_SRE_FAST | PORT_DSE_HIGH)); // FTM2_CH1 on PH.1 (alt. function 2)
-            #elif defined FTM2_1_ON_F
-                        SIM_PINSEL1 &= ~SIM_PINSEL1_FTM2PS0_PTH0;
-                        SIM_PINSEL1 |= SIM_PINSEL1_FTM2PS0_PTF0;
-                        _CONFIG_PERIPHERAL(F, 1, (PF_1_FTM2_CH1 | PORT_SRE_FAST | PORT_DSE_HIGH)); // FTM2_CH1 on PF.1 (alt. function 2)
-            #else
-                #if (defined SIM_PINSEL1 && (((defined KINETIS_KE04 && (SIZE_OF_FLASH > (8 * 1024))) || defined KINETIS_KE06) || defined KINETIS_KEA64 || defined KINETIS_KEA128))
-                        SIM_PINSEL1 &= ~(SIM_PINSEL1_FTM2PS0_PTH0 | SIM_PINSEL1_FTM2PS0_PTF0);
-                #else
-                        SIM_PINSEL0 &= ~SIM_PINSEL_FTM2PS1;
-                #endif
-                        _CONFIG_PERIPHERAL(C, 1, (PC_1_FTM2_CH1 | PORT_SRE_FAST | PORT_DSE_HIGH)); // FTM2_CH1 on PC.1 (alt. function 2)
-            #endif
-        #elif (defined KINETIS_KL25 || defined KINETIS_KL26 || defined KINETIS_KL27) && defined TPM2_1_ON_E
-                        _CONFIG_PERIPHERAL(E, 23, (PE_23_TPM2_CH1 | PORT_SRE_FAST | PORT_DSE_HIGH)); // TPM2_CH1 on PE.23 (alt. function 3)
-        #elif (defined KINETIS_KL25 || defined KINETIS_KL26 || defined KINETIS_KL27) && defined FTM2_1_ON_B_LOW
-                        _CONFIG_PERIPHERAL(B, 3,  (PB_3_FTM2_CH1 | PORT_SRE_FAST | PORT_DSE_HIGH)); // FTM2_CH1 on PB.3 (alt. function 3)
-        #elif defined FTM2_1_ON_B
-                        _CONFIG_PERIPHERAL(B, 19, (PB_19_FTM2_CH1 | PORT_SRE_FAST | PORT_DSE_HIGH)); // FTM2_CH1 on PB.19 (alt. function 3)
+                ptrFlexTimer = (FLEX_TIMER_MODULE *)FTM_BLOCK_2;
+        #if defined KINETIS_KE
+                ptrFlexTimer->FTM_CONF = FTM_DEBUG_BEHAVIOUR;            // set the debugging behaviour (whether the counter runs in debug mode and how the outputs react - only available on FlexTimer 2)
+        #endif
+        #if defined KINETIS_KL
+                iInterruptID = irq_TPM2_ID;
         #else
-                        _CONFIG_PERIPHERAL(A, 11, (PA_11_FTM2_CH1 | PORT_SRE_FAST | PORT_DSE_HIGH)); // FTM2_CH1 on PA.11 (alt. function 3)
+                iInterruptID = irq_FTM2_ID;
         #endif
-                        break;
-        #if FLEX_TIMERS_2_CHANNELS > 2
-                    case 2:                                              // timer 2, channel 2
-            #if defined KINETIS_KE15
-                #if defined TPM2_2_ON_D
-                        _CONFIG_PERIPHERAL(D, 12, (PD_12_FTM2_CH2 | PORT_SRE_FAST | PORT_DSE_HIGH)); // FTM2_CH2 on PD.12 (alt. function 2)
-                #else
-                        _CONFIG_PERIPHERAL(E, 4, (PE_4_FTM2_CH2 | PORT_SRE_FAST | PORT_DSE_HIGH)); // FTM2_CH2 on PE.4 (alt. function 4)
-                #endif
-            #elif defined FTM2_2_ON_D
-                #if defined KINETIS_KE06
-                        SIM_PINSEL1 |= SIM_PINSEL1_FTM2PS2_PTD0;
-                        SIM_PINSEL1 &= ~SIM_PINSEL1_FTM2PS2_PTG4;
-                #else
-                        SIM_PINSEL0 |= SIM_PINSEL_FTM2PS2;
-                #endif
-                        _CONFIG_PERIPHERAL(D, 0, (PD_0_FTM2_CH2 | PORT_SRE_FAST | PORT_DSE_HIGH)); // FTM2_CH2 on PD.0 (alt. function 2)
-            #elif defined FTM2_2_ON_G
-                        SIM_PINSEL1 |= (SIM_PINSEL1_FTM2PS2_PTD0 | SIM_PINSEL1_FTM2PS2_PTG4);
-                        _CONFIG_PERIPHERAL(G, 4, (PG_4_FTM2_CH2 | PORT_SRE_FAST | PORT_DSE_HIGH)); // FTM2_CH2 on PG.4 (alt. function 2)
-            #else
-                #if (defined SIM_PINSEL1 && (((defined KINETIS_KE04 && (SIZE_OF_FLASH > (8 * 1024))) || defined KINETIS_KE06) || defined KINETIS_KEA64 || defined KINETIS_KEA128))
-                        SIM_PINSEL1 &= ~(SIM_PINSEL1_FTM2PS2_PTD0 | SIM_PINSEL1_FTM2PS2_PTG4);
-                #else
-                        SIM_PINSEL0 &= ~SIM_PINSEL_FTM2PS2;
-                #endif
-                        _CONFIG_PERIPHERAL(C, 2, (PC_2_FTM2_CH2 | PORT_SRE_FAST | PORT_DSE_HIGH)); // FTM2_CH2 on PC.2 (alt. function 1)
-            #endif
-                        break;
-        #endif
-        #if FLEX_TIMERS_2_CHANNELS > 3
-                    case 3:                                              // timer 2, channel 3
-            #if defined KINETIS_KE15
-                #if defined TPM2_3_ON_D
-                        _CONFIG_PERIPHERAL(D, 5, (PD_5_FTM2_CH3 | PORT_SRE_FAST | PORT_DSE_HIGH)); // FTM2_CH3 on PD.5 (alt. function 2)
-                #else
-                        _CONFIG_PERIPHERAL(E, 5, (PE_5_FTM2_CH3 | PORT_SRE_FAST | PORT_DSE_HIGH)); // FTM2_CH3 on PE.5 (alt. function 4)
-                #endif
-            #elif defined FTM2_3_ON_D
-                #if defined KINETIS_KE06
-                        SIM_PINSEL1 |= SIM_PINSEL1_FTM2PS3_PTD1;
-                        SIM_PINSEL1 &= ~SIM_PINSEL1_FTM2PS3_PTG5;
-                #else
-                        SIM_PINSEL0 |= SIM_PINSEL_FTM2PS3;
-                #endif
-                        _CONFIG_PERIPHERAL(D, 1, (PD_1_FTM2_CH3 | PORT_SRE_FAST | PORT_DSE_HIGH)); // FTM2_CH3 on PD.1 (alt. function 2)
-            #elif defined FTM2_3_ON_G
-                        SIM_PINSEL1 &= ~(SIM_PINSEL1_FTM2PS3_PTD1);
-                        SIM_PINSEL1 |= SIM_PINSEL1_FTM2PS3_PTG5;
-                        _CONFIG_PERIPHERAL(G, 5, (PG_5_FTM2_CH3 | PORT_SRE_FAST | PORT_DSE_HIGH)); // FTM2_CH3 on PG.5 (alt. function 2)
-            #else
-                    #if (defined SIM_PINSEL1 && (((defined KINETIS_KE04 && (SIZE_OF_FLASH > (8 * 1024))) || defined KINETIS_KE06) || defined KINETIS_KEA64 ||  defined KINETIS_KEA128))
-                        SIM_PINSEL1 &= ~(SIM_PINSEL1_FTM2PS3_PTD1 | SIM_PINSEL1_FTM2PS3_PTG5);
-                    #else
-                        SIM_PINSEL0 &= ~SIM_PINSEL_FTM2PS3;
-                    #endif
-                        _CONFIG_PERIPHERAL(C, 3, (PC_3_FTM2_CH3 | PORT_SRE_FAST | PORT_DSE_HIGH)); // FTM2_CH3 on PC.3 (alt. function 1)
-            #endif
-                        break;
-        #endif
-        #if FLEX_TIMERS_2_CHANNELS > 4
-                    case 4:                                              // timer 2, channel 4
-            #if defined FTM2_4_ON_G && defined SIM_PINSEL1
-                        SIM_PINSEL1 |= SIM_PINSEL1_FTM2PS4;
-                        _CONFIG_PERIPHERAL(G, 6, (PG_6_FTM2_CH4 | PORT_SRE_FAST | PORT_DSE_HIGH)); // FTM2_CH4 on PG.6 (alt. function 2)
-            #else
-                #if defined KINETIS_KE06
-                        SIM_PINSEL1 &= ~SIM_PINSEL1_FTM2PS4;
-                #endif
-                        _CONFIG_PERIPHERAL(B, 4, (PB_4_FTM2_CH4 | PORT_SRE_FAST | PORT_DSE_HIGH)); // FTM2_CH4 on PB.4 (alt. function 1)
-            #endif
-                        break;
-        #endif
-        #if FLEX_TIMERS_2_CHANNELS > 5
-                    case 5:                                              // timer 2, channel 5
-            #if defined FTM2_5_ON_G && defined SIM_PINSEL1
-                        SIM_PINSEL1 |= SIM_PINSEL1_FTM2PS5;
-                        _CONFIG_PERIPHERAL(G, 7, (PG_7_FTM2_CH5 | PORT_SRE_FAST | PORT_DSE_HIGH)); // FTM2_CH5 on PG.7 (alt. function 2)
-            #else
-                #if defined KINETIS_KE06
-                        SIM_PINSEL1 &= ~SIM_PINSEL1_FTM2PS5;
-                #endif
-                        _CONFIG_PERIPHERAL(B, 5, (PB_5_FTM2_CH5 | PORT_SRE_FAST | PORT_DSE_HIGH)); // FTM2_CH5 on PB.5 (alt. function 1)
-            #endif
-                        break;
-        #endif
-                    default:
-                        _EXCEPTION("Invalid timer channel!!");
-                        return;                                          // invalid channel
+                if ((ulMode & PWM_NO_OUTPUT) == 0) {                     // {6}
+                    fnConfigTimerPin(2, ucChannel, (PORT_SRE_FAST | PORT_DSE_HIGH)); // configure the PWM output pin
+                }
+                // Handle timer 2 - channel options
+                //
+                switch (ucChannel) {
+                case 0:
+        #if defined SIM_SOPT5_LPUART0TXSRC_TPM2_0                        // {16} LPUART0 modulation
+                    if ((ulMode & PWM_OPTION_MODULATE_LPUART0) != 0) {
+                        SIM_SOPT5 |= SIM_SOPT5_LPUART0TXSRC_TPM2_0;      // the PWM output will be driven onto the LPUART0 Tx line
                     }
-        break;
+                    else {
+                        SIM_SOPT5 &= ~(SIM_SOPT5_LPUART0TXSRC_TPM2_0);
+                    }
+        #endif
+        #if defined SIM_SOPT5_LPUART1TXSRC_TPM2_0                        // {16} LPUART1 modulation
+                    if ((ulMode & PWM_OPTION_MODULATE_LPUART1) != 0) {
+                        SIM_SOPT5 |= SIM_SOPT5_LPUART1TXSRC_TPM2_0;      // the PWM output will be driven onto the LPUART1 Tx line
+                    }
+                    else {
+                        SIM_SOPT5 &= ~(SIM_SOPT5_LPUART1TXSRC_TPM2_0);
+                    }
+        #endif
+                    break;
+                default:
+                    break;
+                }
+                break;
     #endif
     #if FLEX_TIMERS_AVAILABLE > 3
             case 3:
-                POWER_UP(3, SIM_SCGC3_FTM3);                             // ensure that the FlexTimer module is powered up
+        #if defined KINETIS_WITH_PCC && !defined KINETIS_KE15
+                SELECT_PCC_PERIPHERAL_SOURCE(FTM3, FTM3_PCC_SOURCE);     // select the PCC clock used by FlexTimer/TPM 3
+        #endif
+        #if defined KINETIS_K22_SF7
+                POWER_UP_ATOMIC(6, FTM3);                                // ensure that the FlexTimer module is powered up
+        #else
+                POWER_UP_ATOMIC(3, FTM3);                                // ensure that the FlexTimer module is powered up
+        #endif
         #if defined KINETIS_KL
                 iInterruptID = irq_TPM3_ID;
         #else
@@ -543,128 +459,34 @@ static __interrupt void _PWM_Interrupt_5(void)
         #endif
                 ptrFlexTimer = (FLEX_TIMER_MODULE *)FTM_BLOCK_3;
                 if ((ulMode & PWM_NO_OUTPUT) == 0) {                     // {6}
-                    switch (ptrPWM_settings->pwm_reference & ~_TIMER_MODULE_MASK) { // configure appropriate pin for the PWM output signal
-                    case 0:                                              // timer 3, channel 0
-        #if defined FTM3_0_ON_D
-                        _CONFIG_PERIPHERAL(D, 0, (PD_0_FTM3_CH0 | PORT_SRE_FAST | PORT_DSE_HIGH)); // FTM3_CH0 on PD.0 (alt. function 4)
-        #else
-                        _CONFIG_PERIPHERAL(E, 5, (PE_5_FTM3_CH0 | PORT_SRE_FAST | PORT_DSE_HIGH)); // FTM3_CH0 on PE.5 (alt. function 6)
-        #endif
-                        break;
-                    case 1:                                              // timer 3, channel 1
-        #if defined FTM3_1_ON_D
-                        _CONFIG_PERIPHERAL(D, 1, (PD_1_FTM3_CH1 | PORT_SRE_FAST | PORT_DSE_HIGH)); // FTM3_CH1 on PD.1 (alt. function 4)
-        #else
-                        _CONFIG_PERIPHERAL(E, 6, (PE_6_FTM3_CH1 | PORT_SRE_FAST | PORT_DSE_HIGH)); // FTM3_CH1 on PE.6 (alt. function 6)
-        #endif
-                        break;
-                    case 2:                                              // timer 3, channel 2
-        #if defined FTM3_2_ON_D
-                        _CONFIG_PERIPHERAL(D, 2, (PD_2_FTM3_CH2 | PORT_SRE_FAST | PORT_DSE_HIGH)); // FTM3_CH2 on PD.2 (alt. function 4)
-        #else
-                        _CONFIG_PERIPHERAL(E, 7, (PE_7_FTM3_CH2 | PORT_SRE_FAST | PORT_DSE_HIGH)); // FTM3_CH2 on PE.7 (alt. function 6)
-        #endif
-                        break;
-                    case 3:                                              // timer 3, channel 3
-        #if defined FTM3_3_ON_D
-                        _CONFIG_PERIPHERAL(D, 3, (PD_3_FTM3_CH3 | PORT_SRE_FAST | PORT_DSE_HIGH)); // FTM3_CH3 on PD.3 (alt. function 4)
-        #else
-                        _CONFIG_PERIPHERAL(E, 8, (PE_8_FTM3_CH3 | PORT_SRE_FAST | PORT_DSE_HIGH)); // FTM3_CH3 on PE.8 (alt. function 6)
-        #endif
-                        break;
-                    case 4:                                              // timer 3, channel 4
-        #if defined FTM3_4_ON_C
-                        _CONFIG_PERIPHERAL(C, 8, (PC_8_FTM3_CH4 | PORT_SRE_FAST | PORT_DSE_HIGH)); // FTM3_CH4 on PC.8 (alt. function 3)
-        #else
-                        _CONFIG_PERIPHERAL(E, 9, (PE_9_FTM3_CH4 | PORT_SRE_FAST | PORT_DSE_HIGH)); // FTM3_CH4 on PE.9 (alt. function 6)
-        #endif
-                        break;
-                    case 5:                                              // timer 3, channel 5
-        #if defined FTM3_5_ON_C
-                        _CONFIG_PERIPHERAL(C, 9, (PC_9_FTM3_CH5 | PORT_SRE_FAST | PORT_DSE_HIGH)); // FTM3_CH5 on PC.9 (alt. function 3)
-        #else
-                        _CONFIG_PERIPHERAL(E, 10, (PE_10_FTM3_CH5 | PORT_SRE_FAST | PORT_DSE_HIGH)); // FTM3_CH5 on PE.10 (alt. function 6)
-        #endif
-                        break;
-                    case 6:                                              // timer 3, channel 6
-        #if defined FTM3_6_ON_C
-                        _CONFIG_PERIPHERAL(C, 10, (PC_10_FTM3_CH6 | PORT_SRE_FAST | PORT_DSE_HIGH)); // FTM3_CH6 on PC.10 (alt. function 3)
-        #else
-                        _CONFIG_PERIPHERAL(E, 11, (PE_11_FTM3_CH6 | PORT_SRE_FAST | PORT_DSE_HIGH)); // FTM3_CH6 on PE.11 (alt. function 6)
-        #endif
-                        break;
-                    case 7:                                              // timer 3, channel 7
-        #if defined FTM3_7_ON_C
-                        _CONFIG_PERIPHERAL(C, 11, (PC_11_FTM3_CH7 | PORT_SRE_FAST | PORT_DSE_HIGH)); // FTM3_CH7 on PC.11 (alt. function 3)
-        #else
-                        _CONFIG_PERIPHERAL(E, 12, (PE_5_FTM3_CH7 | PORT_SRE_FAST | PORT_DSE_HIGH)); // FTM3_CH7 on PE.12 (alt. function 6)
-        #endif
-                        break;
-                    default:
-                        _EXCEPTION("Invalid timer channel!!");
-                        return;                                          // invalid channel
-                    }
+                    fnConfigTimerPin(3, ucChannel, (PORT_SRE_FAST | PORT_DSE_HIGH)); // configure the PWM output pin
                 }
                 break;
     #endif
-    #if FLEX_TIMERS_AVAILABLE > 4 && defined TPMS_AVAILABLE
+    #if FLEX_TIMERS_AVAILABLE > 4 && defined TPMS_AVAILABLE_TOO          // TPM1
             case 4:
-                POWER_UP(2, SIM_SCGC2_TPM1);                             // ensure that the TPM module is powered up
-                iInterruptID = irq_FTM1_ID;
+        #if defined KINETIS_WITH_PCC && !defined KINETIS_KE15
+                SELECT_PCC_PERIPHERAL_SOURCE(FTM1, FTM1_PCC_SOURCE);     // select the PCC clock used by TPM 1
+        #endif
+                POWER_UP_ATOMIC(2, TPM1);                                // ensure that the TPM module is powered up
+                iInterruptID = irq_TPM1_ID;
                 iTPM_type = 1;
                 ptrFlexTimer = (FLEX_TIMER_MODULE *)FTM_BLOCK_4;
                 if ((ulMode & PWM_NO_OUTPUT) == 0) {                     // {6}
-                    switch (ptrPWM_settings->pwm_reference & ~_TIMER_MODULE_MASK) { // configure appropriate pin for the PWM output signal
-                    case 0:                                              // TPM 1, channel 0
-        #if defined TPM1_0_ON_B
-                        _CONFIG_PERIPHERAL(B, 0, (PB_0_TPM1_CH0 | PORT_SRE_FAST | PORT_DSE_HIGH)); // TPM1_CH0 on PB.0 (alt. function 6)
-        #elif defined TPM1_0_ON_A_HIGH
-                        _CONFIG_PERIPHERAL(A, 12, (PA_12_TPM1_CH0 | PORT_SRE_FAST | PORT_DSE_HIGH)); // TPM1_CH0 on PA.12 (alt. function 7)
-        #else
-                        _CONFIG_PERIPHERAL(A, 8, (PA_8_TPM1_CH0 | PORT_SRE_FAST | PORT_DSE_HIGH)); // TPM1_CH0 on PA.8 (alt. function 6)
-        #endif
-                        break;
-                    case 1:                                              // TPM 1, channel 1
-        #if defined TPM1_1_ON_B
-                        _CONFIG_PERIPHERAL(B, 1, (PB_1_TPM1_CH1 | PORT_SRE_FAST | PORT_DSE_HIGH)); // TPM1_CH1 on PB.1 (alt. function 6)
-        #elif defined TPM1_1_ON_A_HIGH
-                        _CONFIG_PERIPHERAL(A, 13, (PA_13_TPM1_CH1 | PORT_SRE_FAST | PORT_DSE_HIGH)); // TPM1_CH1 on PA.13 (alt. function 7)
-        #else
-                        _CONFIG_PERIPHERAL(A, 9, (PA_9_TPM1_CH1 | PORT_SRE_FAST | PORT_DSE_HIGH)); // TPM1_CH1 on PA.9 (alt. function 6)
-        #endif
-                        break;
-                    default:
-                        _EXCEPTION("Invalid timer channel!!");
-                        return;                                          // invalid channel
-                    }
+                    fnConfigTimerPin(4, ucChannel, (PORT_SRE_FAST | PORT_DSE_HIGH)); // configure the PWM output pin
                 }
                 break;
 
-            case 5:
-                POWER_UP(2, SIM_SCGC2_TPM2);                             // ensure that the TPM module is powered up
-                iInterruptID = irq_FTM2_ID;
+            case 5:                                                      // TPM2
+        #if defined KINETIS_WITH_PCC && !defined KINETIS_KE15
+                SELECT_PCC_PERIPHERAL_SOURCE(FTM2, FTM2_PCC_SOURCE);     // select the PCC clock used by TPM 2
+        #endif
+                POWER_UP_ATOMIC(2, TPM2);                                // ensure that the TPM module is powered up
+                iInterruptID = irq_TPM2_ID;
                 ptrFlexTimer = (FLEX_TIMER_MODULE *)FTM_BLOCK_5;
                 iTPM_type = 1;
                 if ((ulMode & PWM_NO_OUTPUT) == 0) {                     // {6}
-                    switch (ptrPWM_settings->pwm_reference & ~_TIMER_MODULE_MASK) { // configure appropriate pin for the PWM output signal
-                    case 0:                                              // TPM 2, channel 0
-        #if defined TPM2_0_ON_B
-                        _CONFIG_PERIPHERAL(B, 18, (PB_18_TPM2_CH0 | PORT_SRE_FAST | PORT_DSE_HIGH)); // TPM2_CH0 on PB.18 (alt. function 6)
-        #else
-                        _CONFIG_PERIPHERAL(A, 10, (PA_10_TPM2_CH0 | PORT_SRE_FAST | PORT_DSE_HIGH)); // TPM2_CH0 on PA.10 (alt. function 6)
-        #endif
-                        break;
-                    case 1:                                              // TPM 2, channel 1
-        #if defined TPM2_1_ON_B
-                        _CONFIG_PERIPHERAL(B, 19, (PB_19_TPM2_CH1 | PORT_SRE_FAST | PORT_DSE_HIGH)); // TPM2_CH1 on PB.19 (alt. function 6)
-        #else
-                        _CONFIG_PERIPHERAL(A, 11, (PA_11_TPM2_CH1 | PORT_SRE_FAST | PORT_DSE_HIGH)); // TPM2_CH1 on PA.11 (alt. function 6)
-        #endif
-                        break;
-                    default:
-                        _EXCEPTION("Invalid timer channel!!");
-                        return;                                          // invalid channel
-                    }
+                    fnConfigTimerPin(5, ucChannel, (PORT_SRE_FAST | PORT_DSE_HIGH)); // configure the PWM output pin
                 }
                 break;
     #endif
@@ -677,8 +499,8 @@ static __interrupt void _PWM_Interrupt_5(void)
     #if !defined KINETIS_KE
             ptrFlexTimer->FTM_CONF = FTM_DEBUG_BEHAVIOUR;                // set the debugging behaviour (whether the counter runs in debug mode and how the outputs react)
     #endif
-            if (PWM_EXTERNAL_CLK == (ulMode & FTM_SC_CLKS_EXT)) {        // if external clock source is to be used program the clock input
-    #if FLEX_TIMERS_AVAILABLE > 4 && defined TPMS_AVAILABLE
+            if (PWM_EXTERNAL_CLK == (ulMode & FTM_SC_CLKS_MASK)) {       // if external clock source is to be used program the clock input
+    #if FLEX_TIMERS_AVAILABLE > 4 && defined TPMS_AVAILABLE_TOO
                 if (iTPM_type != 0) {
                     ulMode &= ~(FTM_SC_CLKS_EXT);                        // convert FTM external clock to TPM external clock setting
                     ulMode |= FTM_SC_CLKS_FIX;
@@ -704,9 +526,70 @@ static __interrupt void _PWM_Interrupt_5(void)
                 }
                 else {
     #endif
-    #if defined FTM_CLKIN_1
+    #if defined KINETIS_KL28                                             // KL28 has a dedicated external clock pin for each timer
+                    switch (ucFlexTimer) {
+                    case 0:                                              // TPM0
+        #if defined TPMCLKIN0_ON_E_HIGH
+                        _CONFIG_PERIPHERAL(E, 29, (PE_29_TPM0_CLKIN | PORT_PS_UP_ENABLE)); // TPM0_CLKIN on PE.29 (alt. function 4)
+        #elif defined TPMCLKIN0_ON_E_LOW
+                        _CONFIG_PERIPHERAL(E, 16, (PE_16_TPM0_CLKIN | PORT_PS_UP_ENABLE)); // TPM0_CLKIN on PE.16 (alt. function 4)
+        #elif defined TPMCLKIN0_ON_C
+                        _CONFIG_PERIPHERAL(C, 12, (PC_12_TPM0_CLKIN | PORT_PS_UP_ENABLE)); // TPM0_CLKIN on PC.12 (alt. function 4)
+        #elif defined TPMCLKIN0_ON_B
+                        _CONFIG_PERIPHERAL(B, 16, (PB_16_TPM0_CLKIN | PORT_PS_UP_ENABLE)); // TPM0_CLKIN on PB.16 (alt. function 4)
+        #else
+                        _CONFIG_PERIPHERAL(A, 18, (PA_18_TPM0_CLKIN | PORT_PS_UP_ENABLE)); // TPM0_CLKIN on PA.18 (alt. function 4)
+        #endif
+                        break;
+                    case 1:                                              // TPM1
+        #if defined TPMCLKIN1_ON_E_HIGH
+                        _CONFIG_PERIPHERAL(E, 30, (PE_30_TPM1_CLKIN | PORT_PS_UP_ENABLE)); // TPM1_CLKIN on PE.30 (alt. function 4)
+        #elif defined TPMCLKIN1_ON_E_LOW
+                        _CONFIG_PERIPHERAL(E, 17, (PE_17_TPM1_CLKIN | PORT_PS_UP_ENABLE)); // TPM1_CLKIN on PE.17 (alt. function 4)
+        #elif defined TPMCLKIN1_ON_C
+                        _CONFIG_PERIPHERAL(C, 13, (PC_13_TPM1_CLKIN | PORT_PS_UP_ENABLE)); // TPM1_CLKIN on PC.13 (alt. function 4)
+        #elif defined TPMCLKIN1_ON_B
+                        _CONFIG_PERIPHERAL(B, 17, (PB_17_TPM1_CLKIN | PORT_PS_UP_ENABLE)); // TPM1_CLKIN on PB.17 (alt. function 4)
+        #else
+                        _CONFIG_PERIPHERAL(A, 19, (PA_19_TPM1_CLKIN | PORT_PS_UP_ENABLE)); // TPM1_CLKIN on PA.19 (alt. function 4)
+        #endif
+                        break;
+                    case 2:                                              // TPM2
+        #if defined TPMCLKIN1_ON_E_HIGH
+                        _CONFIG_PERIPHERAL(E, 31, (PE_31_TPM2_CLKIN | PORT_PS_UP_ENABLE)); // TPM2_CLKIN on PE.31 (alt. function 4)
+        #elif defined TPMCLKIN1_ON_B
+                        _CONFIG_PERIPHERAL(B, 11, (PB_11_TPM2_CLKIN | PORT_PS_UP_ENABLE)); // TPM2_CLKIN on PB.11 (alt. function 4)
+        #else
+                        _CONFIG_PERIPHERAL(A, 20, (PA_20_TPM2_CLKIN | PORT_PS_UP_ENABLE)); // TPM2_CLKIN on PA.20 (alt. function 4)
+        #endif
+                        break;
+                    }
+    #elif defined KINETIS_KL27                                           // {10} KL27 has two external clock sources (TPM_CLKIN0 and TPM_CLKIN1) which can be individually defined for use by each of the TPMs
+                    if ((ulMode & PWM_SOURCE_CLKIN1) != 0) {             // use TPM_CLKIN1
+        #if defined TPMCLKIN1_ON_E_HIGH
+                        _CONFIG_PERIPHERAL(E, 30, (PE_30_TPM_CLKIN1 | PORT_PS_UP_ENABLE)); // TPM_CLKIN1 on PE.30 (alt. function 4)
+        #elif defined TPMCLKIN1_ON_E_LOW
+                        _CONFIG_PERIPHERAL(E, 17, (PE_17_TPM_CLKIN1 | PORT_PS_UP_ENABLE)); // TPM_CLKIN1 on PE.17 (alt. function 4)
+        #else
+                        _CONFIG_PERIPHERAL(A, 19, (PA_19_TPM_CLKIN1 | PORT_PS_UP_ENABLE)); // TPM_CLKIN1 on PA.19 (alt. function 4)
+        #endif
+                        SIM_SOPT4 |= (SIM_SOPT4_FTM0CLKSEL << ucFlexTimer); // select CLKIN1 to TPM
+                    }
+                    else {                                               // use TPM_CLKIN0
+        #if defined TPMCLKIN0_ON_E_HIGH
+                        _CONFIG_PERIPHERAL(E, 29, (PE_29_TPM_CLKIN0 | PORT_PS_UP_ENABLE)); // TPM_CLKIN0 on PE.29 (alt. function 4)
+        #elif defined TPMCLKIN0_ON_E_LOW
+                        _CONFIG_PERIPHERAL(E, 16, (PE_16_TPM_CLKIN0 | PORT_PS_UP_ENABLE)); // TPM_CLKIN0 on PE.16 (alt. function 4)
+        #elif defined TPMCLKIN0_ON_B
+                        _CONFIG_PERIPHERAL(B, 16, (PB_16_TPM_CLKIN0 | PORT_PS_UP_ENABLE)); // TPM_CLKIN0 on PB.16 (alt. function 4)
+        #else
+                        _CONFIG_PERIPHERAL(A, 18, (PA_18_TPM_CLKIN0 | PORT_PS_UP_ENABLE)); // TPM_CLKIN0 on PA.18 (alt. function 4)
+        #endif
+                        SIM_SOPT4 &= ~(SIM_SOPT4_FTM0CLKSEL << ucFlexTimer); // select CLKIN0 to TPM
+                    }
+    #elif defined FTM_CLKIN_1                                            // use CLKIN1 source
         #if !defined KINETIS_KE
-                    SIM_SOPT4 |= (SIM_SOPT4_FTM0CLKSEL << ucChannel);    // select CLKIN1 to FTN
+                    SIM_SOPT4 |= (SIM_SOPT4_FTM0CLKSEL << ucFlexTimer);  // select CLKIN1 to FTM
         #endif
         #if defined KINETIS_KL02
                     _CONFIG_PERIPHERAL(B, 6, (PB_6_TPM_CLKIN1 | PORT_PS_UP_ENABLE)); // TPM_CKLIN1 on PB.6 (alt. function 3)
@@ -715,28 +598,49 @@ static __interrupt void _PWM_Interrupt_5(void)
         #else
                     _CONFIG_PERIPHERAL(A, 19, (PA_19_FTM_CLKIN1 | PORT_PS_UP_ENABLE)); // FTM_CKLIN1 on PA.19 (alt. function 4)
         #endif
-    #else
-        #if !defined KINETIS_KE && !defined KINETIS_KL82
-                    SIM_SOPT4 &= ~(SIM_SOPT4_FTM0CLKSEL << ucChannel);   // select CLKIN0 to FTM
+    #else                                                                // use CLKIN0 source
+        #if !defined KINETIS_KE && !defined KINETIS_KL82 && !defined KINETIS_KL28
+                    SIM_SOPT4 &= ~(SIM_SOPT4_FTM0CLKSEL << ucFlexTimer); // select CLKIN0 to FTM
         #endif
         #if defined KINETIS_KL02 && defined TPMCLKIN0_ALT
                     _CONFIG_PERIPHERAL(A, 12,  (PA_12_TPM_CLKIN0 | PORT_PS_UP_ENABLE)); // TPM_CLKIN0 on PA.12 (alt. function 2)
         #elif defined KINETIS_KL02 || defined KINETIS_KL04 || defined KINETIS_KL05
                     _CONFIG_PERIPHERAL(A, 1,  (PA_1_TPM_CLKIN0 | PORT_PS_UP_ENABLE)); // TPM_CLKIN0 on PA.1 (alt. function 2)
-        #elif defined KINETIS_K66
+        #elif defined KINETIS_K65 || defined KINETIS_K66
                     _CONFIG_PERIPHERAL(C, 12, (PC_12_FTM_CLKIN0 | PORT_PS_UP_ENABLE)); // FTM_CLKIN0 on PC.12 (alt. function 4)
-        #elif defined KINETIS_KL26
+        #elif defined KINETIS_KL26 || defined KINETIS_K64
                     _CONFIG_PERIPHERAL(B, 16, (PB_16_FTM_CLKIN0 | PORT_PS_UP_ENABLE)); // FTM_CLKIN0 on PA.18 (alt. function 4)
         #else
                     _CONFIG_PERIPHERAL(A, 18, (PA_18_FTM_CLKIN0 | PORT_PS_UP_ENABLE)); // FTM_CLKIN0 on PA.18 (alt. function 4)
         #endif
     #endif
-    #if FLEX_TIMERS_AVAILABLE > 4 && defined TPMS_AVAILABLE
+    #if FLEX_TIMERS_AVAILABLE > 4 && defined TPMS_AVAILABLE_TOO
+                }
+    #endif
+    #if defined FTM_CONF_TRGPOL_LOW
+                if ((PWM_TRIGGER_CLOCK_INVERT & ulMode) != 0) {
+                    ptrFlexTimer->FTM_CONF |= FTM_CONF_TRGPOL_LOW;       // falling edge triggered (note that this has no effect on the KL28)
                 }
     #endif
             }
-    #if FLEX_TIMERS_AVAILABLE > 4 && defined TPMS_AVAILABLE
-            if (iTPM_type != 0) {
+    #if defined TRGMUX_AVAILABLE && defined FTM_SC_CLK_TRIGGER           // {9}
+            else if (PWM_TRIGGER_CLK == (ulMode & FTM_SC_CLKS_MASK)) {   // if trigger clock source is to be used program the trigger input connection using the TRGMUX
+                switch (ucFlexTimer) {
+                case 0:                                                  // FTM0/TPM0
+                    TRGMUX_FTM0 = ptrPWM_settings->ucTriggerSource;      // connect the trigger source to the clock input
+                    break;
+                case 1:                                                  // FTM1/TPM1
+                    TRGMUX_FTM1 = ptrPWM_settings->ucTriggerSource;      // connect the trigger source to the clock input
+                    break;
+                case 2:                                                  // FTM2/TPM2
+                    TRGMUX_FTM2 = ptrPWM_settings->ucTriggerSource;      // connect the trigger source to the clock input
+                    break;
+                }
+                ptrFlexTimer->FTM_CONF &= ~(FTM_CONF_TRGSRC_INTERNAL | FTM_CONF_TRGSEL_EXT_MASK); // ensure external trigger on trigger 0
+            }
+    #endif
+    #if FLEX_TIMERS_AVAILABLE > 4 && defined TPMS_AVAILABLE_TOO
+            if (iTPM_type != 0) {                                        // configure for TPM operation
         #if defined TPM_CLOCKED_FROM_MCGIRCLK
             #if !defined RUN_FROM_LIRC                                   // if the processor is running from the the internal clock we don't change settings here
                 MCG_C1 |= (MCG_C1_IRCLKEN | MCG_C1_IREFSTEN);            // enable internal reference clock and allow it to continue running in stop modes
@@ -770,26 +674,53 @@ static __interrupt void _PWM_Interrupt_5(void)
             else {
                 ptrFlexTimer->FTM_channel[ucChannel].FTM_CSC = FTM_CSC_MS_ELS_PWM_HIGH_TRUE_PULSES;
             }
-          //ptrFlexTimer->FTM_channel[ucChannel].FTM_CSC = (FTM_CSC_ELSA | FTM_CSC_MSA); // test line
     #if !defined DEVICE_WITHOUT_DMA
-            if ((ulMode & PWM_DMA_CHANNEL_ENABLE) != 0) {
-                ptrFlexTimer->FTM_channel[ucChannel].FTM_CSC |= (FTM_CSC_DMA | FTM_CSC_CHIE); // enable DMA trigger from this channel (also the interrupt needs to be enabled for the DMA to operate - interrupt is not generated in this configuration)
+            if ((ulMode & PWM_DMA_CHANNEL_ENABLE) != 0) {                // DMA trigger to be used
+                ptrFlexTimer->FTM_channel[ucChannel].FTM_CSC |= (FTM_CSC_DMA | FTM_CSC_CHIE); // enable DMA trigger from this channel (also the interrupt needs to be enabled for the DMA to operate - interrupt is however not generated in this configuration)
             }
     #endif
     #if !defined KINETIS_KL && !defined KINETIS_KE
             ptrFlexTimer->FTM_CNTIN = 0;
     #endif
             if ((ulMode & FTM_SC_CPWMS) != 0) {                          // if center-aligned
-                ptrFlexTimer->FTM_MOD = (ptrPWM_settings->pwm_frequency / 2); // set the PWM period - valid for all channels of a single timer
-                ptrFlexTimer->FTM_channel[ucChannel].FTM_CV = (ptrPWM_settings->pwm_value / 2); // set the duty cycle for the particular channel
+                ptrFlexTimer->FTM_MOD = ((ptrPWM_settings->pwm_frequency + 1)/2); // set the PWM period - valid for all channels of a single timer
+                ptrFlexTimer->FTM_channel[ucChannel].FTM_CV = (ptrPWM_settings->pwm_value/2); // set the duty cycle for the particular channel
+    #if defined _WINDOWS && defined FTM_MODE_FTMEN
+                if ((ulMode & PWM_COMBINED_PHASE_SHIFT) != 0) {          // {14}
+                    _EXCEPTION("Combined channels are not possible in center-aligned mode!");
+                }
+    #endif
             }
-            else {
-                ptrFlexTimer->FTM_MOD = (ptrPWM_settings->pwm_frequency - 1); // set the PWM period - valid for all channels of a single timer
-                ptrFlexTimer->FTM_channel[ucChannel].FTM_CV = ptrPWM_settings->pwm_value; // set the duty cycle for the particular channel            
+            else {                                                       // edge aligned
+                ptrFlexTimer->FTM_MOD = ptrPWM_settings->pwm_frequency;  // set the PWM period - valid for all channels of a single timer
+    #if defined FTM_MODE_FTMEN
+                if ((ulMode & PWM_COMBINED_PHASE_SHIFT) != 0) {          // {14} only possible in edge aligned mode
+                    if ((ucChannel & 1) == 0) {                          // the first combined channel pair defines the shift from the start position
+                        ptrFlexTimer->FTM_channel[ucChannel].FTM_CV = ptrPWM_settings->pwm_phase_shift; // set the delay before the pulse starts
+                    }
+                    else {                                               // the second in the channel pair defines the end of the pulse
+                        unsigned short usEnd = (ptrPWM_settings->pwm_phase_shift + ptrPWM_settings->pwm_value);
+                        if (usEnd > ptrPWM_settings->pwm_frequency) {    // limit the end - the phase shift is effectively limited by the pulse width duration
+                            usEnd = ptrPWM_settings->pwm_frequency;
+                        }
+                        ptrFlexTimer->FTM_channel[ucChannel].FTM_CV = usEnd; // set the point where the pulse ends
+                        if ((ulMode & PWM_POLARITY) != 0) {              // polarity
+                            ptrFlexTimer->FTM_COMBINE |= (FTM_COMBINE_COMP0 << (8 * (ucChannel/2))); // second channel is complimentary of first channel pair
+                        }
+                    }
+                  //ptrFlexTimer->FTM_MODE |= (FTM_MODE_FTMEN);          // allow extended features
+                    ptrFlexTimer->FTM_COMBINE |= (FTM_COMBINE_COMBINE0 << (8 * (ucChannel/2))); // set combined mode
+                }
+                else {
+                    ptrFlexTimer->FTM_channel[ucChannel].FTM_CV = ptrPWM_settings->pwm_value; // set the duty cycle for the particular channel
+                }
+    #else
+                ptrFlexTimer->FTM_channel[ucChannel].FTM_CV = ptrPWM_settings->pwm_value; // set the duty cycle for the particular channel
+    #endif
             }
     #if !defined DEVICE_WITHOUT_DMA                                      // {2}
             if ((ulMode & (PWM_FULL_BUFFER_DMA | PWM_HALF_BUFFER_DMA)) != 0) { // if DMA is being specified
-                unsigned long ulDMA_rules = (DMA_DIRECTION_OUTPUT | DMA_HALF_WORDS);
+                unsigned long ulDMA_rules = (DMA_DIRECTION_OUTPUT | DMA_HALF_WORDS); // default DMA rules
                 void *ptrRegister;
                 if ((ulMode & PWM_FULL_BUFFER_DMA_AUTO_REPEAT) != 0) {
                     ulDMA_rules |= DMA_AUTOREPEAT;
@@ -797,27 +728,65 @@ static __interrupt void _PWM_Interrupt_5(void)
                 if ((ulMode & PWM_HALF_BUFFER_DMA) != 0) {
                     ulDMA_rules |= DMA_HALF_BUFFER_INTERRUPT;
                 }
-                if ((ulMode & PWM_DMA_CONTROL_FREQUENCY) != 0) {
-                    ptrRegister = (void *)&ptrFlexTimer->FTM_MOD;        // each DMA trigger causes a new frequency to be set
+                if ((ulMode & PWM_DMA_SPECIFY_DESTINATION) == 0) {       // {11}
+                    if ((ulMode & PWM_DMA_CONTROL_FREQUENCY) != 0) {     // {7}
+                        ptrRegister = (void *)&ptrFlexTimer->FTM_MOD;    // each DMA trigger causes a new frequency to be set
+                    }
+                    else {
+                        ptrRegister = (void *)&ptrFlexTimer->FTM_channel[ucChannel].FTM_CV; // each DMA trigger causes a new PWM value to be set
+                    }
                 }
                 else {
-                    ptrRegister = (void *)&ptrFlexTimer->FTM_channel[ucChannel].FTM_CV; // each DMA trigger causes a new PWM value to be set
+                    ptrRegister = ptrPWM_settings->ptrRegister;          // {11} else use the destination register as specified by the user
+                    if (((PWM_DMA_SPECIFY_LONG_WORD | PWM_DMA_SPECIFY_BYTE) & ulMode) != 0) { // and use the specified destination width
+                        ulDMA_rules &= ~(DMA_HALF_WORDS);
+                        if ((PWM_DMA_SPECIFY_LONG_WORD & ulMode) != 0) {
+                            ulDMA_rules |= (DMA_LONG_WORDS);
+                        }
+                        else {
+                            ulDMA_rules |= (DMA_BYTES);
+                        }
+                    }
                 }
-                fnConfigDMA_buffer(ptrPWM_settings->ucDmaChannel, ptrPWM_settings->ucDmaTriggerSource, ptrPWM_settings->ulPWM_buffer_length, ptrPWM_settings->ptrPWM_Buffer, ptrRegister, ulDMA_rules, ptrPWM_settings->dma_int_handler, ptrPWM_settings->dma_int_priority); // source is the PWM buffer and destination is the PWM mark-space ratio register
+                fnConfigDMA_buffer(ptrPWM_settings->ucDmaChannel, ptrPWM_settings->usDmaTriggerSource, ptrPWM_settings->ulPWM_buffer_length, ptrPWM_settings->ptrPWM_Buffer, ptrRegister, ulDMA_rules, ptrPWM_settings->dma_int_handler, ptrPWM_settings->dma_int_priority); // source is the PWM buffer and destination is the PWM mark-space ratio register
                 fnDMA_BufferReset(ptrPWM_settings->ucDmaChannel, DMA_BUFFER_START);
             }
     #endif
             ulMode &= PWM_MODE_SETTINGS_MASK;                            // keep just the user's mode settings for the hardware
             if (ptrPWM_settings->int_handler != 0) {                     // {3} if an interrupt handler is specified it is called at each period
-                _PWM_TimerHandler[ucFlexTimer] = ptrPWM_settings->int_handler;
+                _PWM_TimerHandler[ucFlexTimer] = ptrPWM_settings->int_handler; // period interrupt handler
                 fnEnterInterrupt(iInterruptID, ptrPWM_settings->int_priority, _PWM_TimerInterrupt[ucFlexTimer]);
     #if defined KINETIS_KL
                 ulMode |= (FTM_SC_TOIE | FTM_SC_TOF);                    // enable interrupt [FTM_SC_TOF must be written with 1 to clear]
+    #elif FLEX_TIMERS_AVAILABLE > 4 && defined TPMS_AVAILABLE_TOO
+                if (iTPM_type != 0) {
+                    ulMode |= (FTM_SC_TOIE | FTM_SC_TOF);                // enable interrupt [FTM_SC_TOF must be written with 1 to clear]
+                }
+                else {
+                    ulMode |= (FTM_SC_TOIE);                             // enable interrupt 
+                }
     #else
-                ulMode |= (FTM_SC_TOIE);                                 // enable interrupt 
+                ulMode |= (FTM_SC_TOIE);                                 // enable interrupt
     #endif
             }
-            ptrFlexTimer->FTM_SC = ulMode;                               // note that the mode is shared by all channels in the flex timer
+            if (((ptrPWM_settings->pwm_mode & PWM_CHANNEL_INTERRUPT) != 0) && (ptrPWM_settings->channel_int_handler != 0)) { // {12} if a channel match interrupt is to be generated
+                unsigned char ucChannelReference = (ucSumChannels[ucFlexTimer] + ucChannel);
+                _PWM_ChannelHandler[ucChannelReference] = ptrPWM_settings->channel_int_handler; // channel interrupt handler
+                fnEnterInterrupt(iInterruptID, ptrPWM_settings->int_priority, _PWM_TimerInterrupt[ucFlexTimer]);
+                ucEnabledChannelInterrupts[ucFlexTimer] |= (1 << ucChannel); // {15} mark that this flextimer channel is enabled for interrupts
+                ptrFlexTimer->FTM_channel[ucChannel].FTM_CSC |= FTM_CSC_CHIE; // enable channel interrupt
+            }
+            else {
+                ucEnabledChannelInterrupts[ucFlexTimer] &= ~(1 << ucChannel); // {15}
+            }
+    #if defined KINETIS_KE15                                             // {8}
+            ulMode |= (ptrFlexTimer->FTM_SC & (FTM_SC_PWMEN0 | FTM_SC_PWMEN1 | FTM_SC_PWMEN2 | FTM_SC_PWMEN3 | FTM_SC_PWMEN4 | FTM_SC_PWMEN5 | FTM_SC_PWMEN6 | FTM_SC_PWMEN7)); // preserve already set PWM outputs
+            ulMode |= (FTM_SC_PWMEN0 << ptrPWM_settings->pwm_reference); // enable the PWM channel output
+    #endif
+            ptrFlexTimer->FTM_SC = ulMode;                               // note that the mode is shared by all channels in the flex timer [when the clock is stopped to the flextimer its outputs are also tri-stated, meaning that pull-up/downs on the outputs can be used to determine their idle state]
+    #if defined _WINDOWS
+            ptrFlexTimer->FTM_SC &= ~(FTM_SC_TOF);                       // this is a write '1' to clear flag so we reset it when simulating
+    #endif
     #if defined KINETIS_KE
             _SIM_PER_CHANGE;                                             // update simulator ports
     #endif

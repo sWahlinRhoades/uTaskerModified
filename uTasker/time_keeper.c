@@ -11,11 +11,15 @@
     File:      time_keeper.c
     Project:   Single Chip Embedded Internet
     ---------------------------------------------------------------------
-    Copyright (C) M.J.Butcher Consulting 2004..2016
+    Copyright (C) M.J.Butcher Consulting 2004..2020
     *********************************************************************
+    18.02.2014 Correct fnConvertSecondsTime() calculation                {69}
     19.08.2015 Use uMemset() to initialise strcture to avoid GCC using memset() {1}
     15.09.2015 Add dusk and dawn calculations                            {2}
-    08.09.2019 Limit units passed to fnConvertTimeSeconds() to avoid potentially long loops when invalid {5}
+    14.03.2017 Simplify fnDiv2Time()                                     {3}
+    19.12.2018 Add optional ms or us resolution to RTC                   {4}
+    08.09.2019 Limit units passed to fnConvertTimeSeconds() and fnConvertTimeDays() to avoid potentially long loops when invalid {5}
+    12.10.2019 Correct month and year overflows when not 28th of February in a leap year {6}
 
 */
           
@@ -47,7 +51,7 @@
 #define NTP_TO_1970_TIME          2208988800u                            // seconds from the start of NTP (01.01.1900 00:00:00 to 01.01.1970 00:00:00 GMT)
 #define LEAP_YEAR_SECONDS         (366 * 24 * 60 * 60)                   // seconds in a leap year
 #define COMMON_YEAR_SECONDS       (365 * 24 * 60 * 60)                   // seconds in a common year
-#define LEAP_YEAR(year)           ((year % 4)==0)                        // valid from 1970 to 2038
+#define LEAP_YEAR(year)           ((year % 4) == 0)                      // valid from 1970 to 2038
 #define LEAP_YEAR_DAYS            (366)
 #define COMMON_YEAR_DAYS          (365)
 
@@ -73,13 +77,13 @@
 // Hardware specific defines
 //
 #if defined _M5223X
-    #define TIMER_PERIOD_FULL_SCALE    1000000                           // timer counts us
-    #define GET_TIMER_PRESENT_VALUE()  DTCN1                             // counter value (0..999999)
-    #define RESET_US_COUNTER()         DTCN1 = 0                         // reset/synchronise the us counter
+    #define TIMER_PERIOD_FULL_SCALE       1000000                        // timer counts us
+    #define GET_TIMER_PRESENT_us_VALUE()  DTCN1                          // counter value (0..999999)
+    #define RESET_US_COUNTER()            DTCN1 = 0                      // reset/synchronise the us counter
 #elif defined _KINETIS
-    #define GET_TIMER_PRESENT_VALUE() 0
+    #define GET_TIMER_PRESENT_us_VALUE() 0
     #define RESET_US_COUNTER()
-    #define TIMER_PERIOD_FULL_SCALE   1
+    #define TIMER_PERIOD_FULL_SCALE      1
 #endif
 
 
@@ -102,17 +106,19 @@
 /*                      local structure definitions                    */
 /* =================================================================== */
 
+#if defined USE_SNTP
 typedef struct stSNTP_MESSAGE
 {
     UDP_HEADER     tUDP_Header;                                          // reserve header space
     NTP_FRAME      sntp_data_content;                                    // reserve message space
 } SNTP_MESSAGE;
+#endif
 
 /* =================================================================== */
 /*                             constants                               */
 /* =================================================================== */
 
-#if defined SUPPORT_RTC || defined USE_SNTP || defined USE_TIME_SERVER || defined SUPPORT_SW_RTC
+#if defined SUPPORT_RTC || defined USE_SNTP || defined USE_TIME_SERVER || defined SUPPORT_SW_RTC || defined DUSK_AND_DAWN
 static const unsigned char monthDays[] = {
     (31),
     (28),                                                                // February without leap day
@@ -239,12 +245,12 @@ extern void fnTimeKeeper(TTASKTABLE *ptrTaskTable)
     QUEUE_HANDLE        PortIDInternal = ptrTaskTable->TaskID;           // queue ID for task input
     unsigned char       ucInputMessage[SMALL_MESSAGE];                   // reserve space for receiving messages
 
-    while (fnRead(PortIDInternal, ucInputMessage, HEADER_LENGTH)) {      // check input queue
+    while (fnRead(PortIDInternal, ucInputMessage, HEADER_LENGTH)) {      // check task input queue
         switch (ucInputMessage[MSG_SOURCE_TASK]) {                       // switch depending on message source
     #if (defined SUPPORT_RTC  || defined SUPPORT_SW_RTC) && (ALARM_TASK == OWN_TASK)
         case INTERRUPT_EVENT:
             if (RTC_ALARM_INTERRUPT_EVENT == ucInputMessage[MSG_TIMER_EVENT]) {
-        #if defined SUPPORT_LOW_POWER
+        #if defined SUPPORT_LOW_POWER && defined WAIT_MODE
                 fnSetLowPowerMode(WAIT_MODE);
         #endif
                 fnDebugMsg("RTC Alarm fired\r\n");
@@ -336,7 +342,7 @@ extern void fnSecondsTick(void (*rtc_interrupt_handler[6])(void), int rtc_interr
 {
     #if defined USE_SNTP
     if (ulFractionResync != 0) {                                         // just synchronised so we can synchronise the time base to correct form fractions of a second
-        slFractionOffset = (GET_TIMER_PRESENT_VALUE() - ulFractionResync); // the fraction adjustment
+        slFractionOffset = (GET_TIMER_PRESENT_us_VALUE() - ulFractionResync); // the fraction adjustment
         ulFractionResync = 0;                                            // synchronisation performed
     }
     RESET_US_COUNTER();                                                  // reset the us conter value
@@ -345,22 +351,16 @@ extern void fnSecondsTick(void (*rtc_interrupt_handler[6])(void), int rtc_interr
     if (++ucSeconds >= 60) {
         if (++ucMinutes >= 60) {
             if (++ucHours >= 24) {                                       // new day
-                ucHours = 0;
+                ucHours = 0;                                             // hour overflows to 0
                 ++ucDayOfMonth;
-                ucDayOfWeek = fnIncDayOfWeek(ucDayOfWeek, 1);
-                if ((ucDayOfMonth == 29) && (ucMonthOfYear == 2)) {      // 29th Februar
-                    if ((LEAP_YEAR(usYear) == 0)) {
-                        ucDayOfMonth = 1;
-                        ucMonthOfYear = 3;
-                    }
-                    else {
-                        if (ucDayOfMonth > monthDays[ucMonthOfYear - 1]) {
-                            ucDayOfMonth = 1;
-                            ucMonthOfYear++;
-                            if (ucMonthOfYear > 12) {
-                                ucMonthOfYear = 1;                       // roll over to new year
-                                usYear++;
-                            }
+                ucDayOfWeek = fnIncDayOfWeek(ucDayOfWeek, 1);            // move to next week day
+                if (((ucDayOfMonth != 29) || (ucMonthOfYear != 2)) || (LEAP_YEAR(usYear) == 0)) { // {6} exception is 29th February in a leap year, when the month doesn't overflow yet
+                    if (ucDayOfMonth > monthDays[ucMonthOfYear - 1]) {   // check overflow to next month
+                        ucDayOfMonth = 1;                                // first day of
+                        ucMonthOfYear++;                                 // next month
+                        if (ucMonthOfYear > 12) {                        // check overflow to new year
+                            ucMonthOfYear = 1;                           // roll over to new year
+                            usYear++;                                    // increment the year
                         }
                     }
                 }
@@ -386,7 +386,7 @@ extern void fnSecondsTick(void (*rtc_interrupt_handler[6])(void), int rtc_interr
             ucMinutes = 0;
         }
     #if defined SUPPORT_RTC || defined SUPPORT_SW_RTC
-        if (rtc_interrupts & RTC_MINUTE_INT) {                           // minutes interrupt enabled
+        if ((rtc_interrupts & RTC_MINUTE_INT) != 0) {                    // minutes interrupt enabled
             if (rtc_interrupt_handler[1] != 0) {                         // minutes interrupt call back
                 uDisable_Interrupt();
                     rtc_interrupt_handler[1]();                          // call handling function (minutes interrupt)
@@ -397,14 +397,14 @@ extern void fnSecondsTick(void (*rtc_interrupt_handler[6])(void), int rtc_interr
         ucSeconds = 0;
     }
     #if defined SUPPORT_RTC || defined SUPPORT_SW_RTC
-    if (rtc_interrupts & RTC_ALARM_INT_MATCH) {
+    if ((rtc_interrupts & RTC_ALARM_INT_MATCH) != 0) {
         if (rtc_interrupt_handler[2] != 0) {
             uDisable_Interrupt();
                 rtc_interrupt_handler[2]();                              // call handling function (alarm match interrupt)
             uEnable_Interrupt();
         }
     }
-    if (rtc_interrupts & RTC_STOPWATCH_MATCH) {                          // stopwatch interrupt enabled
+    if ((rtc_interrupts & RTC_STOPWATCH_MATCH) != 0) {                   // stopwatch interrupt enabled
         if (rtc_interrupt_handler[0] != 0) {                             // stopwatch interrupt call back
             uDisable_Interrupt();
                 rtc_interrupt_handler[0]();                              // call handling function (stopwatch interrupt)
@@ -426,8 +426,32 @@ extern void fnSecondsTick(void (*rtc_interrupt_handler[6])(void), int rtc_interr
 
 extern void fnGetRTC(RTC_SETUP *ptrSetup)
 {
-    do {                                                                 // repeat in case seconds increment while copying
-        ptrSetup->ucSeconds = ucSeconds;
+#if defined SUPPORT_RTC_us
+    unsigned long ulStamp;
+#endif
+#if defined SUPPORT_RTC_ms
+    unsigned short usStamp;
+#endif
+    FOREVER_LOOP() {                                                     // repeat in case seconds increment while copying
+#if defined SUPPORT_RTC_us                                               // {4}
+        ulStamp = GET_TIMER_PRESENT_us_VALUE();                          // us
+#endif
+#if defined SUPPORT_RTC_ms                                               // {4}
+        usStamp = GET_TIMER_PRESENT_ms_VALUE();                          // ms
+#endif
+        ptrSetup->ucSeconds = ucSeconds;                                 // this is the time sampling reference
+#if defined SUPPORT_RTC_us                                               // {4}
+        ptrSetup->ul_us = GET_TIMER_PRESENT_us_VALUE();                  // us
+        if (ptrSetup->ul_us < ulStamp) {
+            continue;                                                    // if an overflow took place we repeat to ensure accuracy to the seconds samping point
+        }
+#endif
+#if defined SUPPORT_RTC_ms                                               // {4}
+        ptrSetup->us_ms = GET_TIMER_PRESENT_ms_VALUE();                  // ms
+        if (ptrSetup->us_ms < usStamp) {
+            continue;                                                    // if an overflow took place we repeat to ensure accuracy to the seconds samping point
+        }
+#endif
         ptrSetup->usYear = usYear;
         ptrSetup->ucMonthOfYear = ucMonthOfYear;
         ptrSetup->ucDayOfMonth = ucDayOfMonth;
@@ -435,7 +459,10 @@ extern void fnGetRTC(RTC_SETUP *ptrSetup)
         ptrSetup->ucHours = ucHours;
         ptrSetup->ucMinutes = ucMinutes;
         ptrSetup->ulLocalUTC = ulLocalUTC;
-    } while (ptrSetup->ucSeconds != ucSeconds);
+        if (ptrSetup->ucSeconds == ucSeconds) {                          // if there was a count taking place during the read process we will repeat to avoid overflow inaccuracy
+            break;
+        }
+    }
     ptrSetup->command = RTC_RETURNED_TIME;
 }
 
@@ -460,7 +487,7 @@ extern unsigned char fnSetShowTime(int iSetDisplay, CHAR *ptrInput)
     else {
         fnGetRTC(&rtc_setup);                                            // get the local time structure content
     }
-    if (iSetDisplay & (DISPLAY_RTC_TIME_DATE | DISPLAY_RTC_ALARM)) {     // display time and date
+    if ((iSetDisplay & (DISPLAY_RTC_TIME_DATE | DISPLAY_RTC_ALARM)) != 0) { // display time and date
         CHAR *ptrTimeBuffer = ptrInput;
         if (ptrInput != 0) {                                             // if buffer specified
             if (iSetDisplay & (DISPLAY_RTC_DATE | DISPLAY_RTC_ALARM)) {
@@ -479,6 +506,13 @@ extern unsigned char fnSetShowTime(int iSetDisplay, CHAR *ptrInput)
                 ptrTimeBuffer = fnBufferDec(rtc_setup.ucMinutes, (LEADING_ZERO), ptrTimeBuffer);
                 *ptrTimeBuffer++ = ':';
                 ptrTimeBuffer = fnBufferDec(rtc_setup.ucSeconds, (LEADING_ZERO), ptrTimeBuffer);
+    #if defined SUPPORT_RTC_us
+                *ptrTimeBuffer++ = '.';
+                ptrTimeBuffer = fnBufferDec(rtc_setup.ul_us, (LEADING_ZERO | 2), ptrTimeBuffer);
+    #elif defined SUPPORT_RTC_ms
+                *ptrTimeBuffer++ = '.';
+                ptrTimeBuffer = fnBufferDec(rtc_setup.us_ms, (LEADING_ZERO | 1), ptrTimeBuffer);
+    #endif
             }
         }
         return (ptrTimeBuffer - ptrInput);                               // the display length
@@ -532,7 +566,7 @@ extern unsigned char fnSetShowTime(int iSetDisplay, CHAR *ptrInput)
                     }
                 }
             }
-            if (SET_RTC_DATE & iSetDisplay) {
+            if ((SET_RTC_DATE & iSetDisplay) != 0) {
                 rtc_setup.ucDayOfMonth = ucDay_hour;
                 rtc_setup.ucMonthOfYear = ucMinute_month;
                 rtc_setup.usYear = usSecond_year;
@@ -595,7 +629,7 @@ extern void fnConvertSecondsTime(RTC_SETUP *ptr_rtc_setup, unsigned long ulSecon
     if (ptr_rtc_setup == 0) {
         ulLocalUTC = ulSecondsTime;                                      // set the local seconds count
     }
-    while (1) {
+    FOREVER_LOOP() {
         iLeapYear = LEAP_YEAR(_usYear);
         if (iLeapYear != 0) {                                            // if present year is a leap year
             if (ulSecondsTime > LEAP_YEAR_SECONDS) {
@@ -616,7 +650,7 @@ extern void fnConvertSecondsTime(RTC_SETUP *ptr_rtc_setup, unsigned long ulSecon
 
         // In final year (remaining seconds value is in the year)
         //
-        while (1) {
+        FOREVER_LOOP() {
             if ((iLeapYear != 0) && (_ucMonthOfYear == 1)) {             // February of a leap year
                 if (ulSecondsTime > (29 * 24 * 60 * 60)) {
                     ulSecondsTime -= (29 * 24 * 60 * 60);
@@ -637,7 +671,7 @@ extern void fnConvertSecondsTime(RTC_SETUP *ptr_rtc_setup, unsigned long ulSecon
             // In final month (remaining seconds value is in the month)
             //
             _ucMonthOfYear++;                                            // change from index to month (1..12)
-            while (1) {
+            FOREVER_LOOP() {
                 if (ulSecondsTime > (60 * 60 * 24)) {                    // seconds in a day
                     ulSecondsTime -= (60 * 60 * 24);                     // for each day in final month
                     _ucDayOfMonth++;
@@ -647,7 +681,7 @@ extern void fnConvertSecondsTime(RTC_SETUP *ptr_rtc_setup, unsigned long ulSecon
 
                 // In final day (remaining seconds value is in the day)
                 //
-                while (1) {
+                FOREVER_LOOP() {
                     if (ulSecondsTime >= (60 * 60)) {
                         ulSecondsTime -= (60 * 60);                      // for each hour in final day
                         _ucHours++;
@@ -656,7 +690,7 @@ extern void fnConvertSecondsTime(RTC_SETUP *ptr_rtc_setup, unsigned long ulSecon
 
                     // In final hour (remaining seconds value in the hour)
                     //
-                    while (1) {
+                    FOREVER_LOOP() {
                         if (ulSecondsTime >= (60)) {                     // {100a} changed to >= to avoid 60 seconds !!
                             ulSecondsTime -= (60);                       // for each minute in final hour
                             _ucMinutes++;
@@ -722,17 +756,17 @@ extern unsigned long fnConvertTimeSeconds(RTC_SETUP *ptr_rtc_setup, int iSetTime
         ulPassedSeconds += (60 * 60 * 24);
         ucNewWeekDay = fnIncDayOfWeek(ucNewWeekDay, 1);
     }
-    ulUnit = (unsigned char)(ptr_rtc_setup->ucDayOfMonth - 1);           // passed days in month
+    ulUnit = (unsigned char)(ptr_rtc_setup->ucDayOfMonth - 1);           // {5} passed days in month
     ucNewWeekDay = fnIncDayOfWeek(ucNewWeekDay, (unsigned char)ulUnit);
-    while (ulUnit--) {
+    while (ulUnit-- != 0) {
         ulPassedSeconds += (60 * 60 * 24);                               // count passed days in present month
     }
     ulUnit = ptr_rtc_setup->ucHours;                                     // passed hours in day
-    while (ulUnit--) {
+    while (ulUnit-- != 0) {
         ulPassedSeconds += (60 * 60);                                    // count passed hours in present day
     }
     ulUnit = ptr_rtc_setup->ucMinutes;                                   // passed minutes in day
-    while (ulUnit--) {
+    while (ulUnit-- != 0) {
         ulPassedSeconds += (60);                                         // count passed minutes in present hour
     }
     ulPassedSeconds += ptr_rtc_setup->ucSeconds;                         // finally add the present seconds count
@@ -769,7 +803,7 @@ extern unsigned short fnConvertTimeDays(RTC_SETUP *ptr_rtc_setup, int iSetTime)
         }
     }
     iLeapYear = LEAP_YEAR(ulUnit);                                       // check whether present year is a leap year
-    ulUnit = (unsigned char)(ptr_rtc_setup->ucMonthOfYear - 1);          // {5} the full months passed in this year
+    ulUnit = (unsigned char )(ptr_rtc_setup->ucMonthOfYear - 1);         // {5} the full months passed in this year
     while (ulUnit != 0) {
         ulPassedDays += (monthDays[ulUnit - 1]);                         // count days in full months passed
         ucNewWeekDay = fnIncDayOfWeek(ucNewWeekDay, monthDays[ulUnit-- - 1]);
@@ -839,7 +873,7 @@ static void fnSynchroniseLocalTime(SNTP_TIME *NewTime, unsigned long ulSeconds)
     #if defined USE_SNTP
     if (NewTime != 0) {
         slFractionOffset = (NewTime->ulFraction/TIMER_PERIOD_FULL_SCALE);// the fraction of a second offset to second interrupt and counter value
-        ulFractionResync = GET_TIMER_PRESENT_VALUE();
+        ulFractionResync = GET_TIMER_PRESENT_us_VALUE();
         if (ulFractionResync == 0) {                                     // avoid zero
             ulFractionResync = 1;
         }
@@ -862,7 +896,7 @@ static void fnGetPresentTime(SNTP_TIME *PresentTime)
     signed long slPresentFraction;
     uDisable_Interrupt();                                                // don't allow second interrupt to disturb, but don't stop timer either
     PresentTime->ulSeconds = ulLocalUTC;                                 // present local seconds value (with time zone and daylight saving adjustment)
-    PresentTime->ulFraction = GET_TIMER_PRESENT_VALUE();                 // get fraction from hardware timer count value
+    PresentTime->ulFraction = GET_TIMER_PRESENT_us_VALUE();              // get fraction from hardware timer count value
     if (PresentTime->ulFraction < 100) {                                 // is it possible that the timer overflowed while reading present value?
         uEnable_Interrupt();                                             // if a second overflow occurred during the protected region it will be take place now
             PresentTime->ulSeconds = ulLocalUTC;                         // present seconds value, possibly after interrupt increment
@@ -1030,18 +1064,13 @@ static void fnAdditionTime(SNTP_TIME *result, SNTP_TIME *input, SNTP_TIME *add)
     result->ulFraction = ulFraction;
 }
 
-static void fnDiv2Time(SNTP_TIME *result, SNTP_TIME *input)
+static void fnDiv2Time(SNTP_TIME *result, SNTP_TIME *input)              // {3}
 {
-    register unsigned long ulIntermediateSeconds;
-    ulIntermediateSeconds = (input->ulSeconds/2);
-    result->ulFraction = (input->ulFraction/2);
-    if ((ulIntermediateSeconds * 2) != input->ulSeconds) {
-        result->ulFraction += 0x80000000;                                // add half to the fraction result
-        if (result->ulFraction < 0x80000000) {                           // check for overrun
-            ulIntermediateSeconds++;
-        }
+    result->ulFraction /= 2;                                             // halve the fraction
+    if ((input->ulSeconds & 0x01) != 0) {                                // uneven second count
+        result->ulFraction += 0x80000000;                                // add half to the fraction result to compensate
     }
-    result->ulSeconds = ulIntermediateSeconds;
+    result->ulSeconds = (input->ulSeconds/2);                            // halve the full seconds
 }
 
 // An answer has been received from a SNTP server
@@ -1192,7 +1221,7 @@ extern void fnAdjustLocalTime(unsigned char ucNewTimeZone, int iSNTP_active)
 
 extern void fnStartSNTP(DELAY_LIMIT syncDelay)
 {
-    if (temp_pars->temp_parameters.usServers[DEFAULT_NETWORK] & ACTIVE_SNTP) {
+    if ((temp_pars->temp_parameters.usServers[DEFAULT_NETWORK] & ACTIVE_SNTP) != 0) {
         if (SNTP_Socket < 0) {
             if ((SNTP_Socket = fnGetUDP_socket(TOS_MINIMISE_DELAY, fnSNTP_client, (UDP_OPT_SEND_CS | UDP_OPT_CHECK_CS))) >= 0) {
                 fnBindSocket(SNTP_Socket, SNTP_PORT);                    // bind socket
@@ -1310,7 +1339,7 @@ extern void fnStartRTC(void (*seconds_callback)(void))
     RTC_SETUP rtc_setup;
     rtc_setup.command = (RTC_TICK_SEC | RTC_INITIALISATION);             // start the RTC (if not already operating) and configure 1s interrupt rate
     rtc_setup.int_handler = seconds_callback;                            // interrupt handler
-    if (fnConfigureRTC(&rtc_setup) == WAIT_STABILISING_DELAY) {
+    if (fnConfigureRTC(&rtc_setup) == WAIT_STABILISING_DELAY) {          // if the RTC oscillator needs to be started on first use
     #if defined SUPPORT_RTC
         #if !defined RTC_OSCILLATOR_STABILISATION_DELAY
             #define RTC_OSCILLATOR_STABILISATION_DELAY    (1 * SEC)      // when nothing else defined, default to 1 second
@@ -1365,7 +1394,6 @@ extern CHAR *fnUpTime(CHAR *cValue)
 }
 
 #if defined DUSK_AND_DAWN                                                // {2}
-
 static int isSummerTime(unsigned long timeStamp);
 
 // Globaler Struct für Sonnenaufgang/Untergangszeiten
@@ -1400,16 +1428,16 @@ short fnCalculateDawnDusk(unsigned long timeStamp, struct sonnenstand *sonne,uns
 
 
     // Calculations
-    B = PI *N_BREITE / 180;
-    Deklination = 0.4095*sin(0.016906*(T-80.086));
-    Zeitdiff = 12*acos((sin(hoehe) - sin(B)*sin(Deklination)) / (cos(B)*cos(Deklination)))/PI;
-    DIFF_WOZ_MOZ = -0.171*sin(0.0337*T+0.465) - 0.1299*sin(0.01787*T-0.168);    // WOZ-MOZ
+    B = (float)(PI * N_BREITE / 180);
+    Deklination = (float)(0.4095*sin(0.016906*(T-80.086)));
+    Zeitdiff = (float)(12*acos((sin(hoehe) - sin(B)*sin(Deklination)) / (cos(B)*cos(Deklination)))/PI);
+    DIFF_WOZ_MOZ = (float)(-0.171*sin(0.0337*T+0.465) - 0.1299*sin(0.01787*T-0.168));    // WOZ-MOZ
 
     Aufgang_MOZ   = 12 - Zeitdiff - DIFF_WOZ_MOZ;
     Untergang_MOZ = 12 + Zeitdiff - DIFF_WOZ_MOZ;
 
-    Aufgang_WOZ   = Aufgang_MOZ + (15 - O_LAENGE)*(float)4/60;
-    Untergang_WOZ = Untergang_MOZ + (15 - O_LAENGE)*(float)4/60;
+    Aufgang_WOZ   = (float)(Aufgang_MOZ + (15 - O_LAENGE)*(float)4/60);
+    Untergang_WOZ = (float)(Untergang_MOZ + (15 - O_LAENGE)*(float)4/60);
 
 
     // Check for Summertime
@@ -1421,15 +1449,15 @@ short fnCalculateDawnDusk(unsigned long timeStamp, struct sonnenstand *sonne,uns
     // set global float values
     sonne->f_SAG = Aufgang_WOZ;
     sonne->f_SUG = Untergang_WOZ;
-    sonne->TagesStunden = sonne->f_SUG - sonne->f_SAG;
+    sonne->TagesStunden = (unsigned short)(sonne->f_SUG - sonne->f_SAG);
 
     // Calc hours minutes
 
-    sonne->SAG_Std = floor(Aufgang_WOZ);                    // Dawn
-    sonne->SAG_Min = (Aufgang_WOZ - (float)sonne->SAG_Std) * 60;
+    sonne->SAG_Std = (unsigned short)floor(Aufgang_WOZ);                    // Dawn
+    sonne->SAG_Min = (unsigned short)((Aufgang_WOZ - (float)sonne->SAG_Std) * 60);
 
-    sonne->SUG_Std = ceil(Untergang_WOZ)-1; // Dusk
-    sonne->SUG_Min = (Untergang_WOZ - (float)sonne->SUG_Std) * 60;
+    sonne->SUG_Std = (unsigned short)(ceil(Untergang_WOZ)-1); // Dusk
+    sonne->SUG_Min = (unsigned short)((Untergang_WOZ - (float)sonne->SUG_Std) * 60);
 
     return 1;
 }
@@ -1763,18 +1791,18 @@ enum twilight c2tw(char c)
 	switch (c) {
 	case 'O':
 	case 'o':
-		return OFFICIAL;
+		return OFFICIAL_TWILIGHT;
 	case 'C':
 	case 'c':
-		return CIVIL;
+		return CIVIL_TWILIGHT;
 	case 'N':
 	case 'n':
-		return NAUTICAL;
+		return NAUTICAL_TWILIGHT;
 	case 'A':
 	case 'a':
-		return ASTRONOMICAL;
+		return ASTRONOMICAL_TWILIGHT;
 	default:
-		return UNKNOWN;
+		return UNKNOWN_TWILIGHT;
 	}
 }
 

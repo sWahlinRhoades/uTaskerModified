@@ -11,14 +11,14 @@
     File:      glcd_samsung.h
     Project:   uTasker project
     ---------------------------------------------------------------------
-    Copyright (C) M.J.Butcher Consulting 2004..2016
+    Copyright (C) M.J.Butcher Consulting 2004..2019
     *********************************************************************
     25.02.2011 Correct polling of busy bit in multiple devices           {1}
        
 */
 
 
-#if defined _GLCD_SAMSUNG && !defined OLED_GLCD_MODE && !defined TFT_GLCD_MODE && !defined CGLCD_GLCD_MODE && !defined KITRONIX_GLCD_MODE && !defined MB785_GLCD_MODE && !defined TFT2N0369_GLCD_MODE
+#if defined _GLCD_SAMSUNG && !defined OLED_GLCD_MODE && !defined TFT_GLCD_MODE && !defined CGLCD_GLCD_MODE && !defined KITRONIX_GLCD_MODE && !defined MB785_GLCD_MODE && !defined TFT2N0369_GLCD_MODE && !defined ST7789S_GLCD_MODE && !defined ILI9341_GLCD_MODE
     #if !defined _GLCD_SAMSUNG_DEFINES
         #define GLCD_BUSY()                 (fnReadGLCD_cmd() & 0x80)    // LCD busy check
         #define X_BYTES	                    (GLCD_X)                     // the number of bytes holding the X-pixels
@@ -59,7 +59,7 @@
         #define _GLCD_SAMSUNG_DEFINES                                    // include only once
     #endif
 
-    #ifdef _GLCD_COMMANDS                                                // link in Samsung specific interface commands
+    #if defined _GLCD_COMMANDS                                           // link in Samsung specific interface commands
 
 // Read a byte from the GLCD interface
 // It is assumed that RD/WR or RWn lines are initially high and that the data

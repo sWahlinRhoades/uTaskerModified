@@ -2,16 +2,16 @@
     Mark Butcher    Bsc (Hons) MPhil MIET
 
     M.J.Butcher Consulting
-    Birchstrasse 20f,    CH-5406, R�tihof
+    Birchstrasse 20f,    CH-5406, Rütihof
     Switzerland
-
+    
     www.uTasker.com    Skype: M_J_Butcher
-
+    
     ---------------------------------------------------------------------
     File:      Driver.c (containing queue driver and some library replacement routines)
     Project:   Single Chip Embedded Internet
     ---------------------------------------------------------------------
-    Copyright (C) M.J.Butcher Consulting 2004..2016
+    Copyright (C) M.J.Butcher Consulting 2004..2020
     *********************************************************************
     24.03.2007 Cast to quieten GNU compiler                              {1}
     25.08.2007 uStrlen() const type to match prototype                   {2}
@@ -45,6 +45,12 @@
     12.09.2013 Added uReverseMemcpy()                                    {30}
     01.03.2015 Add FIFO queue                                            {31}
     01.03.2015 Control flush of input or output and return flushed content size {32}
+    17.12.2017 Change uMemset() to match memset() parameters             {32}
+    23.03.2018 Optimise /= 10 used by fnBufferDec() using look-up table  {33}
+    10.08.2018 Move uStrEquiv() from ip_utils.c to here and add uStrstr() and uStrstrCaseInsensitive() {34}
+    24.12.2018 Add uStrlenSafe()                                         {35}
+    17.08.2010 Add SUPPORT_QUEUE_DEALLOCATION optional support
+    07.09.2020 Add fnDebugStyle()                                        {36}
 
 */
 
@@ -93,7 +99,7 @@ static QUEUE_TRANSFER entry_que(QUEUE_HANDLE channel, unsigned char *ptBuffer, Q
 /*                      local variable definitions                     */
 /* =================================================================== */
 
-static QUEUE_HANDLE NrQueues = 0;
+static QUEUE_HANDLE NrQueues = 0;                                        // the number of queues available (determined during initialisation)
 
 /* =================================================================== */
 /*                      local function definitions                     */
@@ -116,13 +122,23 @@ extern void fnNeedQueues(QUEUE_LIMIT queues_needed)
 
 // Allocate memory for a queue buffer and fill out its control structure
 //
+#if defined SUPPORT_QUEUE_DEALLOCATION
+static unsigned char *fnAllocateBuffer(QUEQUE *ptQUEQue, unsigned short usLength, void *(*_malloc_type)(MAX_MALLOC __size))
+#else
 static unsigned char *fnAllocateBuffer(QUEQUE *ptQUEQue, unsigned short usLength)
+#endif
 {
     unsigned char *new_memory;
 
+#if defined SUPPORT_QUEUE_DEALLOCATION
+    if (NO_MEMORY == (new_memory = (unsigned char *)_malloc_type(usLength))) {
+        return (NO_MEMORY);
+    }
+#else
     if (NO_MEMORY == (new_memory = (unsigned char *)QUEUE_MALLOC(usLength))) {
         return (NO_MEMORY);
     }
+#endif
 
     ptQUEQue->buffer_end = ptQUEQue->QUEbuffer = (unsigned char *)new_memory;
     ptQUEQue->get = (unsigned char *)new_memory;
@@ -145,45 +161,63 @@ extern QUEUE_HANDLE fnAllocateQueue(QUEUE_DIMENSIONS *ptrQueueDimensions, QUEUE_
     }
 
     if (NO_ID_ALLOCATED != (NewHandle = fnSearchID (0, 0))) {            // get the next free queue handle
-        IDINFO *ptQueID = &que_ids[NewHandle - 1];
-
-        if ((ptrQueueDimensions->RxQueueSize) != 0) {
-            if (NO_MEMORY != (ptQueID->input_buffer_control = (void *)QUEUE_MALLOC(FullCntLength))) { // get input queue control block memory
+        IDINFO *ptQueID = &que_ids[NewHandle - 1];                       // set pointer to the new queue entry
+    #if defined SUPPORT_QUEUE_DEALLOCATION
+        void *(*_malloc_type)(MAX_MALLOC __size);
+        #if defined _WINDOWS
+        if (ptrQueueDimensions->ucHeapType == 0xcc) {
+            _EXCEPTION("type needs to be correctly defined in calling code!!");
+        }
+        #endif
+        if (ptrQueueDimensions->ucHeapType == 1) {
+            _malloc_type = _uCalloc;
+        }
+        else {
+            _malloc_type = uMalloc;
+        }
+        #define _QUEUE_MALLOC     _malloc_type
+        #define MALLOC_CALL_TYPE , _malloc_type
+    #else
+        #define _QUEUE_MALLOC     QUEUE_MALLOC
+        #define MALLOC_CALL_TYPE
+    #endif
+        if ((ptrQueueDimensions->RxQueueSize) != 0) {                    // if a reception buffer is required by the queue
+            if (NO_MEMORY != (ptQueID->input_buffer_control = (void *)_QUEUE_MALLOC(FullCntLength))) { // get input queue control block memory
     #if defined USB_INTERFACE && defined USB_DMA_RX && defined USB_RAM_START // {18}
-                if ((entry_add != entry_usb) && (NO_MEMORY == fnAllocateBuffer(ptQueID->input_buffer_control, ptrQueueDimensions->RxQueueSize))) { //  allocated actual rx buffer in memory
+                if ((entry_add != entry_usb) && (NO_MEMORY == fnAllocateBuffer(ptQueID->input_buffer_control, ptrQueueDimensions->RxQueueSize MALLOC_CALL_TYPE))) { //  allocated actual rx buffer in memory
                     return NO_ID_ALLOCATED;
                 }
     #else
-                if (NO_MEMORY == fnAllocateBuffer(ptQueID->input_buffer_control, ptrQueueDimensions->RxQueueSize)) { // now allocated actual rx buffer in memory
+                if (NO_MEMORY == fnAllocateBuffer(ptQueID->input_buffer_control, ptrQueueDimensions->RxQueueSize MALLOC_CALL_TYPE)) { // now allocate actual rx buffer in memory
                     return NO_ID_ALLOCATED;
                 }
     #endif
             }
         }
 
-        if ((ptrQueueDimensions->TxQueueSize) != 0) {
-            if (NO_MEMORY != (ptQueID->output_buffer_control = (void *)QUEUE_MALLOC(FullCntLength))) { // get input queue control block memory
+        if ((ptrQueueDimensions->TxQueueSize) != 0) {                    // if a transmission buffer is required by the queue
+            if (NO_MEMORY != (ptQueID->output_buffer_control = (void *)_QUEUE_MALLOC(FullCntLength))) { // get outout queue control block memory
     #if defined USB_INTERFACE && defined USB_DMA_TX && defined USB_RAM_START
                 if (entry_add == entry_usb) {
                   //if (NO_MEMORY == fnAllocateUSBBuffer(1, channel_handle, ptQueID->output_buffer_control, ptrQueueDimensions->TxQueueSize)) { //  allocated actual rx buffer in USB memory
                   //    return NO_ID_ALLOCATED;
                   //}
                 }
-                else if (NO_MEMORY == fnAllocateBuffer(ptQueID->output_buffer_control, ptrQueueDimensions->TxQueueSize)) { // now allocated actual tx buffer in memory
+                else if (NO_MEMORY == fnAllocateBuffer(ptQueID->output_buffer_control, ptrQueueDimensions->TxQueueSize MALLOC_CALL_TYPE)) { // now allocated actual tx buffer in memory
                     return NO_ID_ALLOCATED;
                 }
     #else
-                if (NO_MEMORY == fnAllocateBuffer(ptQueID->output_buffer_control, ptrQueueDimensions->TxQueueSize)) { // now allocated actual tx buffer in memory
+                if (NO_MEMORY == fnAllocateBuffer(ptQueID->output_buffer_control, ptrQueueDimensions->TxQueueSize MALLOC_CALL_TYPE)) { // now allocate actual tx buffer in memory
                     return NO_ID_ALLOCATED;
                 }
     #endif
             }
         }
 
-        ptQueID->CallAddress = entry_add;
-        ptQueID->qHandle = channel_handle;
+        ptQueID->CallAddress = entry_add;                                // enter the queue's handler
+        ptQueID->qHandle = channel_handle;                               // enter the queue's channel number
     }
-    return NewHandle;
+    return NewHandle;                                                    // return the new queue's handle
 }
 
 
@@ -200,6 +234,9 @@ extern QUEUE_HANDLE fnOpen(unsigned char type_of_driver, unsigned char driver_mo
             QUEUE_DIMENSIONS QueueDimensions;
             QueueDimensions.RxQueueSize = (((TTASKTABLE*)pars)->QueLength); // set Rx length with no Tx length
             QueueDimensions.TxQueueSize = 0;
+#if defined SUPPORT_QUEUE_DEALLOCATION
+            QueueDimensions.ucHeapType = 0;
+#endif
             return (fnAllocateQueue(&QueueDimensions, (unsigned char)*(((TTASKTABLE*)pars)->pcTaskName), entry_que, sizeof(QUEQUE)));
         }
 
@@ -208,34 +245,39 @@ extern QUEUE_HANDLE fnOpen(unsigned char type_of_driver, unsigned char driver_mo
         return (fnOpenTTY((TTYTABLE*)pars, driver_mode));
 #endif
 
-#if defined CAN_INTERFACE
-    case TYPE_CAN:
-        return (fnOpenCAN((CANTABLE*)pars, driver_mode));
+#if defined PRINTER_INTERFACE
+    case TYPE_PRN:
+        return (fnOpenPRN((PRNTABLE*)pars, driver_mode));
 #endif
 
-#if defined ETH_INTERFACE || (defined USB_CDC_RNDIS && defined USB_TO_TCP_IP)
+#if defined CAN_INTERFACE
+    case TYPE_CAN:
+        return (fnOpenCAN((CANTABLE *)pars, driver_mode));
+#endif
+
+#if defined ETH_INTERFACE || defined WIFI_INTERFACE || ((defined USB_CDC_RNDIS || defined USB_RNDIS_HOST) && defined USB_TO_TCP_IP) || defined USE_PPP
     case TYPE_ETHERNET:
-        return(fnOpenETHERNET((ETHTABLE*)pars, driver_mode));
+        return (fnOpenETHERNET((ETHTABLE *)pars, driver_mode));
 #endif
 
 #if defined SPI_INTERFACE
     case TYPE_SPI:
-        return (fnOpenSPI((SPITABLE*)pars, driver_mode));
+        return (fnOpenSPI((SPITABLE *)pars, driver_mode));
 #endif
 
 #if defined I2C_INTERFACE
     case TYPE_I2C:
-        return (fnOpenI2C((I2CTABLE*)pars));
+        return (fnOpenI2C((I2CTABLE *)pars));
 #endif
 
 #if defined USB_INTERFACE
     case TYPE_USB:
-        return (fnOpenUSB((USBTABLE*)pars, driver_mode));
+        return (fnOpenUSB((USBTABLE *)pars, driver_mode));
 #endif
 
 #if defined SSC_INTERFACE                                                // {15}
     case TYPE_SSC:
-        return (fnOpenSSC((SSCTABLE*)pars, driver_mode));
+        return (fnOpenSSC((SSCTABLE *)pars, driver_mode));
 #endif
 
 #if defined SUPPORT_FIFO_QUEUES
@@ -248,7 +290,7 @@ extern QUEUE_HANDLE fnOpen(unsigned char type_of_driver, unsigned char driver_mo
                 if (queue_name == 0) {
                     return NO_ID_ALLOCATED;                              // all possible entries tried without success
                 }
-            } while (NO_ID_ALLOCATED != fnSearchID(entry_que, queue_name)); // check that the FIFO queue is unique and doesn't math with a task input queue
+            } while (NO_ID_ALLOCATED != fnSearchID(entry_que, queue_name)); // check that the FIFO queue is unique and doesn't match with a task input queue
             table.pcTaskName = &queue_name;
             table.QueLength = (QUEUE_TRANSFER)((CAST_POINTER_ARITHMETIC)(pars)); // the requested length of the FIFO
             return (fnOpen(TYPE_QUEUE, FOR_READ, &table));               // open a queue for FIFO use (a FIFO uses the same queue as a task input but is not assigned to an actual task - a write to the FIFO queue doesn't cause any task to be scheduled, and the FIFO queue can be written and read by any software knowing its queue ID)
@@ -259,6 +301,34 @@ extern QUEUE_HANDLE fnOpen(unsigned char type_of_driver, unsigned char driver_mo
     }
 }
 
+#if defined SUPPORT_QUEUE_DEALLOCATION
+static void fnFreeQueue(QUEQUE *ptr_buffer_control)
+{
+    if (ptr_buffer_control != 0) {                                       // if there is a queue
+        if (ptr_buffer_control->QUEbuffer != 0) {                        // if the queueu has a buffer
+            uCFree(ptr_buffer_control->QUEbuffer);                       // free the queue buffer memory
+        }
+        uCFree(ptr_buffer_control);                                      // free the queue control memory
+    }
+}
+
+extern int fnClose(QUEUE_HANDLE *ptrHandle)
+{
+    if (*ptrHandle != NO_ID_ALLOCATED) {
+        QUEUE_HANDLE driver_id = *ptrHandle;
+        IDINFO *ptQueID = &que_ids[driver_id - 1];
+        fnFreeQueue(ptQueID->input_buffer_control);
+        fnFreeQueue(ptQueID->output_buffer_control);
+        uMemset(ptQueID, 0x00, sizeof(IDINFO));                          // queue entry is now free
+        *ptrHandle = NO_ID_ALLOCATED;                                    // the calling handle is no longer valid
+        return 0;
+    }
+    else {
+        return -1;                                                       // queue handle doesn't exist
+    }
+}
+#endif
+
 
 // Allow driver mode setting - returns present driver state
 //
@@ -268,7 +338,7 @@ extern QUEUE_TRANSFER fnDriver(QUEUE_HANDLE driver_id, unsigned short state, uns
         return 0;
     }
     driver_id -= 1;
-    return (que_ids[driver_id].CallAddress)(que_ids[driver_id].qHandle, (unsigned char *)(CAST_POINTER_ARITHMETIC)rx_or_tx, state, CALL_DRIVER, driver_id);// {1}
+    return (que_ids[driver_id].CallAddress)(que_ids[driver_id].qHandle, (unsigned char *)(CAST_POINTER_ARITHMETIC)rx_or_tx, state, CALL_DRIVER, driver_id); // {1}
 }
 
 // Write to queue or interface. Returns the number of bytes successfully sent
@@ -279,7 +349,7 @@ extern QUEUE_TRANSFER fnWrite(QUEUE_HANDLE driver_id, unsigned char *output_buff
         return (fnWriteInternal(output_buffer, nr_of_bytes));            // routing info contained in message itself
     }
     else if (driver_id == NETWORK_HANDLE) {                              // debug output to network
-#if defined ETH_INTERFACE || defined USB_CDC_RNDIS                       // {6}
+#if defined ETH_INTERFACE || defined USB_CDC_RNDIS || defined USB_RNDIS_HOST || defined USER_NETWORK_WRITE // {6}
         return (fnNetworkTx(output_buffer, nr_of_bytes));
 #else
         return 0;
@@ -306,7 +376,7 @@ extern QUEUE_TRANSFER fnRead(QUEUE_HANDLE driver_id, unsigned char *input_buffer
 #if !defined _NO_CHECK_QUEUE_INPUT                                       // {12}
 // Get the number of waiting messages (can also be bytes) from any queue
 //
-extern QUEUE_TRANSFER fnMsgs(QUEUE_HANDLE driver_id )
+extern QUEUE_TRANSFER fnMsgs(QUEUE_HANDLE driver_id)
 {
     driver_id -= 1;
     return ((que_ids[driver_id].CallAddress)(que_ids[driver_id].qHandle, 0, 0, CALL_INPUT, driver_id));
@@ -331,7 +401,7 @@ extern QUEUE_TRANSFER fnFlush(QUEUE_HANDLE driver_id, unsigned char ucTxRx)
 }
 #endif
 
-#if defined ETH_INTERFACE
+#if defined ETH_INTERFACE || defined WIFI_INTERFACE
 // Free a linear queue buffer after it has been read
 //
 extern QUEUE_TRANSFER fnFreeBuffer(QUEUE_HANDLE driver_id, signed char cChannel)
@@ -365,7 +435,7 @@ extern QUEUE_TRANSFER fnPeekInput(QUEUE_HANDLE driver_id, unsigned char *input_b
 #endif
 
 #if defined SERIAL_STATS
-extern void fnStats( QUEUE_HANDLE driver_id, QUEUE_TRANSFER CounterNumber, unsigned long *ulCountValue)
+extern void fnStats(QUEUE_HANDLE driver_id, QUEUE_TRANSFER CounterNumber, unsigned long *ulCountValue)
 {
     driver_id -= 1;
     (que_ids[driver_id].CallAddress)(que_ids[driver_id].qHandle, (unsigned char*)ulCountValue, CounterNumber, CALL_STATS, driver_id);
@@ -432,19 +502,15 @@ extern QUEUE_TRANSFER fnGetBufPeek(QUEQUE *ptQUEQue, unsigned char *output_buffe
         }
     }
 
-    if (nr_of_bytes != 0) {
+    if ((nr_of_bytes != 0) && (output_buffer != 0)) {
         if ((ptrGet + nr_of_bytes) >= ptQUEQue->buffer_end) {            // we have a circular buffer and can either copy once or must copy twice
             QUEUE_TRANSFER FirstCopy = (QUEUE_TRANSFER)(ptQUEQue->buffer_end - ptrGet); // we need double copy
-            if (output_buffer) {
-                uMemcpy(output_buffer, ptrGet, FirstCopy);
-                output_buffer += FirstCopy;
-                uMemcpy(output_buffer, ptQUEQue->QUEbuffer, (nr_of_bytes - FirstCopy));
-            }
+            uMemcpy(output_buffer, ptrGet, FirstCopy);
+            output_buffer += FirstCopy;
+            uMemcpy(output_buffer, ptQUEQue->QUEbuffer, (nr_of_bytes - FirstCopy));
         }
-        else {
-            if (output_buffer) {                                         // we can do it with a single copy
-                uMemcpy(output_buffer, ptrGet, nr_of_bytes);
-            }
+        else {                                                           // we can do it with a single copy
+            uMemcpy(output_buffer, ptrGet, nr_of_bytes);
         }
     }
     return nr_of_bytes;                                                  // return the number of bytes copied
@@ -460,7 +526,8 @@ extern QUEUE_TRANSFER fnFillBuf(QUEQUE *ptQUEQue, unsigned char *input_buffer, Q
 
     uDisable_Interrupt();                                                // protect entry into function, interrupts are reactivated in the function
     if ((ptQUEQue->chars + ptQUEQue->reserved_chars + nr_of_bytes) > ptQUEQue->buf_length) { // {25} check that there is space (including any reserved count)
-        nr_of_bytes = (ptQUEQue->buf_length - ptQUEQue->chars - ptQUEQue->reserved_chars); // {25} if not, cut message - user must ensure that this doesn't happen
+        nr_of_bytes = (ptQUEQue->buf_length - ptQUEQue->chars - ptQUEQue->reserved_chars); // {25} if not, cut message - user must ensure that this doesn't happen!
+        _EXCEPTION("Message cut in size due to lack of queue space - is this expected??");
     }
     ptQUEQue->reserved_chars += nr_of_bytes;                             // {25} the additional count that will be added during the copy
     FirstCopy = nr_of_bytes;
@@ -525,7 +592,7 @@ extern QUEUE_TRANSFER fnFillBuf_FIFO(QUEQUE *ptQUEQue, unsigned char *fifo_buffe
     // Nested write to the queue may happen here from interrupts
     //
     CopyCount = FirstCopy;
-    while (CopyCount--) {
+    while (CopyCount-- != 0) {
         *ptrTo++ = *fifo_buffer;
     #if defined _WINDOWS
         fifo_buffer++;
@@ -589,7 +656,7 @@ static QUEUE_TRANSFER fnWriteInternal(unsigned char *output_buffer, QUEUE_TRANSF
 
         iLen = (HEADER_LENGTH+1);                                        // copy the head but don't wake the task since it is not yet complete...The sending task must complete the job or else there may be problems...
         ptQUEQue->chars += (HEADER_LENGTH + 1);
-        while (iLen--) {                                                 // copy the header to the buffer
+        while (iLen-- != 0) {                                            // copy the header to the buffer
             *ptQUEQue->put++ = *output_buffer++;
             if (ptQUEQue->put >= ptQUEQue->buffer_end) {                 // handle wrap in circular buffer
                 ptQUEQue->put = ptQUEQue->QUEbuffer;
@@ -644,12 +711,14 @@ extern QUEUE_TRANSFER fnWriteInternal(unsigned char *output_buffer, QUEUE_TRANSF
             return (0);                                                  // no data transfered because no such destination
         }
                                                                          // ID has been found, copy the data
-        ptQUEQue = (struct stQUEQue *)(que_ids[DestID-1].input_buffer_control);// set to input control block - write directly to input
+        ptQUEQue = (struct stQUEQue *)(que_ids[DestID-1].input_buffer_control); // set to input control block - write directly to input
         if (output_buffer[MSG_SOURCE_TASK] == CHECK_QUEUE) {             // check on destination's queue {21}
             return (ptQUEQue->buf_length - ptQUEQue->chars);             // remaining space in queue (before adding new message)
         }
         DataSent = fnFillBuf(ptQUEQue, output_buffer, nr_of_bytes);      // protected copy performed here
-        uTaskerStateChange(cWakeTask, UTASKER_ACTIVATE);                 // wake the task written to
+    #if !defined APPLICATION_WITHOUT_OS
+        uTaskerStateChange(cWakeTask, UTASKER_ACTIVATE);                 // wake the task written to so that it can handle the message
+    #endif
     }
     else {
     #if defined SUPPORT_DISTRIBUTED_NODES
@@ -693,8 +762,8 @@ extern QUEUE_TRANSFER entry_que(QUEUE_HANDLE channel, unsigned char *ptBuffer, Q
         break;
 #endif
 #if defined SUPPORT_FLUSH
-    case CALL_FLUSH:                                                     // flush input completely
-        if (FLUSH_TX == Counter) {                                       // {32}
+    case CALL_FLUSH:                                                     // flush input or output completely
+        if (FLUSH_TX == Counter) {                                       // {32} flush output, rather than input
             ptQUEQue = (struct stQUEQue *)(que_ids[DriverID].output_buffer_control); // set to output control block
         }
         if (ptQUEQue != 0) {                                             // ignore if there is no queue
@@ -717,16 +786,16 @@ extern QUEUE_TRANSFER entry_que(QUEUE_HANDLE channel, unsigned char *ptBuffer, Q
 extern QUEUE_HANDLE fnSearchID(QUEUE_TRANSFER (*SearchAddress)(QUEUE_HANDLE, unsigned char *, QUEUE_TRANSFER, unsigned char, QUEUE_HANDLE), QUEUE_HANDLE channel_mask)
 {
     IDINFO *pIDtables = que_ids;                                         // initialise pointer to start of ID table
-    QUEUE_HANDLE TheID = 0;
+    QUEUE_HANDLE TheID = 0;                                              // index
 
-    while (TheID < NrQueues) {
-        if ((pIDtables->CallAddress == SearchAddress) && (pIDtables->qHandle == channel_mask)) {
-            return (TheID + 1);
+    while (TheID < NrQueues) {                                           // check through the queue list
+        if ((pIDtables->CallAddress == SearchAddress) && (pIDtables->qHandle == channel_mask)) { // if the matching queue is found
+            return (TheID + 1);                                          // return the matching queue's handle
         }
         TheID++;
         ++pIDtables;
     }
-    return (NO_ID_ALLOCATED);
+    return (NO_ID_ALLOCATED);                                            // queue list has been searched but no matching entry was found
 }
 
 // Return the physical channel number from a handle
@@ -793,12 +862,49 @@ extern QUEUE_TRANSFER fnPrint(unsigned char *ucToSend, QUEUE_HANDLE portID)
     return (fnWrite(portID, ucToSend, nr_chars));                        // send message over port
 }
 
+extern QUEUE_TRANSFER fnDebugStyle(unsigned long ulStyle)                // {36}
+{    
+    if ((ulStyle & OUTPUT_STYLE_COLOR_MASK) != OUTPUT_COLOR_DEFAULT) {
+        static const unsigned char ucStyleRef[] = { ESCAPE_SEQUENCE_START, '[', '0', ';', '3', '0', 'm' };
+        unsigned char ucStyle[7];
+        uMemcpy(ucStyle, ucStyleRef, 7);
+        if ((ulStyle & OUTPUT_STYLE_OFF) == OUTPUT_STYLE_OFF) {
+            ucStyle[3] = 'm';
+            return (fnWrite(DebugHandle, ucStyle, 4));                   // send style over port
+        }
+        else {
+            if ((ulStyle & OUTPUT_STYLE_SECOND_SET_MASK) != 0) {
+                ucStyle[2] = '1';
+            }
+            ucStyle[5] += (ulStyle & OUTPUT_STYLE_OFF);
+            return (fnWrite(DebugHandle, ucStyle, 7));                   // send style over port
+        }
+    }
+    return 0;
+}
 
 // Used for sending text messages (with null terminator) to debug output
 //
 extern QUEUE_TRANSFER fnDebugMsg (CHAR *cToSend)
 {
     return (fnPrint((unsigned char *)cToSend, DebugHandle));             // send to debug port
+}
+
+
+// Fast divide by 10 routine from https://hackaday.com/2020/06/12/binary-math-tricks-shifting-to-divide-by-ten-aint-easy/#more-415128
+//
+extern unsigned long fnDivideBy10(unsigned long n)
+{
+    unsigned long q;
+    unsigned long r;
+    q = (n >> 1) + (n >> 2);                                             // q=n/2+n/4 = 3n/4
+    q = q + (q >> 4);                                                    // q=3n/4+(3n/4)/16 = 3n/4+3n/64 = 51n/644
+    q = q + (q >> 8);                                                    // q=51n/64+(51n/64)/256 = 51n/64 + 51n/16384 = 13107n/16384 q = q + (q >> 16); // q= 13107n/16384+(13107n/16384)/65536=13107n/16348+13107n/1073741824=858993458n/1073741824
+    // Note: q is now roughly 0.8n
+    //
+    q = q >> 3;                                                          // q=n/8 = (about 0.1n or n/10)
+    r = n - (((q << 2) + q) << 1);                                       // rounding: r= n-2*(n/10*4+n/10)=n-2*5n/10=n-10n/10
+    return (q + (r > 9));                                                // adjust answer by error term
 }
 
 
@@ -813,10 +919,13 @@ extern CHAR *fnBufferDec(signed long slNumberToConvert, unsigned char ucStyle, C
 extern CHAR *fnDebugDec(signed long slNumberToConvert, unsigned char ucStyle, CHAR *ptrBuf)
     #endif
 {
-    // converts the number to ASCII - the result is right aligned in the width given - an additional 0 is added at the end to aid string output
+    // Converts the number to ASCII - the result is right aligned in the width given - an additional 0 is added at the end to aid string output
     // range -2^31 .. +2^31
-    // length 1 .. 5                                                    // max possible space, inkl. neg
-    unsigned long ulDiv = 1000000000;
+    // length 1 .. 5                                                     // max possible space, inkl. neg
+    //
+    static const unsigned long ulNextDivide[] = {100000000, 10000000, 1000000, 100000, 10000, 1000, 100, 10, 1, 0}; // {33} progressive divide by 10 values
+    int iNext = 0;
+    register unsigned long ulDiv = 1000000000;                           // largest possible divisor
     unsigned long ulNumberToConvert;
     unsigned char ucResult;
     unsigned int iFirstFound = 0;
@@ -833,62 +942,91 @@ extern CHAR *fnDebugDec(signed long slNumberToConvert, unsigned char ucStyle, CH
     }
     #endif
 
-    if (WITH_SPACE & ucStyle) {
+    if ((WITH_SPACE & ucStyle) != 0) {                                   // add a space before the string
         *cPtr++ = ' ';
         ucStyle &= ~LEADING_SPACE;
     }
 
-    if ((ucStyle & DISPLAY_NEGATIVE) && (slNumberToConvert < 0)) {
+    if (((ucStyle & DISPLAY_NEGATIVE) != 0) && (slNumberToConvert < 0)) {// if the number is to be interpreted as a signed number and it is negative
         ulNumberToConvert = (unsigned long)-slNumberToConvert;
-        *cPtr++ = '-';
+        *cPtr++ = '-';                                                   // add sign
     }
     else {
         ulNumberToConvert = (unsigned long)slNumberToConvert;
     }
 
-    while (ulNumberToConvert) {
-        while (ulDiv > ulNumberToConvert) {
-            ulDiv /= 10;
-            if (iFirstFound) {
-                *cPtr++ = '0';
+    while (ulNumberToConvert != 0) {                                     // while there is a remainder
+        while (ulDiv > ulNumberToConvert) {                              // identify when the number to convert is larger than the divide value
+            ulDiv = ulNextDivide[iNext++];                               // ulDiv /= 10;
+            if (iFirstFound != 0) {                                      // if this is not the leading digit
+                *cPtr++ = '0';                                           // insert a zero mid-string
             }
             else {
-                if (ulDiv == 1){
-                    if (ucStyle & LEADING_ZERO) {
-                        *cPtr++ = '0';
+                switch (ulDiv) {
+                case 10000:
+                case 1000:
+                case 100:
+                    if (((ucStyle & 3) > 1) && ((ucStyle & LEADING_ZERO) != 0)) { // if a leading zero is required
+                        *cPtr++ = '0';                                   // insert a leading zero
                     }
-                    else if (ucStyle & LEADING_SPACE) {
-                        *cPtr++ = ' ';
+                    break;
+                case 10:
+                    if (((ucStyle & 3) > 0) && ((ucStyle & LEADING_ZERO) != 0)) { // if a leading zero is required
+                        *cPtr++ = '0';                                   // insert a leading zero
                     }
+                    break;
+                case 1:                                                  // smallest division unit reached without being able to divide (value < 10)
+                    if ((ucStyle & LEADING_ZERO) != 0) {                 // if a leading zero is required
+                        *cPtr++ = '0';                                   // insert a leading zero
+                    }
+                    else if ((ucStyle & LEADING_SPACE) != 0) {           // of if a leading space is required
+                        *cPtr++ = ' ';                                   // insert a leading space
+                    }
+                    break;
                 }
             }
         }
-        if (ulDiv) {
+        if (ulDiv != 0) {
             iFirstFound = 1;
         }
 
         ucResult = (unsigned char)(ulNumberToConvert / ulDiv);
         *cPtr++ = ucResult + '0';
         ulNumberToConvert -= (ucResult * ulDiv);
-        ulDiv /= 10;
+        ulDiv = ulNextDivide[iNext++];                                   // ulDiv /= 10;
     }
-    while ((ulDiv) && (iFirstFound)) {
-        ulDiv /= 10;
+    while ((ulDiv != 0) && (iFirstFound != 0)) {
+        ulDiv = ulNextDivide[iNext++];                                   // ulDiv /= 10;
         *cPtr++ = '0';                                                   // add trailing zeros
     }
 
     if (iFirstFound == 0) {                                              // special case for zero
-        if (ucStyle & LEADING_SPACE) {
+        if ((ucStyle & LEADING_SPACE) != 0) {
             *cPtr++ = ' ';
         }
         else {
-            if (ucStyle & LEADING_ZERO) {
-                *cPtr++ = '0';
+            if ((ucStyle & LEADING_ZERO) != 0) {
+                switch (ucStyle & 0x03) {
+                case 2:
+                    *cPtr++ = '0';
+                    *cPtr++ = '0';
+                    *cPtr++ = '0';
+                    // Fall through intentionally
+                    //
+                case 1:
+                    *cPtr++ = '0';
+                    // Fall through intentionally
+                    //
+                default:
+                    *cPtr++ = '0';
+                    break;
+                }
             }
             *cPtr++ = '0';
         }
     }
-    if (ucStyle & WITH_CR_LF) {                                          // {10}
+
+    if ((ucStyle & WITH_CR_LF) != 0) {                                   // {10}
         *cPtr++ = '\r';
         *cPtr++ = '\n';
     }
@@ -978,21 +1116,20 @@ extern CHAR *fnBufferHex(unsigned long ulValue, unsigned char ucLen, CHAR *pBuf)
     int iCapitals = 0;
     int iCRLF = 0;                                                       // {10}
 
-    if (ucLen & WITH_SPACE) {
+    if ((ucLen & WITH_SPACE) != 0) {
         *pBuf++ = ' ';
     }
-
-    if (ucLen & WITH_LEADIN) {
+    if ((ucLen & WITH_LEADIN) != 0) {
         *pBuf++ = '0';
         *pBuf++ = 'x';
     }
     if ((ucLen & NO_TERMINATOR) == 0) {
        iTerminate = 1;
     }
-    if (ucLen & CODE_CAPITALS) {
+    if ((ucLen & CODE_CAPITALS) != 0) {
         iCapitals = 1;
     }
-    if (ucLen & WITH_CR_LF) {                                            // {10}
+    if( (ucLen & WITH_CR_LF) != 0) {                                     // {10}
         iCRLF = 1;
     }
     ucLen &= 0x7;                                                        // mask out possible sizes
@@ -1003,7 +1140,7 @@ extern CHAR *fnBufferHex(unsigned long ulValue, unsigned char ucLen, CHAR *pBuf)
 
     ucLen *= 2;                                                          // 2 bytes per byte
 
-    while (ucLen--) {
+    while (ucLen-- != 0) {
         ucTemp = (unsigned char)((ulValue >> (ucLen * 4)) & 0x0f);
         ucTemp += '0';
         if (ucTemp > '9') {
@@ -1102,6 +1239,49 @@ extern unsigned long fnDecStrHex(CHAR *cNewAdd)
     }
     return ulRet;
 }
+
+// Extract a float input from a string and return its float value
+//	
+extern float fnFloatStrFloat(CHAR *cNewAdd)
+{
+    int iNegative = 0;
+    unsigned int uiDiv = 1;
+    signed long slInteger = (signed long)fnDecStrHex(cNewAdd);           // convert the integer
+    float fFraction = 0;
+    if ((slInteger == 0) && (*cNewAdd == '-')) {                         // catch case of negative umber with zero integer part
+        iNegative = 1;
+    }
+    while (*cNewAdd != 0) {
+        if (*cNewAdd++ == '.') {
+            while (*cNewAdd != 0) {
+                if (*cNewAdd == '0') {                                   // coun the number of leading zeros in the mantissa
+                    cNewAdd++;
+                    uiDiv *= 10;
+                }
+                else {
+                    break;
+                }
+            }
+            fFraction = (float)fnDecStrHex(cNewAdd);                     // convert the mantissa to an integer value
+            while (*cNewAdd++ != 0) {                                    // count the length of the mantissa
+                uiDiv *= 10;
+            }
+            fFraction /= uiDiv;                                          // convert the mantissa integer to a fraction
+            if (iNegative != 0) {                                        // special case of negative number with zero integer part
+                fFraction = -fFraction;
+                return fFraction;
+            }
+            break;
+        }
+    }
+    if (slInteger < 0) {
+        fFraction -= (float)slInteger;                                   // subtract the integer part to the fraction to obtain the comple floating point value
+    }
+    else {
+        fFraction += (float)slInteger;                                   // add the integer part to the fraction to obtain the comple floating point value
+    }
+    return fFraction;
+}
 #endif
 
 #if defined LONG_UMEMSET                                                 // {13}
@@ -1136,7 +1316,7 @@ extern void *uReverseMemcpy(void *ptrTo, const void *ptrFrom, size_t Size)
     ptr1 += Size;                                                        // move to the end of the buffers
     ptr2 += Size;
 
-    while (Size--) {
+    while (Size-- != 0) {
         *(--ptr1) = *(--ptr2);                                           // copy backwards
     }
 
@@ -1156,11 +1336,11 @@ static void *_uMemset(void *ptrTo, int iValue, size_t Size)
 extern void *uMemset(void *ptrTo, int iValue, size_t Size)
         #endif
 {
+    register unsigned char ucValue = (unsigned char)iValue;              // {32} convert the int parameter to unsigned char
     void *buffer = ptrTo;
     unsigned char *ptr = (unsigned char *)ptrTo;
-    unsigned char ucValue = (unsigned char)iValue;
 
-    while (Size--) {
+    while (Size-- != 0) {
         *ptr++ = ucValue;
     }
     return buffer;
@@ -1181,7 +1361,7 @@ extern void *uMemcpy(void *ptrTo, const void *ptrFrom, size_t Size)
     unsigned char *ptr1 = (unsigned char *)ptrTo;
     unsigned char *ptr2 = (unsigned char *)ptrFrom;
 
-    while (Size--) {
+    while (Size-- != 0) {
         *ptr1++ = *ptr2++;
     }
 
@@ -1266,20 +1446,87 @@ extern CHAR *uStrcpy(CHAR *ptrTo, const CHAR *ptrFrom)
 //
 #if !defined uStrlen                                                     // {7}
     #if defined RUN_LOOPS_IN_RAM
-int (*uStrlen)(const CHAR *ptrStr);
+size_t(*uStrlen)(const CHAR *ptrStr);
 static int _uStrlen(const CHAR *ptrStr)
     #else
-extern int uStrlen(const CHAR *ptrStr)
+extern size_t uStrlen(const CHAR *ptrStr)
     #endif
 {
-    int iSize = 0;
+    size_t length = 0;
 
     while (*ptrStr++ != 0) {                                             // search for the null-terminator at the end of the string
-        iSize++;
+        length++;
     }
-    return iSize;                                                        // return the number of characters found before the null-terminator
+    return length;                                                       // return the number of characters found before the null-terminator
 }
 #endif
+
+extern size_t uStrlenSafe(const CHAR *ptrStr, size_t MaxStrLength)       // {35}
+{
+    size_t length = 0;
+    while (length < MaxStrLength) {                                      // limit the search to the specified length
+        if (*ptrStr++ == 0) {                                            // search for the null-terminator at the end of the string
+            break;
+        }
+        length++;
+    }
+    return length;
+}
+
+// Tries to match a string, where lower and upper case are treated as equal
+//
+extern unsigned short uStrEquiv(const CHAR *cInput, const CHAR *cMatch)  // {34}
+{
+    unsigned short usMatch = 0;
+    CHAR cReference;
+
+    while ((cReference = *cMatch) != 0) {
+        if (*cInput != cReference) {
+            if (cReference >= 'a') {                                     // verify that it is not the case which doesn't match
+                cReference -= ('a' - 'A');                               // try capital match
+            }
+            else if (cReference >= 'A') {
+                cReference += ('a' - 'A');                               // try small match
+            }
+            if (*cInput != cReference) {                                 // last chance
+                return 0;
+            }
+        }
+        cMatch++;
+        cInput++;
+        usMatch++;
+    }
+    return usMatch;                                                      // return the length of match
+}
+
+// strstr implementation
+//
+extern CHAR *uStrstr(const CHAR *ptrStringToScan, const CHAR *ptrStringToMatch) // {34}
+{
+    size_t MatchLength = uStrlen(ptrStringToMatch);                      // the length of the match required
+    while (*ptrStringToScan != 0) {                                      // scan the string
+        if (uMemcmp(ptrStringToScan, ptrStringToMatch, MatchLength) == 0) { // try to match the string
+            return (CHAR *)ptrStringToScan;                              // match found so return a pointer to its start location
+        }
+        ptrStringToScan++;
+    }
+    return 0;                                                            // string not found
+}
+
+// strstr implementation that is case insensitive
+//
+extern CHAR *uStrstrCaseInsensitive(const CHAR *ptrStringToScan, const CHAR *ptrStringToMatch) // {34}
+{
+    unsigned short usMatchLength;
+    while (*ptrStringToScan != 0) {                                      // scan the string
+        usMatchLength = uStrEquiv(ptrStringToScan, ptrStringToMatch);
+        if (usMatchLength != 0) {
+            return (CHAR *)ptrStringToScan;                              // match found so return a pointer to its start location
+        }
+        ptrStringToScan++;
+    }
+    return 0;                                                            // string not found
+}
 
 
 #if defined RUN_LOOPS_IN_RAM
@@ -1329,7 +1576,7 @@ extern void fnInitDriver(void)                                           // {3}
     uStrcpy = (CHAR * (*)(CHAR *, const CHAR *))ptrNewMem;
     ptrNewMem += 500;
     memcpy(ptrNewMem, _uStrlen, 500);
-    uStrlen = (int (*)(const CHAR *))ptrNewMem;                          // {2}
+    uStrlen = (size_t(*)(const CHAR *))ptrNewMem;                        // {2}
     #else
         #if !defined DMA_MEMCPY_SET || defined DEVICE_WITHOUT_DMA
     uMemset = (void (*)(void *, unsigned char, size_t ))ptrNewMem;
@@ -1343,7 +1590,7 @@ extern void fnInitDriver(void)                                           // {3}
     ptrNewMem += (MAX_MALLOC)((CAST_POINTER_ARITHMETIC)_uStrcpy - (CAST_POINTER_ARITHMETIC)_uStrcmp);
     uStrcpy = (CHAR * (*)(CHAR *, const CHAR *))ptrNewMem;
     ptrNewMem += (MAX_MALLOC)((CAST_POINTER_ARITHMETIC)_uStrlen  - (CAST_POINTER_ARITHMETIC)_uStrcpy);
-    uStrlen = (int (*)(const CHAR *))ptrNewMem;                          // {2}
+    uStrlen = (size_t(*)(const CHAR *))ptrNewMem;                        // {2}
     #endif
 }
 #endif

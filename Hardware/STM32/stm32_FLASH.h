@@ -11,10 +11,13 @@
     File:      stm32_FLASH.h
     Project:   Single Chip Embedded Internet
     ---------------------------------------------------------------------
-    Copyright (C) M.J.Butcher Consulting 2004..2019
+    Copyright (C) M.J.Butcher Consulting 2004..2020
     *********************************************************************
     20.01.2017 Add 2MByte Flash support                                  {1}
     28.11.2018 Add fnSetFlashOption()                                    {2}
+    09.03.2019 Include generic SPI interface                             {3}
+    29.01.2020 Add data cache workaround                                 {4}
+    03.08.2020 Add data synchronisation barrier to ensure flash busy flag is not read before operations have been started {5}
 
 */
 
@@ -22,9 +25,35 @@
 /*                           include files                             */
 /* =================================================================== */
 
+extern void fnWriteI2C_FRAM(ACCESS_DETAILS *ptrAccessDetails, unsigned char * ptrData);
+extern void fnReadI2C_FRAM(ACCESS_DETAILS *ptrAccessDetails, unsigned char * ptrData);
+extern void fnEraseI2C_FRAM(ACCESS_DETAILS *ptrAccessDetails);
+
 /* =================================================================== */
 /*                          local definitions                          */
 /* =================================================================== */
+
+
+#if defined _COMPILE_IAR
+    #define _DATA_MEMORY_BARRIER()           __DMB()
+    #define _SYNCHRONISATION_BARRIER()       __DSB(); \
+                                             __ISB()
+    #define _SYNCHRONISATION_DATA_BARRIER()  __DSB()
+#elif defined _COMPILE_KEIL
+    #define _DATA_MEMORY_BARRIER()           __asm("dmb")
+    #define _SYNCHRONISATION_BARRIER()       __asm("dsb"); \
+                                             __asm("isb")
+    #define _SYNCHRONISATION_DATA_BARRIER()  __asm("dsb")
+#elif defined _GNU
+    #define _DATA_MEMORY_BARRIER()           asm volatile ("dmb 0xf":::"memory")
+    #define _SYNCHRONISATION_BARRIER()       asm volatile ("dsb 0xf":::"memory"); \
+                                             asm volatile ("isb 0xf":::"memory")
+    #define _SYNCHRONISATION_DATA_BARRIER()  asm volatile ("dsb 0xf":::"memory")
+#else
+    #define _DATA_MEMORY_BARRIER()
+    #define _SYNCHRONISATION_BARRIER()
+    #define _SYNCHRONISATION_DATA_BARRIER()
+#endif
 
 #if defined _STM32F103X
     #define _DISABLE_INTERRUPTS()   uDisable_Interrupt()
@@ -32,6 +61,18 @@
 #else
     #define _DISABLE_INTERRUPTS()
     #define _ENABLE_INTERRUPTS()
+#endif
+
+#if defined SPI_SW_UPLOAD || defined SPI_FLASH_FAT || (defined SPI_FILE_SYSTEM && defined FLASH_FILE_SYSTEM)
+    #define SPI_FLASH_ENABLED 
+#endif
+
+#if defined _STM32F4XX                                                   // {4}
+    #define DISABLE_DATA_CACHE()             FLASH_ACR &= ~FLASH_ACR_DCEN
+    #define RESET_AND_ENABLE_DATA_CACHE()    FLASH_ACR |= FLASH_ACR_DCRST; FLASH_ACR &= ~FLASH_ACR_DCRST; FLASH_ACR |= FLASH_ACR_DCEN
+#else
+    #define DISABLE_DATA_CACHE()
+    #define RESET_AND_ENABLE_DATA_CACHE()
 #endif
 
 /* =================================================================== */
@@ -66,7 +107,7 @@
 /*                          FLASH Interface                            */
 /* =================================================================== */
 
-#if (defined SPI_FILE_SYSTEM || defined SPI_SW_UPLOAD)
+#if (defined SPI_FILE_SYSTEM || defined SPI_SW_UPLOAD) && !defined BOOT_LOADER
 static void fnConfigSPIFileSystem(void)
 {
     POWER_UP_SPI_FLASH_INTERFACE();
@@ -146,188 +187,21 @@ extern void fnSetFlashOption(unsigned long ulOption, unsigned long ulOption1, un
         }
         FLASH_OPTCR = ulOption;                                          // set the desired options
         FLASH_OPTCR = (ulOption | FLASH_OPTCR_OPTSTRT);                  // command the change
-        while ((FLASH_SR & FLASH_SR_BSY) != 0) {                         // wait until the change has been committed
-    #if defined _WINDOWS
-            FLASH_SR &= ~(FLASH_SR_BSY);
-    #endif
-        }
+        _WAIT_REGISTER_TRUE(FLASH_SR, FLASH_SR_BSY);                     // wait until the change has been committed
         FLASH_OPTCR = (ulOption | FLASH_OPTCR_OPTLOCK);                  // lock the options register
     }
 }
 #endif
 
-#if defined ACTIVE_FILE_SYSTEM || defined USE_PARAMETER_BLOCK
-    #if defined SPI_FLASH_ENABLED
-// This routine reads data from the defined device into a buffer. The access details inform of the length to be read (already limited to maximum possible length for the device)
-// as well as the address in the specific device
+#if defined SPI_FLASH_ENABLED                                            // if SPI memory driver required
+// Include generic SPI flash routines
+// static void fnReadSPI(ACCESS_DETAILS *ptrAccessDetails, unsigned char *ptrBuffer);
+// static void fnWriteSPI(ACCESS_DETAILS *ptrAccessDetails, unsigned char *ptrBuffer);
+// static MAX_FILE_LENGTH fnDeleteSPI(ACCESS_DETAILS *ptrAccessDetails);
+// static void fnReadSPI_EEPROM(ACCESS_DETAILS *ptrAccessDetails, unsigned char *ptrBuffer);
+// static void fnWriteSPI_EEPROM(ACCESS_DETAILS *ptrAccessDetails, unsigned char *ptrBuffer);
 //
-static void fnReadSPI(ACCESS_DETAILS *ptrAccessDetails, unsigned char *ptrBuffer)
-{
-    #if !defined SPI_FLASH_SST25 && !defined SPI_FLASH_MX66L
-    unsigned short usPageNumber = (unsigned short)(ptrAccessDetails->ulOffset/SPI_FLASH_PAGE_LENGTH); // the page the address is in
-    unsigned short usPageOffset = (unsigned short)(ptrAccessDetails->ulOffset - (usPageNumber * SPI_FLASH_PAGE_LENGTH)); // offset in the page
-    #endif
-
-    #if defined SPI_FLASH_ST
-    fnSPI_command(READ_DATA_BYTES, (unsigned long)((unsigned long)(usPageNumber << 8) | (usPageOffset)), _EXTENDED_CS ptrBuffer, ptrAccessDetails->BlockLength);
-    #elif defined SPI_FLASH_SST25 || defined SPI_FLASH_MX66L
-    fnSPI_command(READ_DATA_BYTES, ptrAccessDetails->ulOffset, _EXTENDED_CS ptrBuffer, ptrAccessDetails->BlockLength);
-    #else                                                                // ATMEL
-        #if SPI_FLASH_PAGE_LENGTH >= 1024
-    fnSPI_command(CONTINUOUS_ARRAY_READ, (unsigned long)((unsigned long)(usPageNumber << 11) | (usPageOffset)), _EXTENDED_CS ptrBuffer, ptrAccessDetails->BlockLength);
-        #elif SPI_FLASH_PAGE_LENGTH >= 512
-    fnSPI_command(CONTINUOUS_ARRAY_READ, (unsigned long)((unsigned long)(usPageNumber << 10) | (usPageOffset)), _EXTENDED_CS ptrBuffer, ptrAccessDetails->BlockLength);
-        #else
-    fnSPI_command(CONTINUOUS_ARRAY_READ, (unsigned long)((unsigned long)(usPageNumber << 9) | (usPageOffset)), _EXTENDED_CS ptrBuffer, ptrAccessDetails->BlockLength);
-        #endif
-    #endif
-}
-
-// This routine writes data from a buffer to an area in SPI Flash (the caller has already defined the data to a particular area and device)
-//
-static void fnWriteSPI(ACCESS_DETAILS *ptrAccessDetails, unsigned char *ptrBuffer)
-{
-    MAX_FILE_LENGTH Length = ptrAccessDetails->BlockLength;
-    unsigned long Destination = ptrAccessDetails->ulOffset;
-    unsigned short usDataLength;
-    #if defined SPI_FLASH_SST25
-    int iMultipleWrites = 0;
-    if (Length == 0) {
-        return;                                                          // ignore if length is zero
-    }
-    if (Destination & 0x1) {                                             // start at odd SPI address, requires an initial byte write
-        fnSPI_command(WRITE_ENABLE, 0, _EXTENDED_CS 0, 0);               // command write enable to allow byte programming
-        fnSPI_command(BYTE_PROG, Destination++, _EXTENDED_CS ptrBuffer++, 1);// program last byte 
-        if (--Length == 0) {                                             // single byte write so complete
-            return ;
-        }
-    }
-    fnSPI_command(WRITE_ENABLE, 0, _EXTENDED_CS 0, 0);                   // command write enable to allow programming
-    #else
-    unsigned short usPageNumber = (unsigned short)(Destination/SPI_FLASH_PAGE_LENGTH); // the page the address is in
-    unsigned short usPageOffset = (unsigned short)(Destination - (usPageNumber * SPI_FLASH_PAGE_LENGTH)); // offset in the page
-    #endif
-    while (Length != 0) {
-        usDataLength = (unsigned short)Length;
-    #if defined SPI_FLASH_ST || defined SPI_FLASH_MX66L
-        if (usDataLength > (SPI_FLASH_PAGE_LENGTH - usPageOffset)) {
-            usDataLength = (SPI_FLASH_PAGE_LENGTH - usPageOffset);
-        }
-        fnSPI_command(WRITE_ENABLE, 0, _EXTENDED_CS 0, 0);               // write enable
-        #if defined SPI_FLASH_W25Q || defined SPI_FLASH_S25FL1_K
-        fnSPI_command(PAGE_PROG, ((usPageNumber * SPI_FLASH_PAGE_LENGTH)) | usPageOffset, _EXTENDED_CS ptrBuffer, usDataLength); // copy new content
-        #else
-        fnSPI_command(PAGE_PROG, (usPageNumber << 8) | usPageOffset, _EXTENDED_CS ptrBuffer, usDataLength);// copy new content
-        #endif
-        Length -= usDataLength;
-        ptrBuffer += usDataLength;
-        usPageNumber++;
-        usPageOffset = 0;
-    #elif defined SPI_FLASH_SST25
-        #if defined SST25_A_VERSION
-            #define AAI_LENGTH 1
-        #else
-            #define AAI_LENGTH 2
-        #endif
-        if (usDataLength > 1) {
-            if (iMultipleWrites == 0) {
-                fnSPI_command(AAI_WORD_PROG, Destination, _EXTENDED_CS ptrBuffer, AAI_LENGTH); // program 2 bytes (1 byte for A type)
-                iMultipleWrites = 1;                                     // mark that we are in a AAI sequence
-            }
-            else {
-                fnSPI_command(AAI_WORD_PROG, Destination, _EXTENDED_CS ptrBuffer, 0); // continue in AAI sequence - note that the data length is zero but this is used to differentiate - always pairs are written
-            }
-            Destination += AAI_LENGTH;
-            Length -= AAI_LENGTH;
-            ptrBuffer += AAI_LENGTH;
-        }
-        else {
-            if (iMultipleWrites != 0) {
-                fnSPI_command(WRITE_DISABLE, 0, _EXTENDED_CS 0, 0);      // first close AAI sequence
-                fnSPI_command(WRITE_ENABLE, 0, _EXTENDED_CS 0, 0);       // command write enable to allow byte programming
-            }
-            fnSPI_command(BYTE_PROG, Destination, _EXTENDED_CS ptrBuffer, 1); // program last byte 
-            break;               
-        }
-    #else                                                                // ATMEL
-        if ((usPageOffset != 0) || (Length < SPI_FLASH_PAGE_LENGTH)) {   // are we writing a partial page?
-            fnSPI_command(MAIN_TO_BUFFER_1, usPageNumber, _EXTENDED_CS 0, 0); // copy main memory to buffer
-        }
-        if (usDataLength > (SPI_FLASH_PAGE_LENGTH - usPageOffset)) {
-            usDataLength = (SPI_FLASH_PAGE_LENGTH - usPageOffset);
-        }
-        fnSPI_command(WRITE_BUFFER_1, usPageOffset, _EXTENDED_CS ptrBuffer, usDataLength);// copy new content
-        fnSPI_command(PROG_FROM_BUFFER_1, usPageNumber, _EXTENDED_CS 0, 0); // program to main memory
-        Length -= usDataLength;
-        ptrBuffer += usDataLength;
-        usPageNumber++;
-        usPageOffset = 0;
-    #endif
-    }
-    #if defined SPI_FLASH_SST25
-    fnSPI_command(WRITE_DISABLE, 0, _EXTENDED_CS 0, 0);                  // disable writes on exist
-    #endif
-}
-
-// The routine is used to delete an area in SPI Flash, whereby the caller has set the address to the start of a page and limited the erase to a single storage area and device
-//
-static MAX_FILE_LENGTH fnDeleteSPI(ACCESS_DETAILS *ptrAccessDetails)
-{
-    MAX_FILE_LENGTH BlockLength = SPI_FLASH_PAGE_LENGTH;
-    #if !defined SPI_FLASH_ST
-    unsigned char   ucCommand;
-    #endif
-    #if !defined SPI_FLASH_SST25 && !defined SPI_FLASH_MX66L
-    unsigned short usPageNumber = (unsigned short)(ptrAccessDetails->ulOffset/SPI_FLASH_PAGE_LENGTH); // the page the address is in
-    #endif
-    #if defined SPI_FLASH_ST
-    fnSPI_command(WRITE_ENABLE, 0, _EXTENDED_CS 0, 0);                   // enable the write
-        #if defined SPI_DATA_FLASH
-    fnSPI_command(SUB_SECTOR_ERASE, ((unsigned long)usPageNumber << 8), _EXTENDED_CS 0, 0); // delete appropriate sub-sector
-    BlockLength = SPI_FLASH_SUB_SECTOR_LENGTH;
-        #else
-    fnSPI_command(SECTOR_ERASE, ((unsigned long)usPageNumber << 8), _EXTENDED_CS 0, 0); // delete appropriate sector
-    BlockLength = SPI_FLASH_SECTOR_LENGTH;
-        #endif
-    #elif defined SPI_FLASH_SST25 || defined SPI_FLASH_MX66L
-    fnSPI_command(WRITE_ENABLE, 0, _EXTENDED_CS 0, 0);                   // command write enable to allow byte programming
-        #if !defined SST25_A_VERSION
-    if ((ptrAccessDetails->BlockLength >= SPI_FLASH_SECTOR_LENGTH) && ((ptrAccessDetails->ulOffset & (SPI_FLASH_SECTOR_LENGTH - 1)) == 0)) { // if a complete 64k sector can be deleted
-        ucCommand = SECTOR_ERASE;                                        // delete block of 64k
-        BlockLength = SPI_FLASH_SECTOR_LENGTH;
-    }
-    else 
-        #endif
-        #if defined SPI_FLASH_MX66L
-    {
-        ucCommand = SECTOR_ERASE;                                        // delete smallest sector of 4k
-        BlockLength = SPI_FLASH_SECTOR_LENGTH;
-    }
-        #else
-    if ((ptrAccessDetails->BlockLength >= SPI_FLASH_HALF_SECTOR_LENGTH) && ((ptrAccessDetails->ulOffset & (SPI_FLASH_HALF_SECTOR_LENGTH - 1)) == 0)) {
-        ucCommand = HALF_SECTOR_ERASE;                                   // delete block of 32k
-        BlockLength = SPI_FLASH_HALF_SECTOR_LENGTH;
-    }
-    else {
-        ucCommand = SUB_SECTOR_ERASE;                                    // delete smallest sector of 4k
-        BlockLength = SPI_FLASH_SUB_SECTOR_LENGTH;
-    }
-        #endif
-    fnSPI_command(ucCommand, ptrAccessDetails->ulOffset, _EXTENDED_CS 0, 0);    
-    #else                                                                // ATMEL
-    if ((ptrAccessDetails->BlockLength >= SPI_FLASH_BLOCK_LENGTH) && (usPageNumber % 8 == 0)) { // if delete range corresponds to a block, use faster block delete
-        BlockLength = SPI_FLASH_BLOCK_LENGTH;
-        ucCommand = BLOCK_ERASE;
-    }
-    else {
-        BlockLength = SPI_FLASH_PAGE_LENGTH;
-        ucCommand = PAGE_ERASE;
-    }
-    fnSPI_command(ucCommand, usPageNumber, _EXTENDED_CS 0, 0);           // delete appropriate page/block
-    #endif
-    return (BlockLength);
-}
-    #endif  
+    #include "../SPI_Memory/spi_flash_interface.h"                       // {3}
 #endif
 
     #if !defined _ST_FLASH_UNIFORM_GRANULARITY || defined _WINDOWS
@@ -352,9 +226,15 @@ static unsigned long fnGetFlashSectorSize(unsigned char *ptrSector, unsigned lon
     ptrSector -= (FLASH_START_ADDRESS);
     *ulSectorNumber += (((CAST_POINTER_ARITHMETIC)ptrSector) / FLASH_GRANULARITY);
     ulSectorSize = FLASH_GRANULARITY;
+        #if defined _STM32L0x1                                           // !!to verify
+    if ((FLASH_WRPROT1 & (1 << *ulSectorNumber)) == 0) {
+        *iProtected = FLASH_SECTOR_PROTECTED;                            // sector is write protected
+    }
+        #else
     if ((FLASH_WRPR & (FLASH_WRPR_WRP0 << *ulSectorNumber)) == 0) {
         *iProtected = FLASH_SECTOR_PROTECTED;                            // sector is write protected
     }
+        #endif
     #else
     if (ptrSector >= (unsigned char *)(FLASH_START_ADDRESS + (NUMBER_OF_BOOT_SECTORS * FLASH_GRANULARITY_BOOT) + (NUMBER_OF_PARAMETER_SECTORS * FLASH_GRANULARITY_PARAMETER))) { // {22}
         ptrSector -= (FLASH_START_ADDRESS + (NUMBER_OF_BOOT_SECTORS * FLASH_GRANULARITY_BOOT) + (NUMBER_OF_PARAMETER_SECTORS * FLASH_GRANULARITY_PARAMETER));
@@ -402,6 +282,7 @@ static int fnSingleByteFlashWrite(unsigned char *ucDestination, unsigned char uc
     if (*(unsigned char *)fnGetFlashAdd((unsigned char *)ucDestination) == ucData) {
         return 0;                                                        // if the value is already programmed in flash there is no need to write
     }
+    DISABLE_DATA_CACHE();                                                // disable data cache to workaround errata
     FLASH_CR = FLASH_CR_PG;                                              // select byte programming
     #if defined _WINDOWS
     fnGetFlashSectorSize(ucDestination, &ulSectorNumber, &iProtectedState);
@@ -415,7 +296,9 @@ static int fnSingleByteFlashWrite(unsigned char *ucDestination, unsigned char uc
     #if defined _WINDOWS
     }
     #endif
-    while ((FLASH_SR & FLASH_SR_BSY) != 0) {}                            // wait until write operation completes
+    _SYNCHRONISATION_DATA_BARRIER();                                     // {5}
+    _WAIT_REGISTER_TRUE(FLASH_SR, FLASH_SR_BSY);                         // wait until write operation completes
+    RESET_AND_ENABLE_DATA_CACHE();                                       // flush and re-enable data cache
     if ((FLASH_SR & (FLASH_SR_WRPERR | FLASH_SR_PGAERR | FLASH_SR_PGPERR | FLASH_SR_PGSERR)) != 0) { // check for errors
         return -1;                                                       // write error
     }
@@ -432,6 +315,7 @@ static int fnSingleWordFlashWrite(unsigned short *usDestination, unsigned short 
     if (*(unsigned short *)fnGetFlashAdd((unsigned char *)usDestination) == usData) {
         return 0;                                                        // if the value is already programmed in flash there is no need to write
     }
+    DISABLE_DATA_CACHE();                                                // disable data cache to workaround errata
     FLASH_CR = (FLASH_CR_PG | FLASH_CR_PSIZE_16);                        // select short word programming
     #if defined _WINDOWS
     fnGetFlashSectorSize((unsigned char *)usDestination, &ulSectorNumber, &iProtectedState);
@@ -441,11 +325,13 @@ static int fnSingleWordFlashWrite(unsigned short *usDestination, unsigned short 
     }
     else {
     #endif
-        *((unsigned short *)fnGetFlashAdd((unsigned char *)usDestination)) = usData; // program the byte
+        *((unsigned short *)fnGetFlashAdd((unsigned char *)usDestination)) = usData; // program the half-word
     #if defined _WINDOWS
     }
     #endif
-    while ((FLASH_SR & FLASH_SR_BSY) != 0) {}                            // wait until write operation completes
+    _SYNCHRONISATION_DATA_BARRIER();                                     // {5}
+    _WAIT_REGISTER_TRUE(FLASH_SR, FLASH_SR_BSY);                         // wait until write operation completes
+    RESET_AND_ENABLE_DATA_CACHE();                                       // flush and re-enable data cache
     if ((FLASH_SR & (FLASH_SR_WRPERR | FLASH_SR_PGAERR | FLASH_SR_PGPERR | FLASH_SR_PGSERR)) != 0) { // check for errors
         return -1;                                                       // write error
     }
@@ -463,6 +349,7 @@ static int fnSingleLongWordFlashWrite(unsigned long *ulDestination, unsigned lon
     if (*(unsigned long *)fnGetFlashAdd((unsigned char *)ulDestination) == ulData) {
         return 0;                                                        // if the value is already programmed in flash there is no need to write
     }
+    DISABLE_DATA_CACHE();                                                // disable data cache to workaround errata
     FLASH_CR = (FLASH_CR_PG | FLASH_CR_PSIZE_32);                        // select long short word programming
     #if defined _WINDOWS
     fnGetFlashSectorSize((unsigned char *)ulDestination, &ulSectorNumber, &iProtectedState);
@@ -476,7 +363,9 @@ static int fnSingleLongWordFlashWrite(unsigned long *ulDestination, unsigned lon
     #if defined _WINDOWS
     }
     #endif
-    while ((FLASH_SR & FLASH_SR_BSY) != 0) {}                            // wait until write operation completes
+    _SYNCHRONISATION_DATA_BARRIER();                                     // {5}
+    _WAIT_REGISTER_TRUE(FLASH_SR, FLASH_SR_BSY);                         // wait until write operation completes
+    RESET_AND_ENABLE_DATA_CACHE();                                       // flush and re-enable data cache
     if ((FLASH_SR & (FLASH_SR_WRPERR | FLASH_SR_PGAERR | FLASH_SR_PGPERR | FLASH_SR_PGSERR)) != 0) { // check for errors
         return -1;                                                       // write error
     }
@@ -491,7 +380,7 @@ static int fnWriteInternalFlash(ACCESS_DETAILS *ptrAccessDetails, unsigned char 
     int iError = 0;
     MAX_FILE_LENGTH Length = ptrAccessDetails->BlockLength;
     unsigned char *ucDestination = (unsigned char *)ptrAccessDetails->ulOffset;
-#if defined FLASH_USES_WRITE_PROTECTION && (defined _STM32F2XX || defined _STM32F4XX || defined _STM32F7XX)
+#if defined FLASH_USES_WRITE_PROTECTION && (defined _STM32F2XX || defined _STM32F4XX || defined _STM32F7XX || defined _STM32H7XX)
     unsigned char *ptrSector = ucDestination;
     unsigned long _ulSectorSize;                                         // F2/F4/F7 have variable flash granularity
     unsigned long ulSectorNumber;
@@ -518,7 +407,7 @@ static int fnWriteInternalFlash(ACCESS_DETAILS *ptrAccessDetails, unsigned char 
         }
     } while ((ucDestination + Length) >= ptrSector);                     // repeat for all sectors that will be written to
     #endif
-    #if defined _STM32F2XX || defined _STM32F4XX || defined _STM32F7XX   // depending on the power supply range it is possible to write bytes, short- and long words (with external Vpp 64 bits but this is not supported in this implementation)
+    #if defined _STM32F2XX || defined _STM32F4XX || defined _STM32F7XX || defined _STM32H7XX // depending on the power supply range it is possible to write bytes, short- and long words (with external Vpp 64 bits but this is not supported in this implementation)
     FLASH_SR = (FLASH_STATUS_FLAGS);                                     // reset status flags
         #if defined _WINDOWS
     FLASH_SR = 0;
@@ -628,7 +517,7 @@ static int fnWriteInternalFlash(ACCESS_DETAILS *ptrAccessDetails, unsigned char 
                 #endif
                 _DISABLE_INTERRUPTS();
                 *(volatile unsigned short *)fnGetFlashAdd((unsigned char *)ucDestination) = usValue; // write the value to the flash location
-                while ((FLASH_SR & FLASH_SR_BSY) != 0) {}                // wait until write operation completes
+                _WAIT_REGISTER_TRUE(FLASH_SR, FLASH_SR_BSY);             // wait until write operation completes
                 _ENABLE_INTERRUPTS();
                 if (FLASH_SR & (FLASH_SR_WRPRTERR | FLASH_SR_PGERR)) {   // check for errors
                     iError = 1;                                          // write error
@@ -707,8 +596,7 @@ extern void fnProtectFlash(unsigned char *ptrSector, unsigned char ucProtection)
     #endif
     FLASH_OPTCR = ulRegister;                                            // write new setting and relock the register
     FLASH_OPTCR |= (FLASH_OPTCR_OPTSTRT);
-    while ((FLASH_SR & FLASH_SR_BSY) != 0) {
-    }
+    _WAIT_REGISTER_TRUE(FLASH_SR, FLASH_SR_BSY);
     FLASH_OPTCR |= (FLASH_OPTCR_OPTLOCK);
     /*
     ulRegister |= FLASH_OPTCR_OPTLOCK;
@@ -810,7 +698,7 @@ extern int fnEraseFlashSector(unsigned char *ptrSector, MAX_FILE_LENGTH Length)
                 ulFlashLockState = 0;
             #endif
             }
-            #if defined _STM32F2XX || defined _STM32F4XX || defined _STM32F7XX
+            #if defined _STM32F2XX || defined _STM32F4XX || defined _STM32F7XX || defined _STM32H7XX
             FLASH_CR = (FLASH_CR_SER | MAXIMUM_PARALLELISM | (ulSectorNumber << FLASH_CR_SNB_SHIFT)); // prepare the section to be deleted
             FLASH_CR |= (FLASH_CR_STRT);                                 // start the erase operation
             #else
@@ -832,7 +720,7 @@ extern int fnEraseFlashSector(unsigned char *ptrSector, MAX_FILE_LENGTH Length)
                 uMemset(fnGetFlashAdd(ptrSector), 0xff, _ulSectorSize);  // delete the page content
             }
             #endif
-            while ((FLASH_SR & FLASH_SR_BSY) != 0) {}                    // wait until delete operation completes
+            _WAIT_REGISTER_TRUE(FLASH_SR, FLASH_SR_BSY);                 // wait until delete operation completes
             if ((FLASH_SR & FLASH_ERROR_FLAGS) != 0) {
                 return -1;                                               // erase error
             }
@@ -843,6 +731,11 @@ extern int fnEraseFlashSector(unsigned char *ptrSector, MAX_FILE_LENGTH Length)
             Length += (((CAST_POINTER_ARITHMETIC)ptrSector) - ((CAST_POINTER_ARITHMETIC)ptrSector & ~(SPI_FLASH_PAGE_LENGTH - 1)));
             ptrSector = (unsigned char *)((CAST_POINTER_ARITHMETIC)ptrSector & ~(SPI_FLASH_PAGE_LENGTH - 1)); // set to sector boundary
             AccessDetails.BlockLength = fnDeleteSPI(&AccessDetails);     // delete page/block in SPI flash 
+            break;
+        #endif
+        #if defined _STORAGE_I2C_FRAM_ENABLED
+        case _STORAGE_I2C_FRAM:
+            fnEraseI2C_FRAM(&AccessDetails);
             break;
         #endif
         #if defined SPI_EEPROM_FILE_SYSTEM
@@ -902,12 +795,12 @@ extern int fnEraseFlashSector(unsigned char *ptrSector, MAX_FILE_LENGTH Length)
             ulFlashLockState = 0;
         #endif
         }
-        #if defined FLASH_USES_WRITE_PROTECTION && (defined _STM32F2XX || defined _STM32F4XX || defined _STM32F7XX)
+        #if defined FLASH_USES_WRITE_PROTECTION && (defined _STM32F2XX || defined _STM32F4XX || defined _STM32F7XX || defined _STM32H7XX)
         if (iProtectedSector != 0) {
             fnProtectFlash(ptrSector, UNPROTECT_SECTOR);                 // unprotect the write-protected sector so that we can erase it
         }
         #endif
-        #if defined _STM32F2XX || defined _STM32F4XX || defined _STM32F7XX
+        #if defined _STM32F2XX || defined _STM32F4XX || defined _STM32F7XX || defined _STM32H7XX
         FLASH_CR = (FLASH_CR_SER | MAXIMUM_PARALLELISM | (ulSectorNumber << FLASH_CR_SNB_SHIFT)); // prepare the section to be deleted
         FLASH_CR |= (FLASH_CR_STRT);                                     // start the erase operation
         #else
@@ -935,9 +828,9 @@ extern int fnEraseFlashSector(unsigned char *ptrSector, MAX_FILE_LENGTH Length)
             }
         }
         #endif
-        while ((FLASH_SR & FLASH_SR_BSY) != 0) {}                        // wait until delete operation completes
+        _WAIT_REGISTER_TRUE(FLASH_SR, FLASH_SR_BSY);                     // wait until delete operation completes
         _ENABLE_INTERRUPTS();
-        #if defined FLASH_USES_WRITE_PROTECTION && (defined _STM32F2XX || defined _STM32F4XX || defined _STM32F7XX)
+        #if defined FLASH_USES_WRITE_PROTECTION && (defined _STM32F2XX || defined _STM32F4XX || defined _STM32F7XX || defined _STM32H7XX)
         if (iProtectedSector != 0) {
             fnProtectFlash(ptrSector, PROTECT_SECTOR);                   // set protection again
         }
@@ -979,6 +872,11 @@ extern int fnWriteBytesFlash(unsigned char *ucDestination, unsigned char *ucData
         #if defined SPI_FLASH_ENABLED
         case _STORAGE_SPI_FLASH:
             fnWriteSPI(&AccessDetails, ucData);
+            break;
+        #endif
+        #if defined _STORAGE_I2C_FRAM_ENABLED
+        case _STORAGE_I2C_FRAM:
+            fnWriteI2C_FRAM(&AccessDetails, ucData);
             break;
         #endif
         #if defined SPI_EEPROM_FILE_SYSTEM
@@ -1030,36 +928,41 @@ extern void fnGetParsFile(unsigned char *ParLocation, unsigned char *ptrValue, M
         AccessDetails.BlockLength = Size;
         while (Size != 0) {
             switch (fnGetStorageType(ParLocation, &AccessDetails)) {     // get the storage type based on the memory location and also return the largest amount of data that can be read from a single device
-        #ifndef _WINDOWS
+        #if !defined _WINDOWS
             case _STORAGE_INVALID:                                       // read from unknown area is allowed on the HW so that SRAM (for example) could be read without explicity declaring it
         #endif
             case _STORAGE_INTERNAL_FLASH:
                 uMemcpy(ptrValue, fnGetFlashAdd(ParLocation), AccessDetails.BlockLength); // read from internal FLASH with no access restrictions so we can simply copy the data
                 break;
-                #if defined SPI_FLASH_ENABLED
+        #if defined SPI_FLASH_ENABLED
             case _STORAGE_SPI_FLASH:
                 fnReadSPI(&AccessDetails, ptrValue);                     // read from the SPI device
                 break;
-                #endif
-                #if defined SPI_EEPROM_FILE_SYSTEM
+        #endif
+        #if defined _STORAGE_I2C_FRAM_ENABLED
+            case _STORAGE_I2C_FRAM:
+                fnReadI2C_FRAM(&AccessDetails, ptrValue);
+                break;
+        #endif
+        #if defined SPI_EEPROM_FILE_SYSTEM
             case _STORAGE_SPI_EEPROM:
                 break;
-                #endif
-                #if defined I2C_EEPROM_FILE_SYSTEM
+        #endif
+        #if defined I2C_EEPROM_FILE_SYSTEM
             case _STORAGE_I2C_EEPROM:
                 fnReadI2C_eeprom(&AccessDetails, ptrValue);              // read the data from the external device
                 break;
-                #endif
-                #if defined EXT_FLASH_FILE_SYSTEM
+        #endif
+        #if defined EXT_FLASH_FILE_SYSTEM
             case _STORAGE_PARALLEL_FLASH:
                 uMemcpy(ptrValue, fnGetExtFlashAdd(ParLocation), AccessDetails.BlockLength); // read from external parallel FLASH with no access restrictions so we can simply copy the data
                 break;
-                #endif
-                #if defined _WINDOWS                                     // only when simulating
+        #endif
+        #if defined _WINDOWS                                             // only when simulating
             case _STORAGE_PROGRAM:
                 uMemcpy(ptrValue, ParLocation, Size);                            
                 return;
-                #endif
+        #endif
             default:
                 _EXCEPTION("Invalid storage type");
                 return;                                                  // invalid
@@ -1089,7 +992,7 @@ extern void fnGetParsFile(unsigned char *ParLocation, unsigned char *ptrValue, M
 //
 extern unsigned char fnGetValidPars(unsigned char ucValid)
 {
-    #if defined _STM32F2XX || defined _STM32F4XX || defined _STM32F7XX
+    #if defined _STM32F2XX || defined _STM32F4XX || defined _STM32F7XX || defined _STM32H7XX
     unsigned char ucValidUse[2];
     unsigned char ucCompare;
 
@@ -1165,7 +1068,7 @@ extern int fnGetParameters(unsigned char ucValidBlock, unsigned short usParamete
     ptrPar += 2;                                                         // first parameter starts after validation information
     fnGetParsFile((unsigned char *)ptrPar, ucValue, usLength);
     #else
-        #if defined _STM32F2XX || defined _STM32F4XX || defined _STM32F7XX // byte storage used 
+        #if defined _STM32F2XX || defined _STM32F4XX || defined _STM32F7XX || defined _STM32H7XX // byte storage used 
     ptrPar += usParameterReference;
     ptrPar += 2;                                                         // first parameter starts after validation information
 
@@ -1188,7 +1091,7 @@ extern int fnGetParameters(unsigned char ucValidBlock, unsigned short usParamete
 
 extern int fnSetParameters(unsigned char ucValidBlock, unsigned short usParameterReference, unsigned char *ucValue, unsigned short usLength)
 {
-    #if defined _STM32F2XX || defined _STM32F4XX || defined _STM32F7XX
+    #if defined _STM32F2XX || defined _STM32F4XX || defined _STM32F7XX || defined _STM32H7XX
     unsigned char *ptrPar = PARAMETER_BLOCK_1, *ptrStart;
     unsigned char ucValid = 0x55;
     int iBlockUse = 0;

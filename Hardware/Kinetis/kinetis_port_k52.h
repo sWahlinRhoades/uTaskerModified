@@ -11,7 +11,7 @@
     File:      kinetis_port_k52.h
     Project:   Single Chip Embedded Internet
     ---------------------------------------------------------------------
-    Copyright (C) M.J.Butcher Consulting 2004..2016
+    Copyright (C) M.J.Butcher Consulting 2004..2018
     *********************************************************************
     
 */
@@ -68,7 +68,7 @@ static const char *cPer[PORTS_AVAILABLE][PORT_WIDTH][8] = {              // 144 
     {
         // ALT 0           ALT 1    ALT2         ALT 3         ALT 4          ALT 5        ALT 6       ALT 7
         {  "ADC0_SE8/TSI0_CH0","PTB0","I2C0_SCL","FTM1_CH0",   "MII_MDIO",    "?",         "FTM1_QD_PHA", "?"              }, // PORT B
-        {  "ADC0_SE9/TSI0_CH6","PTB1","I2C0_SDA","FTM1_CH1",   "MII_MCD",     "?",         "FTM1_QD_PHB", "?"              },
+        {  "ADC0_SE9/TSI0_CH6","PTB1","I2C0_SDA","FTM1_CH1",   "MII_MDC",     "?",         "FTM1_QD_PHB", "?"              },
         {  "ADC0_SE12/TSI0_CH7","PTB2","I2C0_SCL","UART0_RTS", "ENET_1588_TMR0","?",       "FTM0_FLT3","?"                 },
         {  "ADC0_SE13/TSI0_CH8","PTB3","I2C0_SDA","UART0_CTS", "ENET_1588_TMR1","?",       "FTM0_FLT0","?"                 },
         {  "ADC1_SE10",    "PTB4",  "?",         "?",          "ENET_1588_TMR2","?",       "FTM1_FLT0","?"                 },

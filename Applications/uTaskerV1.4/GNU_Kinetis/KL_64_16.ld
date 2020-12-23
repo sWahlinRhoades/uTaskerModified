@@ -1,6 +1,6 @@
 /* KL_64_16.ld                                                           */
 /* GCC memory file for the Kinetis KL - for use with the uTasker project */
-/* Use when running in FLASH (64k FLASH / 8k CPU SRAM)                   */
+/* Use when running in FLASH (64k FLASH / 16k CPU SRAM)                  */
 
 
 MEMORY

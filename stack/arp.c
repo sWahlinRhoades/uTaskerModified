@@ -11,7 +11,7 @@
     File:      arp.c
     Project:   Single Chip Embedded Internet
     ---------------------------------------------------------------------
-    Copyright (C) M.J.Butcher Consulting 2004..2016
+    Copyright (C) M.J.Butcher Consulting 2004..2020
     *********************************************************************
     14.03.2007 Added RARP response                                       {1}
     21.08.2007 Optionally only add used addresses to ARP table (rather than all 'seen' ones) {2}
@@ -37,9 +37,11 @@
     30.12.2013 Set single interface flag on ARP resolution               {21}
     30.03.2014 Ensure ARP resolution is reported to owner when receiving an ARP request from the destination whilst resolving {22}
     13.04.2014 Add fnAssignNetwork() call to associate received frames to a network {23}
-    05.06.2015 Modify the default behavior of re-reolves of the gatway address in multiple-network environments {24}
+    05.06.2015 Modify the default behavior of re-resolves of the gateway address in multiple-network environments {24}
+    12.05.2017 Add optional Ethernet error flags support                 {25}
+    26.05.2017 Allow PPP interfaces to skip ARP                          {26}
 
-*/  
+*/
       
     
 #include "config.h"
@@ -54,7 +56,7 @@
 
 #define OWN_TASK                   TASK_ARP
 
-#ifndef ARP_NN_MALLOC                                                    // {16}
+#if !defined ARP_NN_MALLOC                                               // {16}
     #define ARP_NN_MALLOC(x)       uMalloc((MAX_MALLOC)(x))
 #endif
 
@@ -123,7 +125,7 @@ typedef struct stARP_OUTPUT
 /*                             constants                               */
 /* =================================================================== */
 
-#ifdef USE_IP
+#if defined USE_IP
 static const unsigned char ucArpData[] = {
     (unsigned char)(ETHERNET_HARDWARE >> 8), (unsigned char)(ETHERNET_HARDWARE),
     (unsigned char)(PROTOCOL_IPv4 >> 8), (unsigned char)(PROTOCOL_IPv4), // protocol type                                                  
@@ -138,7 +140,7 @@ static const unsigned char ucArpData[] = {
 
     static void     fnRefreshARP(void);
     static int      fnARP_check_pending(void);
-    #ifdef USE_ZERO_CONFIG
+    #if defined USE_ZERO_CONFIG
     extern void     fnSendARP_request(ARP_TAB *ptrARPTab);
     #else
     static void     fnSendARP_request(ARP_TAB *ptrARPTab);
@@ -147,17 +149,17 @@ static const unsigned char ucArpData[] = {
     static void     fnHandleARP_response(ARP_INPUT *ptrArpInput);
     static void     fnArpMessage(ARP_TAB *ptrArpEntry, unsigned char ucIntEvent);
 #endif
-#ifdef USE_IPV6
+#if defined USE_IPV6
     static void fnNN_Message(NEIGHBOR_TAB *ptrNeighborTab, unsigned char ucIntEvent);
 #endif
 
 /* =================================================================== */
 /*                          local variables                            */
 /* =================================================================== */
-#ifdef USE_IP
+#if defined USE_IP
     static ARP_TAB *tARP = 0;                                            // ARP cache - size defined by ARP_TABLE_ENTRIES
 #endif
-#ifdef USE_IPV6
+#if defined USE_IPV6
     static NEIGHBOR_TAB *tIPV6_Neighbors = 0;                            // {4} IPV6 neighbor cache - size defined by NEIGHBOR_TABLE_ENTRIES
 #endif
 
@@ -181,13 +183,13 @@ extern void fnTaskArp(TTASKTABLE *ptrTaskTable)                          // ARP 
     #if defined USE_IPV6
     if (tIPV6_Neighbors == 0) {
         tIPV6_Neighbors = (NEIGHBOR_TAB *)ARP_NN_MALLOC(sizeof(NEIGHBOR_TAB) * NEIGHBOR_TABLE_ENTRIES); // get zeroed neighbor table space 
-        #ifndef USE_IP
+        #if !defined USE_IP
         uTaskerMonoTimer(OWN_TASK, T_ARP_PERIOD, E_ARP_CHECK);           // timer for periodic update of ARP cache 
         #endif
     }
     #endif
 
-    while (fnRead(PortIDInternal, ucInputMessage, HEADER_LENGTH) != 0) { // check input queue
+    while (fnRead(PortIDInternal, ucInputMessage, HEADER_LENGTH) != 0) { // check task input queue
         switch (ucInputMessage[MSG_SOURCE_TASK]) {
         case TIMER_EVENT:
             if (ucInputMessage[MSG_TIMER_EVENT] == E_ARP_CHECK) {        // refresh the ARP/NN cache
@@ -257,7 +259,7 @@ static void fnRefreshARP(void)
         }
     }
     #endif
-    #ifdef USE_IPV6
+    #if defined USE_IPV6
     i = 0;
     while (i++ < NEIGHBOR_TABLE_ENTRIES) {
         if ((ptrNN->ucState & ARP_RESOLVED) != 0) {
@@ -333,7 +335,7 @@ static int fnARP_check_pending(void)
 }
 #endif
 
-#ifdef USE_IP
+#if defined USE_IP
 #if defined SUPPORT_VLAN && defined SUPPORT_DYNAMIC_VLAN_TX              // {12}
 // Cover function for first write into ethernet output buffer including VLAN control on a frame basis
 //
@@ -369,7 +371,7 @@ extern QUEUE_TRANSFER fnFirstWrite(QUEUE_HANDLE driver_id, unsigned char *output
     unsigned char *ptrOutIP = &network[_NETWORK_ID].ucOurIP[0];
     unsigned char *ptrNetMask = &network[_NETWORK_ID].ucNetMask[0];
 
-    while (i--) {
+    while (i-- != 0) {
         ucMaskBits = *ptrNetMask & *new_ip;
         if (((ucMaskBits ^ *ptrOutIP) & *ptrNetMask) != 0) {
             return 0;                                                    // not in our subnet !!
@@ -612,7 +614,7 @@ static void fnSendARP_response(ARP_INPUT *ptrArpInput)
     #if IP_INTERFACE_COUNT > 1
     register QUEUE_HANDLE Tx_handle = ptrArpInput->frame->Tx_handle;
     #endif
-    #ifdef USE_RARP
+    #if defined USE_RARP
     int iMisMatch;
     unsigned short usArpNarp_reply;
     #endif
@@ -658,7 +660,7 @@ static void fnSendARP_response(ARP_INPUT *ptrArpInput)
         ARP_OUTPUT ArpOutput;
         ETHERNET_ARP_FRAME ucMsgArpReply;                                // fixed length arp response
 
-    #ifdef USE_RARP
+    #if defined USE_RARP
         ucMsgArpReply.arp_content.ucOpCode[0] = 0;                       // add Reply OpCode (MSB always zero)
         ucMsgArpReply.arp_content.ucOpCode[1] = (unsigned char)(usArpNarp_reply);
     #else
@@ -802,17 +804,26 @@ extern int fnProcessARP(ETHERNET_FRAME *frame)
     if ((frame->ptEth->ethernet_frame_type[0] != (unsigned char)(PROTOCOL_ARP >> 8)) && (frame->ptEth->ethernet_frame_type[1] != (unsigned char)(PROTOCOL_ARP))) { // Note caller checks whether second byte in type is correct (efficiency reasons)
         iArpType = 0;                                                    // not ARP
         if ((frame->ptEth->ethernet_frame_type[0] != (unsigned char)(PROTOCOL_RARP >> 8)) && (frame->ptEth->ethernet_frame_type[1] != (unsigned char)(PROTOCOL_RARP))) { // Note caller checks whether second byte in type is correct (efficiency reasons)
+        #if defined ETH_ERROR_FLAGS                                      // {25}
+        frame->ucErrorFlags = ETH_ERROR_INVALID_ARP_RARP;
+        #endif
             return 0;                                                    // and not RARP
         }
     }
     #else
     if (frame->ptEth->ethernet_frame_type[0] != (unsigned char)(PROTOCOL_ARP >> 8)) { // note caller checks whether second byte in type is correct (efficiency reasons)
+        #if defined ETH_ERROR_FLAGS                                      // {25}
+        frame->ucErrorFlags = ETH_ERROR_INVALID_ARP_RARP;
+        #endif
         return 0;                                                        // not ARP
     }
     #endif
    
-    if (frame->frame_size < ((2 * MAC_LENGTH) + (2 * IPV4_LENGTH) + 2 + 6)) { // check that the frame is not too small to be valid 
-        return (0);
+    if (frame->frame_size < ((2 * MAC_LENGTH) + (2 * IPV4_LENGTH) + 2 + 6)) { // check that the frame is not too small to be valid
+        #if defined ETH_ERROR_FLAGS                                      // {25}
+        frame->ucErrorFlags = ETH_ERROR_INVALID_ARP_RARP;
+        #endif
+        return 0;
     }
     
     ptrData = frame->ptEth->ucData;
@@ -924,6 +935,12 @@ extern ARP_TAB *fnGetIP_ARP(unsigned char *Search_IP, UTASK_TASK OwnerTask, USOC
     #if defined ARP_VLAN_SUPPORT                                         // {13}
     unsigned short usVLAN_ID;
     #endif
+    #if defined USE_PPP && IP_INTERFACE_COUNT > 1                        // {26}
+    Socket &= ~(PPP_INTERFACES);                                         // remove PPP interface(s) from resolve list
+    if ((Socket & (INTERFACE_MASK << INTERFACE_SHIFT)) == 0) {           // check whether there are non-PPP interfaces that still need to resolve
+        return 0;                                                        // no non-PPP interfaces in use so return with zero pointer
+    }
+    #endif
 
     #if defined SUPPORT_SUBNET_TX_BROADCAST                              // {10}
     if (fnSubnetBroadcast(Search_IP, &network[_NETWORK_ID].ucOurIP[0], &network[_NETWORK_ID].ucNetMask[0], IPV4_LENGTH) != 0) { // {11} check whether the destination is our subnet broadcast
@@ -1017,12 +1034,6 @@ extern ARP_TAB *fnGetARPentry(unsigned char ucEntry/*, int iIP_MAC*/)    // {9}
         if ((ptrARPTab->ucState & ARP_RESOLVED) != 0) {
             if (++ucEntryFound == ucEntry) {
                 return ptrARPTab;                                        // {9} return general pointer
-//              if (iIP_MAC == GET_IP) {
-//                  return ptrARPTab->ucIP;
-//              }
-//              else {
-//                  return ptrARPTab->ucMac;
-//              }
             }
         }                            
     }
@@ -1042,7 +1053,7 @@ extern void fnDeleteArp(void)                                            // dele
 }
 #endif                                                                   // endif USE_IP
 
-#ifdef USE_IPV6
+#if defined USE_IPV6
 extern unsigned char *fnGetNeighborEntry(unsigned char ucEntry, int iIP_MAC)
 {
     int i = 0;
@@ -1078,7 +1089,7 @@ extern void fnDeleteNeighbors(void)                                      // dele
 }
 
 
-// This function sends a message to the task which caused a neighbor discovery to be stated indicating whether it was successful or not
+// This function sends a message to the task which caused a neighbor discovery to be started indicating whether it was successful or not
 //
 static void fnNN_Message(NEIGHBOR_TAB *ptrNeighborTab, unsigned char ucIntEvent)
 {

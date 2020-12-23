@@ -11,7 +11,7 @@
     File:      KeyScan.c
     Project:   uTasker project
     ---------------------------------------------------------------------
-    Copyright (C) M.J.Butcher Consulting 2004..2016
+    Copyright (C) M.J.Butcher Consulting 2004..2018
     *********************************************************************
     13.08.2009 Adapt to support non-muliplexed keys with up to 32 keys
 
@@ -190,9 +190,9 @@ static void fnCheckKeyChanges(void)
     unsigned long ulChanges = (ulColsLast ^ ulCols);
     unsigned char ucEvent = KEY_EVENT_COL_1_ROW_1_PRESSED;               // event on first input pressed
     while (ulChanges != 0) {
-        if (ulChanges & ulInput) {
+        if ((ulChanges & ulInput) != 0) {
             ulChanges &= ~ulInput;
-            if (ulCols & ulInput) {
+            if ((ulCols & ulInput) != 0) {
                 fnInterruptMessage(KEYPAD_PARTNER_TASK, ucEvent);        // send as pressed interrupt event
             }
             else {
@@ -439,9 +439,9 @@ static unsigned long fnReadTouchSensorInputs(void)
 
             pwm_setup.pwm_value   = _PWM_PERCENT((unsigned char)sSlider, pwm_setup.pwm_frequency); // PWM (high/low)
             #if defined FRDM_KL25Z
-                pwm_setup.pwm_reference = (_TIMER_0 | 1);                // timer module 0, channel 5 (blue LED in RGB LED)
+            pwm_setup.pwm_reference = (_TIMER_0 | 1);                    // timer module 0, channel 1 (blue LED in RGB LED)
             #else
-                pwm_setup.pwm_reference = (_TIMER_0 | 5);                // timer module 0, channel 5 (blue LED in RGB LED)
+            pwm_setup.pwm_reference = (_TIMER_0 | 5);                    // timer module 0, channel 5 (blue LED in RGB LED)
             #endif
             fnConfigureInterrupt((void *)&pwm_setup);
             fnDebugMsg("Slider = ");

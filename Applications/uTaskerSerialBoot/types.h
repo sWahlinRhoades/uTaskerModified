@@ -11,7 +11,7 @@
     File:      types.h
     Project:   Single Chip Embedded Internet - serial loader
     ---------------------------------------------------------------------
-    Copyright (C) M.J.Butcher Consulting 2004..2019
+    Copyright (C) M.J.Butcher Consulting 2004..2020
     *********************************************************************
     14.02.2010 Remove "../../Hardware/xxxx/xxxx.h" include to app_hw_xxxx.h {1}
     01.12.2010 Add RX6XX                                                 {2}
@@ -19,6 +19,7 @@
     01.02.2011 Add LPC17XX                                               {4}
     09.06.2018 Add STM32                                                 {5}
     04.07.2018 Add package definition includes here                      {6}
+    09.02.2020 Add iMX                                                   {7}
 
 */
 
@@ -46,7 +47,7 @@ typedef unsigned short    DELAY_LIMIT;                                   // dela
 typedef unsigned short    MAX_MALLOC;                                    // upto 64k heap chunks
 typedef unsigned short    LENGTH_CHUNK_COUNT;                            // http string insertion and chunk counter for dynamic generation
 //typedef unsigned short  CLOCK_LIMIT;                                   // 16 bit normal hardware timer support
-#if defined (_M5223X) || defined (_STR91XF) || defined (_HW_SAM7X) || defined (_LM3SXXXX) || defined (_LPC23XX) || defined (_LPC17XX) || defined _HW_AVR32 || defined _RX6XX || defined _KINETIS // {1}{2}{3}{4}
+#if defined (_M5223X) || defined (_STR91XF) || defined (_HW_SAM7X) || defined (_LM3SXXXX) || defined (_LPC23XX) || defined (_LPC17XX) || defined _HW_AVR32 || defined _RX6XX || defined _KINETIS || defined _iMX // {1}{2}{3}{4}{7}
     typedef unsigned long   MAX_FILE_LENGTH;                             // over 64k file lengths
     typedef unsigned long   MAX_FILE_SYSTEM_OFFSET;                      // offsets of over 64k in file system - use for file system sizes of larger than 64k
 #else
@@ -150,7 +151,11 @@ typedef unsigned short    LENGTH_CHUNK_COUNT;                            // http
 
 // UART mode
 //
-typedef unsigned short     UART_MODE_CONFIG;                              // UART mode (use unsigned long for extended mode support)
+#if defined UART_EXTENDED_MODE
+    typedef unsigned long  UART_MODE_CONFIG;                             // UART mode (use unsigned long for extended mode support)
+#else
+    typedef unsigned short UART_MODE_CONFIG;                             // UART mode
+#endif
 
 // MODBUS
 //
@@ -167,7 +172,11 @@ typedef unsigned short     UART_MODE_CONFIG;                              // UAR
 
 // General variable types for portability
 //
-typedef char              CHAR;
+#if defined _COMPILE_KEIL
+    typedef signed char CHAR;
+#else
+    typedef char        CHAR;
+#endif
 
 #define STRING_OPTIMISATION                                              // activate to optimise return pointers from string output functions. This is not fully compatible with existing project use
 
@@ -220,6 +229,9 @@ typedef char              CHAR;
 #endif
 #if defined _KINETIS                                                     // {3}
     #include "app_hw_kinetis.h"
+#endif
+#if defined _iMX                                                         // {7}
+    #include "app_hw_iMX.h"
 #endif
 #if defined _STM32                                                       // {5}
     #include "app_hw_STM32.h"

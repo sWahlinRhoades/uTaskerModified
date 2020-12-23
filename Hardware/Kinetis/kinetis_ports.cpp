@@ -40,12 +40,14 @@
     #define STRCAT strcat
 #endif
 
-#if defined KINETIS_K00
+#if defined KINETIS_K00 || (defined KINETIS_K12 && (PIN_COUNT == PIN_COUNT_48_PIN))
     #include "kinetis_port_k00.h"
 #elif defined KINETIS_K10
     #include "kinetis_port_k10.h"
 #elif defined KINETIS_K26 || defined KINETIS_K65 || defined KINETIS_K66
     #include "kinetis_port_K26_K65_K66.h"
+#elif defined KINETIS_K27 || defined KINETIS_K28
+    #include "kinetis_port_K27_K28.h"
 #elif defined KINETIS_K20 || defined KINETIS_K21 || defined KINETIS_K22
     #include "kinetis_port_k20.h"
 #elif defined KINETIS_K30
@@ -72,7 +74,9 @@
     #include "kinetis_port_kl.h"
 #elif defined KINETIS_KV                                                 // {7}
     #include "kinetis_port_kv.h"
-#elif defined KINETIS_KW2X
+#elif defined KINETIS_KM
+    #include "kinetis_port_km.h"
+#elif defined KINETIS_KW2X || defined KINETIS_KW3X || defined KINETIS_KW4X
     #include "kinetis_port_kw.h"
 #else
     #include "kinetis_port.h"                                            // K60
@@ -80,6 +84,9 @@
 
 #if defined SUPPORT_ADC 
     static void fnAddVoltage(int iPort, char *cPortDetails, int iBit);
+#endif
+#if defined SUPPORT_PWM_MODULE 
+    static void fnAddPWM(int iPort, char *cPortDetails, int iBit);
 #endif
 
 static unsigned char *_ptrPerFunctions;
@@ -95,7 +102,7 @@ static unsigned char *_ptrPerFunctions;
 
 extern void fnSetPortDetails(char *cPortDetails, int iPort, int iBit, unsigned long *ulPortStates, unsigned long *ulPortFunction, unsigned long *ulPortPeripheral, int iMaxLength)
 {
-#if defined KINETIS_K00 || defined KINETIS_K20 || defined KINETIS_K60 || defined KINETIS_K61 || defined KINETIS_K64 || defined KINETIS_K70 || defined KINETIS_K80 || defined KINETIS_KL || defined KINETIS_KE || defined KINETIS_KV || defined KINETIS_KW2X // {1}{3}{7}
+#if defined KINETIS_K00 || defined KINETIS_K20 || defined KINETIS_K60 || defined KINETIS_K61 || defined KINETIS_K64 || defined KINETIS_K70 || defined KINETIS_K80 || defined KINETIS_KL || defined KINETIS_KE || defined KINETIS_KV || defined KINETIS_KM || defined KINETIS_KW2X || defined KINETIS_KW3X || defined KINETIS_KW4X || (defined KINETIS_K12 && (PIN_COUNT == PIN_COUNT_48_PIN)) // {1}{3}{7}
     int i;
 #endif
     char *ptrBuf = cPortDetails;
@@ -131,12 +138,12 @@ extern void fnSetPortDetails(char *cPortDetails, int iPort, int iBit, unsigned l
         STRCPY(cPortDetails, "Port E");
         break;
 #endif
-#if defined KINETIS_KE || (PORTS_AVAILABLE > 5)
+#if (defined KINETIS_KE && !defined KINETIS_KE15) || (PORTS_AVAILABLE > 5)
     case _PORTF:
         STRCPY(cPortDetails, "Port F");
         break;
 #endif
-#if defined KINETIS_KE
+#if (defined KINETIS_KE && !defined KINETIS_KE15)
     case _PORTG:
         STRCPY(cPortDetails, "Port G");
         break;
@@ -147,6 +154,21 @@ extern void fnSetPortDetails(char *cPortDetails, int iPort, int iBit, unsigned l
         STRCPY(cPortDetails, "Port I");
         break;
 #else
+    #if PORTS_AVAILABLE > 6
+    case _PORTG:
+        STRCPY(cPortDetails, "Port G");
+        break;
+    #endif
+    #if PORTS_AVAILABLE > 7
+    case _PORTH:
+        STRCPY(cPortDetails, "Port H");
+        break;
+    #endif
+    #if PORTS_AVAILABLE > 8
+    case _PORTI:
+        STRCPY(cPortDetails, "Port I");
+        break;
+    #endif
     case (PORTS_AVAILABLE):                                              // {2}
         STRCPY(cPortDetails, "Analog: ");
     #if defined _PIN_COUNT
@@ -172,7 +194,7 @@ extern void fnSetPortDetails(char *cPortDetails, int iPort, int iBit, unsigned l
         return;
     }
 
-#if defined KINETIS_K00 || defined KINETIS_K20 || defined KINETIS_K60 || defined KINETIS_K61 || defined KINETIS_K64 || defined KINETIS_K70 || defined KINETIS_K80 || defined KINETIS_KL || defined KINETIS_KE || defined KINETIS_KV || defined KINETIS_KW2X // {1}{3}{7}
+#if defined KINETIS_K00 || defined KINETIS_K20 || defined KINETIS_K60 || defined KINETIS_K61 || defined KINETIS_K64 || defined KINETIS_K70 || defined KINETIS_K80 || defined KINETIS_KL || defined KINETIS_KE || defined KINETIS_KV || defined KINETIS_KM || defined KINETIS_KW2X || defined KINETIS_KW3X || defined KINETIS_KW4X || (defined KINETIS_K12 && (PIN_COUNT == PIN_COUNT_48_PIN)) // {1}{3}{7}
     SPRINTF(cBuf, " Bit %i Pin: ", iBit);
     STRCAT(cPortDetails, cBuf);
     if (*cPinNumber[iPort][iBit][_PIN_COUNT] == '-') {
@@ -195,10 +217,10 @@ extern void fnSetPortDetails(char *cPortDetails, int iPort, int iBit, unsigned l
         unsigned char *ptrList = _ptrPerFunctions;
         int _iPort = iPort;
         int _iBit = iBit;
-        while (_iPort--) {
+        while (_iPort-- != 0) {
             ptrList += (PORT_WIDTH);
         }
-        while (_iBit--) {
+        while (_iBit-- != 0) {
             ptrList++;
         }
         if (*ptrList > ALTERNATIVE_FUNCTIONS) {
@@ -234,7 +256,7 @@ extern void fnSetPortDetails(char *cPortDetails, int iPort, int iBit, unsigned l
     STRCAT(cPortDetails, cBuf);
     STRCPY(cBuf, cPinNumber[iPort][iBit]);
     STRCAT(cPortDetails, cBuf);
-    if (!strcmp(cBuf, "NA")) {
+    if (strcmp(cBuf, "NA") == 0) {
         return;
     }
 
@@ -242,7 +264,7 @@ extern void fnSetPortDetails(char *cPortDetails, int iPort, int iBit, unsigned l
         unsigned char *ptrList = _ptrPerFunctions;
         int _iPort = iPort;
         int _iBit = iBit;
-        while (_iPort--) {
+        while (_iPort-- != 0) {
             ptrList += (PORT_WIDTH);
         }
         while (_iBit--) {
@@ -266,26 +288,35 @@ extern void fnSetPortDetails(char *cPortDetails, int iPort, int iBit, unsigned l
         }
     }
 #endif
+#if defined SUPPORT_ADC 
+    fnAddVoltage(iPort, cPortDetails, iBit);                             // display the voltage applied to ADC inputs
+#endif
+#if defined SUPPORT_PWM_MODULE 
+    fnAddPWM(iPort, cPortDetails, iBit);                                 // display PWM output details
+#endif
 }
 
-#if defined KINETIS_K00 || defined KINETIS_K20 || defined KINETIS_K60 || defined KINETIS_K61 || defined KINETIS_K64 || defined KINETIS_K70 || defined KINETIS_K80 || defined KINETIS_KL || defined KINETIS_KE || defined KINETIS_KV || defined KINETIS_KW2X // {1}{3}{7}
+#if defined KINETIS_K00 || defined KINETIS_K20 || defined KINETIS_K60 || defined KINETIS_K61 || defined KINETIS_K64 || defined KINETIS_K70 || defined KINETIS_K80 || defined KINETIS_KL || defined KINETIS_KE || defined KINETIS_KV || defined KINETIS_KM || defined KINETIS_KW2X || (defined KINETIS_K12 && (PIN_COUNT == PIN_COUNT_48_PIN)) // {1}{3}{7}
 extern unsigned long fnGetPortMask(int iPortNumber)
 {
     unsigned long ulPortMask = 0x00000000;
     unsigned long ulMaskBit = 0x00000001;
     int i;
-#if defined KINETIS_KE
+    #if defined KINETIS_KE && !defined KINETIS_KE15 && !defined KINETIS_KE18
     if (iPortNumber >= PORTS_AVAILABLE_8_BIT)
-#else
+    #else
     if (iPortNumber >= (PORTS_AVAILABLE + 1))
-#endif
+    #endif
     {                                                                    // {4} handle external port mask
-    #if defined _EXT_PORT_16_BIT
+    #if defined _EXT_PORT_32_BIT
+        return 0;
+    #elif defined _EXT_PORT_28_BIT
+        return 0xf0000000;
+    #elif defined _EXT_PORT_16_BIT
         return 0xffff0000;
     #else
-        return 0xffffff00;
+        return 0xffffff00;                                               // 8 bit external ports
     #endif
-        return 0;
     }
     for (i = 0; i < PORT_WIDTH; i++) {
         if (*cPinNumber[iPortNumber][i][_PIN_COUNT] == '-') {
@@ -304,17 +335,18 @@ extern "C" int fnGetADC_sim_channel(int iPort, int iBit)
         if (ADC_DEDICATED_MODULE[iBit] == 0) {                           // not assigned
             return -1;                                                   // not ADC function
         }
-        return (((ADC_DEDICATED_MODULE[iBit] - 1) * ADC_CHANNELS) + ADC_DEDICATED_CHANNEL[iBit]);
+        return (((ADC_DEDICATED_MODULE[iBit] - 1) * 32) + ADC_DEDICATED_CHANNEL[iBit]); // the dedicated analogue input
+    }
+    else if (iPort > _GPIO_ADC) {                                        // extended port - not expected to have ADC
+        return -1;
     }
     else {                                                               // multiplexed port
-    #if defined KINETIS_KE
-        if (ADC_MUX_CHANNEL[iPort][7 - iBit] == 0) {
+    #if defined KINETIS_KE && !defined KINETIS_KE14 && !defined KINETIS_KE15 && !defined KINETIS_KE16 && !defined KINETIS_KE18
+        if (ADC_MUX_CHANNEL[iPort][7 - iBit] == -1) {
             return -1;                                                   // not ADC function
         }
     #else
-        if (ADC_MUX_CHANNEL[iPort][31 - iBit] == 0) {
-            return -1;                                                   // not ADC function
-        }
+        return ADC_MUX_CHANNEL[iPort][31 - iBit];                        // return -1 if not ADC, otherwise the ADC channel
     #endif
     }
 #endif
@@ -326,11 +358,39 @@ static void fnAddVoltage(int iPort, char *cPortDetails, int iBit)
 {
     #if defined _PIN_COUNT
     char cBuf[BUF1SIZE];
-    int iAdc = fnGetADC_sim_channel(iPort, (31 - iBit));
-    if (iAdc < (ADC_CHANNELS * ADC_CONTROLLERS)) {                        // {6}
+        #if defined KINETIS_KE && !defined KINETIS_KE15
+    signed int iAdc = fnGetADC_sim_channel(iPort, (7 - iBit));
+        #else
+    signed int iAdc = fnGetADC_sim_channel(iPort, (31 - iBit));
+        #endif
+    if (iAdc < 0) {
+        return;
+    }
+    if (iAdc < (32 * ADC_CONTROLLERS)) {                                 // {6}
         SPRINTF(cBuf, " [%fV]", (((float)_ptrADC[iAdc]*((float)ADC_REFERENCE_VOLTAGE/(float)1000))/(float)0xffff));
         STRCAT(cPortDetails, cBuf);
     }
+    #endif
+}
+#endif
+#if defined SUPPORT_PWM_MODULE
+extern "C" int fnGetPWM_sim_channel(int iPort, int iPin, unsigned long *ptr_ulFrequency, unsigned char *ptr_ucMSR);
+static void fnAddPWM(int iPort, char *cPortDetails, int iBit)
+{
+    #if defined _PIN_COUNT && (FLEX_TIMERS_AVAILABLE > 0)
+    char cBuf[BUF1SIZE];
+    unsigned long ulFrequency;
+    unsigned char ucMSR;
+    signed int iPWM = fnGetPWM_sim_channel(iPort, iBit, &ulFrequency, &ucMSR);
+    if (iPWM < 0) {
+        return;
+    }
+    SPRINTF(cBuf, " [F=%d Hz", ulFrequency);
+    STRCAT(cPortDetails, cBuf);
+    SPRINTF(cBuf, " MSR=%d %%]", ucMSR);
+    STRCAT(cPortDetails, cBuf);
+    #else
+    return;
     #endif
 }
 #endif

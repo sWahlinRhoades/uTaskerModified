@@ -11,7 +11,7 @@
     File:      STM32.c
     Project:   Single Chip Embedded Internet
     ---------------------------------------------------------------------
-    Copyright (C) M.J.Butcher Consulting 2004..2019
+    Copyright (C) M.J.Butcher Consulting 2004..2020
     *********************************************************************
     02.03.2012 Improve endpoint NAK control and unblocking               {1}
     06.03.2012 Add start_application()                                   {3}
@@ -54,7 +54,16 @@
     01.11.2018 Use an include file for the clock configuration           {39}
     28.11.2018 Add automatic flash option configuration option           {40}
     13.01.2019 Include USB-OTG header                                    {41}
+    06.03.2019 Random number pointer set during variable initialisation  {42}
+    08.03.2019 Initialise clock before performing Keil initialisation and enable access to FPU {43}
+    09.03.2019 Change location of SPI memory includes (to ../SPI_Memory)
+    09.03.2019 Add 25AA160 SPI EEPROM support                            {44}
+    18.03.2019 Remove DMA code to stm32_DMA.h
+    18.06.2019 Add MCO2 output configuration                             {45}
     27.08.2019 Correct SYSTICK based loop delay that could quit too early with long delays {46}
+    05.09.2019 Add Keil priority mask function                           {47}
+    27.02.2020 Clear FPU flags when jumping to the application to ensure that subsequent exceptions do not initially use FPU stacking {48}
+    28.05.2020 Add fnMaskInterrupt(), fnUnmaskInterrupt(), fnClearPending() and fnIsPending() {49}
 
 */
 
@@ -85,8 +94,11 @@
         extern void __str_enable_interrupt(void);
     #endif
     #if defined _COMPILE_KEIL
+        #if __ARMCC_VERSION>= 6000000                                    // __ARMCC_VERSION = [major:1][minor:1][build:4]
+            #include "arm_compat.h"
+        #endif
         extern void __main(void);                                        // Keil library initialisation routine
-        #define START_CODE __main
+        #define START_CODE _init                                         // {43}
     #elif defined COMPILE_IAR
         extern void __iar_program_start(void);                           // IAR library initialisation routine
         #define START_CODE __iar_program_start
@@ -181,16 +193,25 @@ static void STM32_LowLevelInit(void);
 #if (defined SPI_FILE_SYSTEM || defined SPI_SW_UPLOAD)
     static void fnConfigSPIFileSystem(void);
     #if defined SPI_SW_UPLOAD || (defined SPI_FILE_SYSTEM && defined FLASH_FILE_SYSTEM)
-        #if !defined SPI_FLASH_ST && !defined SPI_FLASH_SST25 && !defined SPI_FLASH_MX66L
+        #if !defined SPI_FLASH_ST && !defined SPI_FLASH_SST25 && !defined SPI_FLASH_W25Q && !defined SPI_FLASH_MX66L && !defined SPI_FLASH_MX25L && !defined SPI_FLASH_S25FL1_K && !defined SPI_FLASH_IS25
             #define SPI_FLASH_ATMEL                                      // default if not otherwise defined
         #endif
         #define _SPI_DEFINES
-            #include "spi_flash_STM32_atmel.h"
-            #include "spi_flash_STM32_stmicro.h"
-            #include "spi_flash_STM32_sst25.h"
-            #include "spi_flash_STM32_MX66L.h"
+            #include "../SPI_Memory/spi_flash_STM32_atmel.h"
+            #include "../SPI_Memory/spi_flash_STM32_stmicro.h"
+            #include "../SPI_Memory/spi_flash_STM32_sst25.h"
+            #include "../SPI_Memory/spi_flash_w25q.h"
+            #include "../SPI_Memory/spi_flash_STM32_MX66L.h"
+            #include "../SPI_Memory/spi_flash_MX25L.h"
+            #include "../SPI_Memory/spi_flash_IS25LP.h"
+            #include "../SPI_Memory/spi_flash_s25fl1-k.h"
         #undef _SPI_DEFINES
     #endif
+#endif
+#if defined SPI_EEPROM_FILE_SYSTEM
+    #define _SPI_EEPROM_DEFINES                                          // {44}
+        #include "../SPI_Memory/spi_eeprom_25AA160.h"
+    #undef _SPI_EEPROM_DEFINES
 #endif
 
 /* =================================================================== */
@@ -198,7 +219,7 @@ static void STM32_LowLevelInit(void);
 /* =================================================================== */
 
 #if defined RANDOM_NUMBER_GENERATOR
-    unsigned short *ptrSeed;
+    unsigned short *ptrSeed = RANDOM_SEED_LOCATION;                      // {42} we put an uninitialised variable on to the stack for use as a random seed
 #endif
 
 static volatile int iInterruptLevel = 0;
@@ -235,11 +256,20 @@ static volatile int iInterruptLevel = 0;
         #define _EXTENDED_CS
     #endif
     #define _SPI_FLASH_INTERFACE                                         // insert manufacturer dependent SPI Flash driver code
-        #include "spi_flash_STM32_atmel.h"
-        #include "spi_flash_STM32_stmicro.h"
-        #include "spi_flash_STM32_sst25.h"
-        #include "spi_flash_STM32_MX66L.h"
+        #include "../SPI_Memory/spi_flash_STM32_atmel.h"
+        #include "../SPI_Memory/spi_flash_STM32_stmicro.h"
+        #include "../SPI_Memory/spi_flash_STM32_sst25.h"
+        #include "../SPI_Memory/spi_flash_w25q.h"
+        #include "../SPI_Memory/spi_flash_STM32_MX66L.h"
+        #include "../SPI_Memory/spi_flash_MX25L.h"
+        #include "../SPI_Memory/spi_flash_IS25LP.h"
+        #include "../SPI_Memory/spi_flash_s25fl1-k.h"
     #undef _SPI_FLASH_INTERFACE
+#endif
+#if defined SPI_EEPROM_FILE_SYSTEM
+    #define _SPI_EEPROM_INTERFACE                                        // {44}
+        #include "../SPI_Memory/spi_eeprom_25AA160.h"
+    #undef _SPI_EEPROM_INTERFACE
 #endif
 
 #if defined CAN_INTERFACE
@@ -286,8 +316,8 @@ typedef void (*tIsrFunc)(void);
         #define HEAP_START_ADDRESS    _keil_ram_size()
         #define __disable_interrupt() __disable_irq()                    // KEIL intrinsics
         #define __enable_interrupt()  __enable_irq()
-      //#define __sleep_mode()                                           //__asm("wfi"); Keil doesn't support inline assembly in Thumb mode so this is defined in the startup assembler file
-        extern void __sleep_mode(void);
+        #define __sleep_mode()        __wfi()
+      //#define uMask_Interrupt(ucMaskLevel)  __set_BASEPRI(ucMaskLevel)
     #else                                                                // disable interrupt in assembler code
         extern unsigned char __heap_end__;
         #if defined ROWLEY_2
@@ -333,9 +363,6 @@ extern int main(void)
 #if defined MULTISTART
     MULTISTART_TABLE *ptrInfo;
     unsigned char *pucHeapStart;
-#endif
-#if defined RANDOM_NUMBER_GENERATOR   
-    ptrSeed = RANDOM_SEED_LOCATION;                                      // we put an uninitialised variable on to the stack for use as a random seed
 #endif
 #if defined COMPILE_IAR
     if (__sfe(".bss") > __sfe(".data")) {                                // set last used SRAM address
@@ -387,6 +414,15 @@ _abort_multi:
 }
 #endif
 
+#if defined _COMPILE_KEIL                                                // {43}
+// Keil demands the use of a __main() call to correctly initialise variables - it then calls main()
+//
+extern void _init(void)
+{
+    STM32_LowLevelInit();                                                // configure watchdog and set the CPU to operating speed
+    __main();                                                            // Keil initialises variables and then calls main()
+}
+#endif
 
 #if defined RANDOM_NUMBER_GENERATOR
 // How the random number seed is set depends on the hardware possibilities available.
@@ -416,7 +452,15 @@ extern void fnRetriggerWatchdog(void)
 //
 extern void uDisable_Interrupt(void)
 {
+#if defined _WINDOWS
+    STM32.CORTEX_M3_REGS.ulPRIMASK = INTERRUPT_MASKED;                   // mark that interrupts are masked
+#else
+    #if defined SYSTEM_NO_DISABLE_LEVEL
+    uMask_Interrupt(SYSTEM_NO_DISABLE_LEVEL << __NVIC_PRIORITY_SHIFT);   // interrupts with higher priorities are not disabled
+    #else
     __disable_interrupt();                                               // disable interrupts to core
+    #endif
+#endif
     iInterruptLevel++;                                                   // monitor the level of disable nesting
 }
 
@@ -425,26 +469,48 @@ extern void uDisable_Interrupt(void)
 extern void uEnable_Interrupt(void)
 {
 #if defined _WINDOWS
-    if (0 == iInterruptLevel) {
-        *(int *)0 = 0;                                                   // basic error - cause simulator exception
+    if (iInterruptLevel == 0) {                                          // it is expected that this routine is only called when interrupts are presently disabled
         // A routine is enabling interrupt although they are presently off. This may not be a serious error but it is unexpected so best check why...
         //
+        _EXCEPTION("Unsymmetrical use of interrupt disable/enable detected!!");
     }
 #endif
     if ((--iInterruptLevel) == 0) {                                      // only when no more interrupt nesting,
+#if defined _WINDOWS
+        extern void fnExecutePendingInterrupts(int iRecursive);
+        STM32.CORTEX_M3_REGS.ulPRIMASK = 0;                              // unmask global interrupts
+    #if defined RUN_IN_FREE_RTOS
+        fnExecutePendingInterrupts(0);                                   // pending interrupts that were blocked by the main task can be executed now
+    #endif
+#else
+    #if defined SYSTEM_NO_DISABLE_LEVEL
+        uMask_Interrupt(LOWEST_PRIORITY_PREEMPT_LEVEL << __NVIC_PRIORITY_SHIFT); // allow all interrupts again
+    #else
         __enable_interrupt();                                            // enable processor interrupts
+    #endif
+#endif
     }
 }
 
 // Routine to change interrupt level mask
 //
-#if !defined _COMPILE_KEIL
+#if defined _COMPILE_KEIL                                                // {47}
+extern void uMask_Interrupt(unsigned char ucMaskLevel) __attribute__((always_inline));
+extern void uMask_Interrupt(unsigned char ucMaskLevel)
+{
+    #if !defined ARM_MATH_CM0PLUS                                         // mask not supported by Cortex-m0+
+    __asm volatile (
+        " msr basepri, ucMaskLevel \n"
+        );
+    #endif
+}
+#else
     #if defined _GNU
         #define DONT_INLINE __attribute__((noinline))
     #else
         #define DONT_INLINE
     #endif
-extern void DONT_INLINE uMask_Interrupt(unsigned char ucMaskLevel) // {102}
+extern void DONT_INLINE uMask_Interrupt(unsigned char ucMaskLevel)        // {102}
 {
     #if !defined ARM_MATH_CM0PLUS                                         // mask not supported by Cortex-m0+
         #if defined _WINDOWS
@@ -520,20 +586,73 @@ extern void fnEnterInterrupt(int iInterruptID, unsigned char ucPriority, void (*
 #endif
 }
 
+extern void fnMaskInterrupt(int iInterruptID)                            // {49}
+{
+#if defined _WINDOWS                                                     // back up the present enabled interrupt registers
+    IRQ0_31_CER = IRQ32_63_CER = IRQ64_95_CER = 0;                       // reset registers
+#endif
+    volatile unsigned long *ptrIntMask = IRQ0_31_CER_ADD;
+    ptrIntMask += (iInterruptID/32);                                     // move to the clear enable register in which this interrupt is controlled
+    *ptrIntMask = (0x01 << (iInterruptID % 32));                         // disable the interrupt
+#if defined _WINDOWS
+    IRQ0_31_SER  &= ~IRQ0_31_CER;                                        // synchronise the interrupt masks
+    IRQ32_63_SER &= ~IRQ32_63_CER;
+    IRQ64_95_SER &= ~IRQ64_95_CER;
+    IRQ0_31_CER   = IRQ0_31_SER;
+    IRQ32_63_CER  = IRQ32_63_SER;
+    IRQ64_95_CER  = IRQ64_95_SER;
+#endif
+}
 
+extern void fnUnmaskInterrupt(int iInterruptID)                          // {49}
+{
+#if defined _WINDOWS                                                     // back up the present enabled interrupt registers
+    unsigned long ulState0 = IRQ0_31_SER;
+    unsigned long ulState1 = IRQ32_63_SER;
+    unsigned long ulState2 = IRQ64_95_SER;
+    IRQ0_31_SER = IRQ32_63_SER = IRQ64_95_SER = IRQ0_31_CER = IRQ32_63_CER = IRQ64_95_CER = 0; // reset registers
+#endif
+    volatile unsigned long *ptrIntSet = IRQ0_31_SER_ADD;
+    ptrIntSet += (iInterruptID / 32);                                    // move to the clear enable register in which this interrupt is controlled
+    *ptrIntSet = (0x01 << (iInterruptID % 32));                          // enable the interrupt
+#if defined _WINDOWS
+    IRQ0_31_SER |= ulState0;                                             // synchronise the interrupt masks
+    IRQ32_63_SER |= ulState1;
+    IRQ64_95_SER |= ulState2;
+    IRQ0_31_CER = IRQ0_31_SER;
+    IRQ32_63_CER = IRQ32_63_SER;
+    IRQ64_95_CER = IRQ64_95_SER;
+#endif
+}
+
+extern void fnClearPending(int iInterruptID)                             // {49}
+{
+    volatile unsigned long *ptrIntClr = IRQ0_31_CPR_ADD;                 // the first clear pending register
+    ptrIntClr += (iInterruptID/32);                                      // move to the clear pending interrupt enable register in which this interrupt is controlled
+    *ptrIntClr = (0x01 << (iInterruptID % 32));                          // clear the pending interrupt
+}
+
+extern int fnIsPending(int iInterruptID)                                 // {49}
+{
+    volatile unsigned long *ptrIntActive = IRQ0_31_CPR_ADD;              // the first clear pending register, which also shows pending interrupts
+    ptrIntActive += (iInterruptID/32);                                   // move to the clear pending interrupt enable register in which this interrupt is controlled
+    return ((*ptrIntActive & (0x01 << (iInterruptID % 32))) != 0);       // return the pending state of this interrupt
+}
+
+
+#if !defined APPLICATION_WITHOUT_TICK
 // TICK interrupt
 //
 static __interrupt void _RealTimeInterrupt(void)
 {
     INT_CONT_STATE_REG = PENDSTCLR;                                      // reset interrupt
-#if defined _WINDOWS
+    #if defined _WINDOWS
     INT_CONT_STATE_REG &= ~(PENDSTSET | PENDSTCLR);
-#endif
+    #endif
     uDisable_Interrupt();                                                // ensure tick handler can not be interrupted
         fnRtmkSystemTick();                                              // operating system tick
     uEnable_Interrupt();
 }
-
 
 // Routine to initialise the Tick interrupt (uses Cortex M3 SysTick timer)
 //
@@ -551,29 +670,29 @@ static __interrupt void _RealTimeInterrupt(void)
 //
 extern void fnStartTick(void)
 {
-#if !defined INTERRUPT_VECTORS_IN_FLASH
+    #if !defined INTERRUPT_VECTORS_IN_FLASH
     VECTOR_TABLE *ptrVect;
-    #if defined _WINDOWS
+        #if defined _WINDOWS
     ptrVect = (VECTOR_TABLE *)((unsigned char *)((unsigned char *)&vector_ram));
-    #else
+        #else
     ptrVect = (VECTOR_TABLE *)(RAM_START_ADDRESS);
-    #endif
+        #endif
     ptrVect->ptrSysTick = _RealTimeInterrupt;                            // enter interrupt handler
-#endif
+    #endif
     SYSTICK_RELOAD = TICK_DIVIDE;                                        // set reload value to determine the period
     SYSTICK_CURRENT = TICK_DIVIDE;                                       // {38}
-    SYSTEM_HANDLER_12_15_PRIORITY_REGISTER |= (unsigned long)(SYSTICK_PRIORITY << (24 + __NVIC_PRIORITY_SHIFT)); // enter the SYSTICK priority
-#if defined SYSTICK_DIVIDE_8
-    SYSTICK_CSR = (SYSTICK_ENABLE | SYSTICK_TICKINT);                    // enable timer and its interrupt (clock form HCLK/8)
-#else
+    SYSTEM_HANDLER_12_15_PRIORITY_REGISTER |= (unsigned long)((unsigned long long)SYSTICK_PRIORITY << (24 + __NVIC_PRIORITY_SHIFT)); // enter the SYSTICK priority
+    #if defined SYSTICK_DIVIDE_8
+    SYSTICK_CSR = (SYSTICK_ENABLE | SYSTICK_TICKINT);                    // enable timer and its interrupt (clock from HCLK/8)
+    #else
     SYSTICK_CSR = (SYSTICK_CORE_CLOCK | SYSTICK_ENABLE | SYSTICK_TICKINT); // enable timer and its interrupt (clock from HCLK)
-#endif
-#if defined _WINDOWS
+    #endif
+    #if defined _WINDOWS
     SYSTICK_RELOAD &= SYSTICK_COUNT_MASK;                                // mask any values which are out of range
     SYSTICK_CURRENT = SYSTICK_RELOAD;                                    // prime the reload count
-#endif
+    #endif
 }
-
+#endif
 
 #if (defined ETH_INTERFACE && defined ETHERNET_AVAILABLE && !defined NO_INTERNAL_ETHERNET)
 /* =================================================================== */
@@ -644,6 +763,18 @@ extern void fnStartTick(void)
         #include "stm32_USB_device.h"                                    // include driver code for USB device
         #undef _USB_DEVICE_DRIVER_CODE
     #endif
+#endif
+
+#if !defined DEVICE_WITHOUT_DMA
+/* =================================================================== */
+/*                                 DMA                                 */
+/* =================================================================== */
+    #define _DMA_SHARED_CODE
+        #include "stm32_DMA.h"                                           // include driver code for peripheral/buffer DMA
+    #undef _DMA_SHARED_CODE
+    #define _DMA_MEM_TO_MEM
+        #include "stm32_DMA.h"                                           // include memory-memory transfer code 
+    #undef _DMA_MEM_TO_MEM
 #endif
 
 #if defined CAN_INTERFACE
@@ -1501,7 +1632,7 @@ extern void fnSetSD_clock(unsigned long ulSpeed)
 
 // Initialise the SD controllers interface with low speed clock during initailiation sequence
 //
-extern void fnInitSDCardInterface(void)
+extern void fnInitSDCardInterface(void (*int_handler)(void))
 {
     POWER_UP(APB2, RCC_APB2ENR_SDIOEN);                                  // power up the SDIO controller
 
@@ -1814,7 +1945,7 @@ static CHAR rtc_stopwatch = -1;
 //
 static __interrupt void _rtc_handler(void)
 {
-#if defined _STM32F2XX || defined _STM32F4XX || defined _STM32F7XX
+#if defined _STM32F2XX || defined _STM32F4XX || defined _STM32F7XX || defined _STM32H7XX
     register unsigned long ulRegister1 = RTC_TR;
     register unsigned long ulRegister2 = RTC_DR;
     #if defined _WINDOWS
@@ -1880,7 +2011,7 @@ static __interrupt void _rtc_handler(void)
 #endif
 }
 
-#if defined _STM32F2XX || defined _STM32F4XX || defined _STM32F7XX
+#if defined _STM32F2XX || defined _STM32F4XX || defined _STM32F7XX || defined _STM32H7XX
 static void fnSetNextSecAlarm(unsigned long ulRegisterValue)
 {
     ulRegisterValue &= (RTC_TR_SU | RTC_TR_ST);
@@ -1901,14 +2032,14 @@ static void fnSetNextSecAlarm(unsigned long ulRegisterValue)
 //
 extern int fnConfigureRTC(void *ptrSettings)
 {
-    #if defined _STM32F2XX || defined _STM32F4XX || defined _STM32F7XX
+    #if defined _STM32F2XX || defined _STM32F4XX || defined _STM32F7XX || defined _STM32H7XX
     register unsigned long ulRegisterValue;
     #endif
     int iIRQ = 0;
     RTC_SETUP *ptr_rtc_setup = (RTC_SETUP *)ptrSettings;
     switch (ptr_rtc_setup->command & ~(RTC_DISABLE | RTC_INITIALISATION)) {
     case RTC_TIME_SETTING:                                               // set time to RTC
-    #if defined _STM32F2XX || defined _STM32F4XX || defined _STM32F7XX
+    #if defined _STM32F2XX || defined _STM32F4XX || defined _STM32F7XX || defined _STM32H7XX
         RTC_WPR = RTC_WPR_KEY1; RTC_WPR = RTC_WPR_KEY2;                  // enable RTC register writes
         RTC_ISR = (RTC_ISR_INIT);                                        // temporarily stop counting
         RTC_CR &= ~(RTC_CR_ALRAE | RTC_CR_ALRAIE);                       // temporarily disable alarm
@@ -1932,7 +2063,7 @@ extern int fnConfigureRTC(void *ptrSettings)
         break;
 
     case RTC_GET_TIME:                                                   // get the present time
-    #if defined _STM32F2XX || defined _STM32F4XX || defined _STM32F7XX
+    #if defined _STM32F2XX || defined _STM32F4XX || defined _STM32F7XX || defined _STM32H7XX
         ulRegisterValue = RTC_TR;                                        // higher order shadow register are locked until read
         ptr_rtc_setup->ucSeconds = (unsigned char)((ulRegisterValue & RTC_TR_SU) + (((ulRegisterValue & RTC_TR_ST) >> 4) * 10));
         ptr_rtc_setup->ucMinutes = (unsigned char)(((ulRegisterValue & RTC_TR_MNU) >> 8) + (((ulRegisterValue & RTC_TR_MNT) >> 12) * 10));
@@ -1954,7 +2085,7 @@ extern int fnConfigureRTC(void *ptrSettings)
         iIRQ++;
     case RTC_ALARM_TIME:                                                 // interrupt at specific date and time
         if (iIRQ == 0) {                                                 // RTC_ALARM_TIME
-    #if defined _STM32F2XX || defined _STM32F4XX || defined _STM32F7XX
+    #if defined _STM32F2XX || defined _STM32F4XX || defined _STM32F7XX || defined _STM32H7XX
             RTC_WPR = RTC_WPR_KEY1; RTC_WPR = RTC_WPR_KEY2;              // enable RTC register writes
             RTC_CR &= ~(RTC_CR_ALRBE | RTC_CR_ALRBIE);                   // ensure that alarm is not enabled
             rtc_interrupts &= ~RTC_ALARM_INT;                            // disable ALARM interrupt
@@ -1974,7 +2105,7 @@ extern int fnConfigureRTC(void *ptrSettings)
             rtc_interrupts &= ~(0x01 << iIRQ);                           // disable interrupt
             return 0;                                                    // disable function rather than enable
         }
-    #if defined _STM32F2XX || defined _STM32F4XX || defined _STM32F7XX
+    #if defined _STM32F2XX || defined _STM32F4XX || defined _STM32F7XX || defined _STM32H7XX
         if (ptr_rtc_setup->command & RTC_INITIALISATION) {
             POWER_UP(APB1, (RCC_APB1ENR_PWREN));                         // ensure that the power control module is enabled
             PWR_CR |= PWR_CR_DBP;                                        // disable backup domain write protection
@@ -2128,133 +2259,6 @@ extern void fnResetBoard(void)
 }
 
 
-#if defined DMA_MEMCPY_SET && !defined DEVICE_WITHOUT_DMA
-#define SMALLEST_DMA_COPY 20                                             // smaller copies have no DMA advantage
-extern void *uMemcpy(void *ptrTo, const void *ptrFrom, size_t Size)
-{
-    void *buffer = ptrTo;
-    unsigned char *ptr1 = (unsigned char *)ptrTo;
-    unsigned char *ptr2 = (unsigned char *)ptrFrom;
-    #if (defined _STM32F2XX || defined _STM32F4XX || defined _STM32F7XX)
-    if ((Size >= SMALLEST_DMA_COPY) && (Size <= 0xffff) && (DMA2_S0CR == 0)) { // {27} if large enough to be worth while and if not already in use
-        unsigned short usTransferSize;
-        while (((unsigned long)ptr1) & 0x3) {                            // move to a long word boundary (the source is not guaranteed to be on a boundary, which can make the lomng word copy less efficient)
-            *ptr1++ = *ptr2++;
-            Size--;
-        }
-        //  DMA2 is used since DMA1 cannot perform memory to memory transfers
-        //
-        DMA2_S1PAR = (unsigned long)ptr2;                                // address of source
-        DMA2_S1M0AR = (unsigned long)ptr1;                               // address of destination
-        if (((unsigned long)ptr2 & 0x3) == 0) {                          // if both source and destination are long word aligned
-            usTransferSize = ((unsigned short)(Size/sizeof(unsigned long))); // the number of long words to transfer by DMA
-            DMA2_S1NDTR = usTransferSize;                                // the number of byte transfers to be made (max. 0xffff)
-            DMA2_S1CR = (DMA_SxCR_PINC | DMA_SxCR_MINC | DMA_SxCR_PSIZE_32 | DMA_SxCR_MSIZE_32 | DMA_SxCR_PL_MEDIUM | DMA_SxCR_DIR_M2M); // set up DMA operation
-            usTransferSize *= sizeof(unsigned long);                     // the number of bytes being transferred by the DMA process
-        }
-        else if (((unsigned long)ptr2 & 0x1) == 0) {                     // if both source and destination are short word aligned
-            usTransferSize = ((unsigned short)(Size/sizeof(unsigned short))); // the number of short words to transfer by DMA
-            DMA2_S1NDTR = usTransferSize;                                // the number of byte transfers to be made (max. 0xffff)
-            DMA2_S1CR = (DMA_SxCR_PINC | DMA_SxCR_MINC | DMA_SxCR_PSIZE_16 | DMA_SxCR_MSIZE_16 | DMA_SxCR_PL_MEDIUM | DMA_SxCR_DIR_M2M); // set up DMA operation
-            usTransferSize *= sizeof(unsigned short);                    // the number of bytes being transferred by the DMA process
-        }
-        else {
-        #if defined _WINDOWS
-            if (Size > 0xffff) {
-                _EXCEPTION("DMA transfer doesn't support more than 64k!!");
-            }
-        #endif
-            usTransferSize = (unsigned short)Size;
-            DMA2_S1NDTR = usTransferSize;                                // the number of byte transfers to be made (max. 0xffff)
-            DMA2_S1CR = (DMA_SxCR_PINC | DMA_SxCR_MINC | DMA_SxCR_PSIZE_8 | DMA_SxCR_MSIZE_8 | DMA_SxCR_PL_MEDIUM | DMA_SxCR_DIR_M2M); // set up DMA operation
-        }
-        DMA2_S1CR |= DMA_SxCR_EN;                                        // start operation
-        ptr1 += usTransferSize;                                          // move the destination pointer to beyond the transfer
-        ptr2 += usTransferSize;                                          // move the source pointer to beyond the transfer
-        Size -= usTransferSize;                                          // bytes remaining
-        while ((DMA2_LISR & DMA_LISR_TCIF1) == 0) { SIM_DMA(0) };        // wait until the transfer has terminated
-        DMA2_LIFCR = (DMA_LISR_TCIF1 | DMA_LISR_HTIF1 | DMA_LISR_DMEIF1 | DMA_LISR_FEIFO1 | DMA_LISR_DMEIF1); // clear flags
-        while (Size-- != 0) {                                            // {29}
-            *ptr1++ = *ptr2++;
-        }
-        #if defined _WINDOWS
-        DMA2_LISR = 0;
-        #endif
-        DMA2_S0CR = 0;                                                   // mark that the DMA stream is free for use again
-    }
-    #else
-    if ((Size >= SMALLEST_DMA_COPY) && (Size <= 0xffff) && (DMA_CNDTR_MEMCPY == 0)) { // if large enough to be worthwhile and if not already in use
-        DMA_CNDTR_MEMCPY = ((unsigned long)(Size));                      // the number of byte transfers to be made (max 0xffff)
-        DMA_CMAR_MEMCPY  = (unsigned long)ptrFrom;                       // address of first byte to be transferred
-        DMA_CPAR_MEMCPY  = (unsigned long)ptrTo;                         // address of first destination byte
-        DMA_CCR_MEMCPY   = (DMA1_CCR1_EN | DMA1_CCR1_PINC | DMA1_CCR1_MINC | DMA1_CCR1_PSIZE_8 | DMA1_CCR1_MSIZE_8 | DMA1_CCR1_PL_MEDIUM | DMA1_CCR1_MEM2MEM | DMA1_CCR1_DIR); // set up DMA operation and start DMA transfer
-        while (DMA_CNDTR_MEMCPY != 0) { SIM_DMA(0) };                    // wait until the transfer has terminated
-        DMA_CCR_MEMCPY = 0;
-    }
-    #endif
-    else {                                                               // normal memcpy method
-        while (Size--) {
-            *ptr1++ = *ptr2++;
-        }
-  }
-    return buffer; 
-}
-
-// memset implementation
-//
-extern void *uMemset(void *ptrTo, int iValue, size_t Size)               // {37}
-{
-    void *buffer = ptrTo;
-    unsigned char ucValue = (unsigned char)iValue;                       // {37}
-    unsigned char *ptr = (unsigned char *)ptrTo;
-    #if (defined _STM32F2XX || defined _STM32F4XX || defined _STM32F7XX)
-    if ((Size >= SMALLEST_DMA_COPY) && (Size <= (0xffff * sizeof(unsigned long))) && (DMA2_S0CR == 0)) { // {27} if large enough to be worth while and if not already in use
-        volatile unsigned long ulToCopy = (ucValue | (ucValue << 8) | (ucValue << 16) | (ucValue << 24));
-        unsigned short usTransferSize;
-        while (((unsigned long)ptr) & 0x3) {                             // move to a long word bounday
-            *ptr++ = ucValue;
-            Size--;
-        }
-        usTransferSize = ((unsigned short)(Size/sizeof(unsigned long))); // the number of long words to transfer by DMA
-        DMA2_S1NDTR = usTransferSize;                                    // the number of long word transfers to be made (max. 0xffff)
-        DMA2_S1PAR = (unsigned long)&ulToCopy;                           // address of long word to be transfered
-        DMA2_S1M0AR = (unsigned long)ptr;                                // address of first destination long word
-        DMA2_S1CR = (DMA_SxCR_MINC | DMA_SxCR_PSIZE_32 | DMA_SxCR_MSIZE_32 | DMA_SxCR_PL_MEDIUM | DMA_SxCR_DIR_M2M); // set up DMA operation
-        DMA2_S1CR |= DMA_SxCR_EN;                                        // start operation
-        usTransferSize *= sizeof(unsigned long);                         // the number of bytes being transferred by the DMA process
-        ptr += usTransferSize;                                           // move the destination pointer to beyond the transfer
-        Size -= usTransferSize;                                          // bytes remaining
-        while (Size--) {
-            *ptr++ = ucValue;
-        }
-        while ((DMA2_LISR & DMA_LISR_TCIF1) == 0) { SIM_DMA(0) };        // wait until the DMA transfer has terminated
-        DMA2_LIFCR = (DMA_LISR_TCIF1 | DMA_LISR_HTIF1 | DMA_LISR_DMEIF1 | DMA_LISR_FEIFO1 | DMA_LISR_DMEIF1); // clear flags
-        #if defined _WINDOWS
-        DMA2_LISR = 0;
-        #endif
-        DMA2_S0CR = 0;                                                   // mark that the DMA stream is free for use again
-    }
-    #else
-    if ((Size >= SMALLEST_DMA_COPY) && (Size <= 0xffff) && (DMA_CNDTR_MEMCPY == 0)) { // if large enought to be worth while and if not already in use
-        volatile unsigned char ucToCopy = ucValue;
-        DMA_CNDTR_MEMCPY = ((unsigned long)(Size));                      // the number of byte transfers to be made (max. 0xffff)
-        DMA_CMAR_MEMCPY  = (unsigned long)&ucToCopy;                     // address of byte to be transfered
-        DMA_CPAR_MEMCPY  = (unsigned long)ptr;                           // address of first destination byte
-        DMA_CCR_MEMCPY   = (DMA1_CCR1_EN | DMA1_CCR1_PINC | DMA1_CCR1_PSIZE_8 | DMA1_CCR1_MSIZE_8 | DMA1_CCR1_PL_MEDIUM | DMA1_CCR1_MEM2MEM | DMA1_CCR1_DIR); // set up DMA operation and start DMA transfer       
-        while (DMA_CNDTR_MEMCPY != 0) { SIM_DMA(0) };                    // wait until the transfer has terminated
-        DMA_CCR_MEMCPY = 0;
-    }
-    #endif
-    else {                                                               // normal memset method
-        while (Size--) {
-            *ptr++ = ucValue;
-        }
-    }
-    return buffer;
-}
-#endif
-
-
 
 // Basic hardware initialisation of specific hardware
 //
@@ -2296,13 +2300,11 @@ INITHW void fnInitHW(void)                                               // perf
         ((ADC12_15_START_VOLTAGE * 0xffff) / ADC_REFERENCE_VOLTAGE),
     #endif
     };
-    #if defined RANDOM_NUMBER_GENERATOR                                  // note that the target works differently
-    static unsigned short usRandomSeed = 0;
-    ptrSeed = &usRandomSeed;
-    #endif
     fnInitialiseDevice((void *)usPortPullups);
 #endif
+#if defined _WINDOWS || !defined _COMPILE_KEIL
     STM32_LowLevelInit();                                                // perform low-level initialisation
+#endif
     INIT_WATCHDOG_LED();                                                 // allow user configuration of a blink LED
     INIT_WATCHDOG_DISABLE();                                             // initialise ready for checking of watchdog diabled
     if (WATCHDOG_DISABLE() == 0) {
@@ -2314,17 +2316,24 @@ INITHW void fnInitHW(void)                                               // perf
 #if defined USB_DEVICE_AVAILABLE && defined USB_INTERFACE && defined _STM32F103X
   //_CONFIG_DRIVE_PORT_OUTPUT_VALUE(A, PORTA_BIT12, (OUTPUT_FAST | OUTPUT_PUSH_PULL), 0); // drive the USBDP pin as port with value '0' to avoid emumeration attempt by host
 #endif
-    fnUserHWInit();                                  _SIM_PORT_CHANGE    // allow the user to initialise hardware specific things
+    fnUserHWInit();                                  _SIM_PORT_CHANGE(-1)// allow the user to initialise hardware specific things
 #if (defined SPI_FILE_SYSTEM || defined SPI_SW_UPLOAD)
     #if defined SPI_SW_UPLOAD || (defined SPI_FILE_SYSTEM && defined FLASH_FILE_SYSTEM)
     fnConfigSPIFileSystem();                                             // configure SPI interface for maximum possible speed
     #define _CHECK_SPI_CHIPS                                             // insert manufacturer dependent code to detect the SPI Flash devices
-        #include "spi_flash_STM32_atmel.h"
-        #include "spi_flash_STM32_stmicro.h"
-        #include "spi_flash_STM32_sst25.h"
-        #include "spi_flash_STM32_MX66L.h"
+        #include "../SPI_Memory/spi_flash_STM32_atmel.h"
+        #include "../SPI_Memory/spi_flash_STM32_stmicro.h"
+        #include "../SPI_Memory/spi_flash_STM32_sst25.h"
+        #include "../SPI_Memory/spi_flash_w25q.h"
+        #include "../SPI_Memory/spi_flash_STM32_MX66L.h"
+        #include "../SPI_Memory/spi_flash_MX25L.h"
+        #include "../SPI_Memory/spi_flash_IS25LP.h"
+        #include "../SPI_Memory/spi_flash_s25fl1-k.h"
     #undef _CHECK_SPI_CHIPS
     #endif
+#endif
+#if defined SPI_EEPROM_FILE_SYSTEM                                       // {44}
+    #include "../SPI_Memory/spi_eeprom_25AA160.h"
 #endif
 #if defined _WINDOWS_
     {
@@ -2392,8 +2401,8 @@ static void irq_default(void)
 // Delay loop for simple but accurate short delays (eg. for stabilisation delays)
 //
 extern void fnDelayLoop(unsigned long ulDelay_us)
-{ 
-#if !defined TICK_USES_LPTMR && !defined TICK_USES_RTC                   // if the SYSTICK is operating we use it as a us timer for best independence of code execution speed and compiler
+{
+#if !defined TICK_USES_LPTMR && !defined TICK_USES_RTC                   // if the SYSTICK is operating we use it as a us timer for best independence of code execution speed and compiler (KL typically +15% longer then requested value between 100us and 10ms)
     #if defined SYSTICK_DIVIDE_8
         #define CORE_US (HCLK/8/1000000)                                 // the number of core clocks in a us
     #else
@@ -2443,7 +2452,7 @@ extern void __init_gnu_data(void)
     unsigned char *ptrData = &__data_start__;
     const unsigned char *ptrFlash = &__data_load_start__;
     unsigned long ulInitDataLength = (&__data_end__ - &__data_start__);
-    while (ulInitDataLength--) {                                         // initialise data
+    while (ulInitDataLength-- != 0) {                                    // initialise data
         *ptrData++ = *ptrFlash++;
     }
 
@@ -2451,14 +2460,14 @@ extern void __init_gnu_data(void)
     ptrFlash = &__text_load_start__;
     if (ptrData != ptrFlash) {
         ulInitDataLength = (&__text_end__ - &__text_start__);
-        while (ulInitDataLength--) {                                     // initialise text
+        while (ulInitDataLength-- != 0) {                                // initialise text
             *ptrData++ = *ptrFlash++;
         }
     }
 
     ptrData = &__bss_start__;
     ulInitDataLength = (&__bss_end__ - &__bss_start__);
-    while (ulInitDataLength--) {                                         // initialise bss
+    while (ulInitDataLength-- != 0) {                                    // initialise bss
         *ptrData++ = 0;
     }
 }
@@ -2471,7 +2480,7 @@ static void STM32_LowLevelInit(void)
 {
 #if !defined INTERRUPT_VECTORS_IN_FLASH
     #if !defined _MINIMUM_IRQ_INITIALISATION
-    void(**processor_ints)(void);
+    void (**processor_ints)(void);
     #endif
     VECTOR_TABLE *ptrVect;
 #endif
@@ -2528,11 +2537,14 @@ static void STM32_LowLevelInit(void)
     ptrVect->ptrSVCall        = irq_default;
     #endif
 #endif
+#if defined STM32_FPU                                                    // {43}
+    CPACR |= (0xf << 20);                                                // enable access to FPU
+#endif
 #if defined DMA_MEMCPY_SET && !defined DEVICE_WITHOUT_DMA                // if uMemcpy()/uMemset() is to use DMA enable the DMA controller used by it
     #if MEMCPY_CHANNEL > 7
-    POWER_UP(AHB1, RCC_AHB1ENR_DMA2EN);
+    POWER_UP(AHB1, RCC_AHB1ENR_DMA2EN);                                  // power up the second DMA controller
     #else
-    POWER_UP(AHB1, RCC_AHB1ENR_DMA1EN);
+    POWER_UP(AHB1, RCC_AHB1ENR_DMA1EN);                                  // power up the first DMA controller
     #endif
 #endif
 #if defined (_GNU)
@@ -2545,6 +2557,28 @@ static void STM32_LowLevelInit(void)
 #endif
 #if defined _WINDOWS
     fnUpdateOperatingDetails();                                          // {33} update operating details to be displayed in the simulator
+#endif
+#if defined MCO2_CONNECTED_TO_HSE                                        // {45} output HSE clock on MCO2 pin (PC9)
+    RCC_CFGR &= ~(RCC_CFGR_MCO2_MASK | RCC_CFGR_MCO2_PRE_MASK);          // ensure the fields are initially masked
+    #define _RCC_CFGR_MCO2SEL_INPUT     RCC_CFGR_MCO2_SEL_HSE
+    #if defined MCO2_DIVIDE
+        #if MCO2_DIVIDE == 1
+    RCC_CFGR |= _RCC_CFGR_MCO2SEL_INPUT;                                 // connect undivided clock to MCO2 output
+        #elif MCO2_DIVIDE == 2
+    RCC_CFGR |= (RCC_CFGR_MCO2PRE_2 | _RCC_CFGR_MCO2SEL_INPUT);          // divide by 2 and connect selected clock to MCO2 output
+        #elif MCO2_DIVIDE == 3
+    RCC_CFGR |= (RCC_CFGR_MCO2PRE_3 | _RCC_CFGR_MCO2SEL_INPUT);          // divide by 3 and connect selected clock to MCO2 output
+        #elif MCO2_DIVIDE == 4
+    RCC_CFGR |= (RCC_CFGR_MCO2PRE_4 | _RCC_CFGR_MCO2SEL_INPUT);          // divide by 4 and connect selected clock to MCO2 output
+        #elif MCO2_DIVIDE == 5
+    RCC_CFGR |= (RCC_CFGR_MCO2PRE_5 | _RCC_CFGR_MCO2SEL_INPUT);          // divide by 5 and connect selected clock to MCO2 output
+        #else
+    #error "Invalid MCO prescale value!"
+        #endif
+    #else
+    RCC_CFGR |= _RCC_CFGR_MCO2SEL_INPUT;                                 // connect undivided selected clock to MCO2 output
+    #endif
+    _CONFIG_PERIPHERAL_OUTPUT(C, (PERIPHERAL_SYS), (PORTC_BIT9), (OUTPUT_MEDIUM | OUTPUT_PUSH_PULL)); // MCO2 on PC9
 #endif
 #if defined MCO_CONNECTED_TO_MSI || defined MCO_CONNECTED_TO_HSI
     #if defined MCO_CONNECTED_TO_MSI
@@ -2605,15 +2639,17 @@ static void _main2(void)
 //
 extern void start_application(unsigned long app_link_location)
 {
-    #if defined ARM_MATH_CM0PLUS || defined ARM_MATH_CM0                 // {67} cortex-m0/cortex-M0+ assembler code
-        #if !defined _WINDOWS
+    #if !defined _WINDOWS
+        #if defined STM32_FPU
+    asm(" mov r1, #0");
+    asm(" msr control, r1");                                             // {48} disable potential FPU access flag so that subsequent exceptions do not save FPU registers
+        #endif
+        #if defined ARM_MATH_CM0PLUS || defined ARM_MATH_CM0             // {67} cortex-m0/cortex-M0+ assembler code
     asm(" ldr r1, [r0,#0]");                                             // get the stack pointer value from the program's reset vector
     asm(" mov sp, r1");                                                  // copy the value to the stack pointer
     asm(" ldr r0, [r0,#4]");                                             // get the program counter value from the program's reset vector
     asm(" blx r0");                                                      // jump to the start address
-        #endif
-    #else                                                                // cortex-M3/M4 assembler code
-        #if !defined _WINDOWS
+        #else                                                            // cortex-M3/M4 assembler code
     asm(" ldr sp, [r0,#0]");                                             // load the stack pointer value from the program's reset vector
     asm(" ldr pc, [r0,#4]");                                             // load the program counter value from the program's reset vector to cause operation to continue from there
         #endif

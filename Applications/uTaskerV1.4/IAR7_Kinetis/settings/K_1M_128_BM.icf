@@ -1,5 +1,5 @@
-/* K_1M_128.icf - for target in Flash, together with boot loader  */
-/* 1M Flash / 128k RAM                                            */
+/* K_1M_128_BM.icf - for target in Flash, together with boot loader */
+/* 1M Flash / 128k RAM                                              */
 
 /*********** adjust to suit boot loader *****************************/
 

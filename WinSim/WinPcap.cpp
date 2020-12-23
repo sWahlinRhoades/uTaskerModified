@@ -11,18 +11,24 @@
     File:      WinPcap.cpp
     Project:   Single Chip Embedded Internet
     ---------------------------------------------------------------------
-    Copyright (C) M.J.Butcher Consulting 2004..2016
+    Copyright (C) M.J.Butcher Consulting 2004..2020
     *********************************************************************
     08.01.2008 Made content conditional on Ethernet interface availability
     16.07.2008 Wait before injecting Ethernet frames if the main task is active {1}
     01.05.2010 Add local define _EXCLUDE_WINDOWS_
+    03.10.2016 Display more adapter details and allow detecting any NIC         {2}
+    10.01.2019 Undefine H and C (used by Luminary projects) in order to not disturb newer build environments {3}
 
 */
 
 #define _EXCLUDE_WINDOWS_
 #include "config.h"
+#define LAN_LED_FLASH_DURATION (50000 / TICK_RESOLUTION)
 
-#if defined ETH_INTERFACE
+#undef H                                                                 // {3}
+#undef C
+
+#if defined ETH_INTERFACE || defined WIFI_INTERFACE
 #include "WinPcap.h"
 #include "WinSim.h"
 #include "WinSimThreads.h"
@@ -32,10 +38,14 @@
 #include <winsock2.h>
 
 
+
+
 #if _VC80_UPGRADE>=0x0600
     #define STRCPY strcpy_s
+    #define STRCAT strcat_s
 #else
     #define STRCPY strcpy
+    #define STRCAT strcat
 #endif
 
 extern "C" int iWinPcapSending = 0;                                      // export flag to stop scheduling when the WinPcap thread is sending data
@@ -56,7 +66,7 @@ extern "C" void fnWinPcapSendPkt(int len, unsigned char * ptr)
 {                                                                        // this is called by WinSim.c
     if (bWinPcapActive == TRUE) {
         iWinPcapSending = 1;
-        iTxActivity = 2;
+        iTxActivity = LAN_LED_FLASH_DURATION;
         pcap_sendpacket(hDev,ptr,len);
         iWinPcapSending = 0;
     }
@@ -84,18 +94,22 @@ static void fnFreeNicList(pcap_if_t *devs)
 //
 extern int fnShowNICs(HWND pulldown)
 {
+    char description[512];
     pcap_if_t *devs = NULL;
     pcap_if_t *d;
     int iNumber;
 
     iNumber = SendMessage(pulldown, CB_INSERTSTRING, 0, (LPARAM)"No Device used for simulation");
-    if ( (devs = fnGetNicList()) == NULL )
+    if ((devs = fnGetNicList()) == NULL)
         return -1;
 
-    for ( d=devs; d; d=d->next ) {
-        if ( d->name ) {
-            if ( d->description ) {
-                 iNumber = SendMessage(pulldown, CB_INSERTSTRING, iNumber+1, (LPARAM)d->description);
+    for (d=devs; d; d=d->next) {
+        if (d->name != 0) {
+            if (d->description != 0) {
+                STRCPY(description, d->description);                     // {2}
+                STRCAT(description, " <-> ");
+                STRCAT(description, d->name);
+                iNumber = SendMessage(pulldown, CB_INSERTSTRING, (iNumber + 1), (LPARAM)description); // {2}
             }
         }
     }
@@ -110,6 +124,7 @@ extern void fnWinPcapSelectLAN(int NIC_nr)
     pcap_if_t *d;
 
     if (NIC_nr < 0) {
+        iSelectedNIC = NIC_nr;                                           // {2}
         return;                                                          // no NIC defined
     }
 
@@ -150,7 +165,7 @@ static void ReadDevice(ThrArgs *hArgs)
     char *ptr[3];
     int res;
 
-    while (1) {
+    while ((int)1 != (int)0) {
         status = WaitForSingleObject(hTermEvent,0);
         if (status == WAIT_OBJECT_0) {
             ResetEvent(hTermEvent);
@@ -186,7 +201,7 @@ static void ReadDevice(ThrArgs *hArgs)
         }
 
         if (ptr[2] != 0) {
-            iRxActivity = 2;
+            iRxActivity = LAN_LED_FLASH_DURATION;
         }
 #endif
     }

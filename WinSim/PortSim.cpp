@@ -11,7 +11,7 @@
     File:      PortSim.cpp
     Project:   Single Chip Embedded Internet
     ---------------------------------------------------------------------
-    Copyright (C) M.J.Butcher Consulting 2004..2016
+    Copyright (C) M.J.Butcher Consulting 2004..2020
     *********************************************************************
     18.07.2008 Parser correction                                         {1}
     19.07.2008 Add UART CTS and break, plus USB frame injection          {2}
@@ -24,6 +24,10 @@
     21.05.2010 Add M520X                                                 {9}
     14.01.2011 Add Kinetis                                               {10}
     18.01.2016 Increase buffer to accept full sizes LAN frames           {11}
+    24.12.2016 Add I2C data injection                                    {12}
+    02.02.2017 Adapt for us tick resolution                              {13}
+    18.02.2019 Add Komodo CAN recording input                            {14}
+    24.08.2020 Add USB0/USB1
 
 */
 
@@ -33,7 +37,7 @@
 #include "io.h"
 #include <sys/stat.h>
 #if _VC80_UPGRADE>=0x0600
-  #include <share.h>
+    #include <share.h>
 #endif
 
 static int iSimActive = 0;
@@ -103,14 +107,75 @@ static int fnNextTimeStamp(int iFile, int iStampType)
     return iReturn;
 }
 
-static int fnGetTime(int iFile)
+static unsigned long fnExtractDec(char **ptr_cCanTime)
+{
+    unsigned long ulValue = 0;
+    while (**ptr_cCanTime != 0) {
+        ulValue *= 10;
+        ulValue += (**ptr_cCanTime - '0');
+        (*ptr_cCanTime)++;
+    }
+    return ulValue;
+}
+
+static int fnExtractCAN_time(char *ptr_cCanTime)                         // {14}
+{
+    unsigned long ulTime;
+    unsigned long ulNewTimeStamp;
+    // Minutes
+    //
+    ulTime = fnExtractDec(&ptr_cCanTime);
+    ulNewTimeStamp = (ulTime * 60 * 1000);
+    ptr_cCanTime++;
+    // Seconds
+    //
+    ulTime = fnExtractDec(&ptr_cCanTime);
+    ulNewTimeStamp += (ulTime * 1000);
+    ptr_cCanTime++;
+    // ms
+    //
+    ulTime = fnExtractDec(&ptr_cCanTime);
+    ulNewTimeStamp += ulTime;
+    ptr_cCanTime++;
+    // us ignored
+    //
+    if (ulNewTimeStamp < ulOldTimeStamp) {
+        ulNewTimeStamp = ulOldTimeStamp;
+        ulTimeDifference = 0;
+    }
+    else {
+        ulTimeDifference = (ulNewTimeStamp - ulOldTimeStamp);
+        ulOldTimeStamp = ulNewTimeStamp;
+    }
+    return 1;
+}
+
+static int fnGetTime(int iFile, int iCAN)
 {
     unsigned char ucCharacter;
     int iComment = 0;
+    int iCanTime = 0;
+    char cCanTime[32] = {0};
 
     while (_read(iFile, &ucCharacter, 1) > 0) {                          // for each character - we assume we are always at a start of a line
         switch (ucCharacter) {
-        case ':':                                                        // absolute timer
+        case '.':
+            if ((iCAN != 0) && (iCanTime != 0)) {
+                cCanTime[iCanTime++] = 0;                                // seconds and milliseconds
+                break;
+            }
+            break;
+        case ',':
+            if ((iCAN != 0) && (iCanTime != 0)) {
+                cCanTime[iCanTime++] = 0;                                // microseconds
+                return (fnExtractCAN_time(cCanTime));
+            }
+            break;
+        case ':':                                                        // absolute time
+            if ((iCAN != 0) && (iCanTime != 0)) {
+                cCanTime[iCanTime++] = 0;                                // minutes
+                break;
+            }
             if (iComment == 0) {
                 return (fnNextTimeStamp(iFile, ABSOLUTE_TIME));
             }
@@ -128,48 +193,58 @@ static int fnGetTime(int iFile)
             iComment = 1;
             break;
         default:                                                         // other characters or while space
+            if (iCAN != 0) {
+                cCanTime[iCanTime++] = ucCharacter;
+            }
             break;
         }
     }
     return 0;                                                            // end of file
 }
 
-
-static unsigned long fnGetTimeDelay(int iFile) 
+// Get the number of Tick intervals to wait for next ms delay
+//
+static unsigned long fnGetTimeDelay(int iFile, int iCAN) 
 {
-    if (fnGetTime(iFile) <= 0) {
+    if (fnGetTime(iFile, iCAN) <= 0) {
         return 0;                                                        // error or complete - quit
     }
-    return ((ulTimeDifference + TICK_RESOLUTION)/TICK_RESOLUTION);       // time to wait in TICK intervals
+    return (((ulTimeDifference * 1000) + (TICK_RESOLUTION))/(TICK_RESOLUTION)); // {13} time to wait in TICK intervals
 }
 
 static int fnEquivalent(char *input, char *command)
 {
-    while (*input) {
+    while (*input != 0) {
         if (*input != *command) {
             if (*input != (*command + ('a' - 'A'))) {                    // accept small/capital mix
-                return 0;
+                return 0;                                                // no match
             }
         }
         input++;
         command++;
     }
-    return 1;
+    return 1;                                                            // successful match
 }
 
 static int fnMatchCommand(unsigned char ucCharacter)
 {
     static char *cCommands[] = {
-        "UART",
-        "SPI",
-        "ETH",
-        "PORT",
-        "CAN",
-        "USB",
-        "CTS",
-        "BREAK",
-        "SUSB",
-        0
+        "UART",                                                          // inject UART data
+        "SPI",                                                           // inject SPI data
+        "ETH",                                                           // inject Ethernet data
+        "PORT",                                                          // inject port input changes
+        "CAN",                                                           // inject CAN data
+        "USB",                                                           // inject USB data
+        "SUSB",                                                          // inject USB setup frames
+        "CTS",                                                           // inject CTS changes
+        "BREAK",                                                         // inject UART breaks
+        "I2C",                                                           // inject I2C data
+        "I2CR",                                                          // inject I2C data followed by a repeated start
+        "USB0",                                                          // inject USB0 data
+        "USB1",                                                          // inject USB1 data
+        "SUSB0",                                                         // inject USB0 setup frames
+        "SUSB1",                                                         // inject USB1 setup frames
+        0                                                                // end of list
     };
     #define SIM_TYPE_UART       1                                        // keep in strict order with string table entries
     #define SIM_TYPE_SPI        2
@@ -177,9 +252,15 @@ static int fnMatchCommand(unsigned char ucCharacter)
     #define SIM_TYPE_PORT       4
     #define SIM_TYPE_CAN        5
     #define SIM_TYPE_USB        6
-    #define SIM_TYPE_UART_CTS   7
-    #define SIM_TYPE_UART_BREAK 8
-    #define SIM_TYPE_USB_SETUP  9
+    #define SIM_TYPE_USB_SETUP  7
+    #define SIM_TYPE_UART_CTS   8
+    #define SIM_TYPE_UART_BREAK 9
+    #define SIM_TYPE_I2C_DATA   10
+    #define SIM_TYPE_I2C_DATA_R 11
+    #define SIM_TYPE_USB0       12                                       // equivalent to SIM_TYPE_USB
+    #define SIM_TYPE_USB1       13
+    #define SIM_TYPE_USB0_SETUP 14                                       // equivalent to SIM_TYPE_USB_SETUP
+    #define SIM_TYPE_USB1_SETUP 15
     
     static char ucMatchInput[31];
     static int iMatchCount = 0;
@@ -193,14 +274,14 @@ static int fnMatchCommand(unsigned char ucCharacter)
             int iType = 1;
             ucMatchInput[iMatchCount] = 0;
             while (*ptrCommands != 0) {
-                if (fnEquivalent(ucMatchInput, *ptrCommands++)) {
+                if (fnEquivalent(ucMatchInput, *ptrCommands++) != 0) {
                     return iType;
                 }
                 iType++;
             }
         }
         else {
-            if (iMatchCount >= sizeof(ucMatchInput)-1) {                 // limit size
+            if (iMatchCount >= (sizeof(ucMatchInput) - 1)) {             // limit size
                 iMatchCount = 0;
             }
             else {
@@ -576,7 +657,7 @@ static void fnGetPortInfo(int iFile, unsigned char ucPortNumber)
             return;
         }
         if (ucPortNumber == 'J') {
-            iPort = _GPIO_J;
+            iPort = _PORTJ;
         }
         else {
             iPort = (ucPortNumber - 'A');
@@ -613,8 +694,8 @@ static void fnExecute(int iFile, int iType)
     unsigned long ulDataValue;
     int iPortNumber = 0;
     unsigned char ucCharacter;
-    _read(iFile, &ucCharacter, 1);                                       // get the port number
-    iPortNumber = ucCharacter - '0';
+    _read(iFile, &ucCharacter, 1);                                       // get the port number (assume 0..9)
+    iPortNumber = (ucCharacter - '0');
 
     if (iType == SIM_TYPE_PORT) {                                        // get port reference and possibly bit
         fnGetPortInfo(iFile, ucCharacter);
@@ -632,7 +713,7 @@ static void fnExecute(int iFile, int iType)
     }
 
     switch (iType) {
-#ifdef SERIAL_INTERFACE
+#if defined SERIAL_INTERFACE
     case SIM_TYPE_UART:
         fnInjectSerial(ucSimBuffer, (unsigned short)ulDataLength, iPortNumber);
         break;
@@ -651,43 +732,150 @@ static void fnExecute(int iFile, int iType)
     case SIM_TYPE_SPI:
         fnInjectSPI(ucSimBuffer, (unsigned short)ulDataLength, iPortNumber);
         break;
-#ifdef ETH_INTERFACE
+#if defined ETH_INTERFACE
     case SIM_TYPE_ETH:
         fnInjectFrame(ucSimBuffer, (unsigned short)(ulDataLength));
         break;
 #endif
-#ifdef CAN_INTERFACE
+#if defined CAN_INTERFACE
     case SIM_TYPE_CAN:
         break;
 #endif
-#ifdef USB_INTERFACE
+#if defined USB_INTERFACE
+    case SIM_TYPE_USB0:
     case SIM_TYPE_USB:
         fnInjectUSB(ucSimBuffer, (unsigned short)ulDataLength, iPortNumber); // {2}
         break;
 
-    case SIM_TYPE_USB_SETUP:                                                 // {3}
+    case SIM_TYPE_USB0_SETUP:
+    case SIM_TYPE_USB_SETUP:                                             // {3}
         fnInjectUSB(ucSimBuffer, (unsigned short)ulDataLength, (iPortNumber + USB_SETUP_FLAG));
+        break;
+
+    case SIM_TYPE_USB1:
+        fnInjectUSB(ucSimBuffer, (unsigned short)ulDataLength, (iPortNumber + USB1_FLAG));
+        break;
+
+    case SIM_TYPE_USB1_SETUP:
+        fnInjectUSB(ucSimBuffer, (unsigned short)ulDataLength, (iPortNumber + USB_SETUP_FLAG + USB1_FLAG));
+        break;
+#endif
+#if defined I2C_INTERFACE                                                // {12}
+    case SIM_TYPE_I2C_DATA_R:
+    case SIM_TYPE_I2C_DATA:
+        fnInjectI2C(ucSimBuffer, (unsigned short)ulDataLength, iPortNumber, (iType == SIM_TYPE_I2C_DATA_R));
         break;
 #endif
     }
 }
 
+static int fnExtractHexPair(unsigned char *ptrHexPair, unsigned char *ucValue)
+{
+    unsigned char ucNibble1 = (*ptrHexPair++ - '0');
+    unsigned char ucNibble2 = (*ptrHexPair - '0');
+    if (ucNibble1 > 9) {
+        ucNibble1 -= ('A' - '9' - 1);
+    }
+    if (*ptrHexPair == 0) {
+        *ucValue = ucNibble1;
+        return 1;
+    }
+    if (ucNibble2 > 9) {
+        ucNibble2 -= ('A' - '9' - 1);
+    }
+    *ucValue = ((ucNibble1 << 4) | ucNibble2);
+    return 0;
+}
+
 
 // Get next command from script file and execute it
 //
-static void fnInjectHardware_change(int iFile)
+static void fnInjectHardware_change(int iFile, int iCANmode)
 {
     unsigned char ucCharacter;
     int iType = 0;
+    int iCanField = 0;
+    int iCanFieldInput = 0;
+    unsigned char ucCAN_field[128] = {0};
+    unsigned long ulCanID = 0;
+    int iRTR = 0;
+    unsigned char ucDLC = 0;
 
     fnMatchCommand(0);                                                   // reset command matching function on entry
 
     while (_read(iFile, &ucCharacter, 1) > 0) {                          // for each character - we assume we are always at a start of a line
         switch (ucCharacter) {
+        case ',':
+            if (iCANmode != 0) {                                         // {14}separator
+                switch (++iCanField) {
+                case 1:                                                  // ID
+                    {
+                        unsigned char ucValue;
+                        if (fnExtractHexPair(&ucCAN_field[2], &ucValue) != 0) {
+                        }
+                        else {
+                            ulCanID = (ucValue << 24);
+                            if (fnExtractHexPair(&ucCAN_field[4], &ucValue) != 0) {
+                                ulCanID >>= 20;                          // standard ID such as 0x3fa
+                                ulCanID |= (ucValue & 0xf);
+                            }
+                            else {
+                                ulCanID |= (ucValue << 16);
+                                if (fnExtractHexPair(&ucCAN_field[6], &ucValue) != 0) {
+                                }
+                                else {
+                                    ulCanID |= (ucValue << 8);
+                                    if (fnExtractHexPair(&ucCAN_field[8], &ucValue) != 0) {
+                                    }
+                                    else {
+                                        ulCanID |= (ucValue);
+                                        ulCanID |= 0x80000000;           // mark that it is an extended address
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    break;
+                case 2:                                                  // RTR
+                    if (ucCAN_field[0] == '1') {
+                        iRTR = 1;
+                    }
+                    break;
+                case 3:                                                  // DLC
+                    if (ucCAN_field[0] != 0) {
+                        ucDLC = (ucCAN_field[0] - '0');
+                    }
+                    break;
+
+                }
+                iCanFieldInput = 0;
+            }
+            break;
         case '\r':
         case '\n':
+            if (iCANmode != 0) {                                         // data
+    #if defined CAN_INTERFACE                                            // {14}
+                if (ucDLC != 0) {
+                    int iDataIndex = 0;
+                    unsigned char *ptrData = ucCAN_field;
+                    int iLen = ucDLC;
+                    while (iLen-- != 0) {
+                        fnExtractHexPair(ptrData, &ucCAN_field[iDataIndex++]);
+                        ptrData += 3;
+                    }
+                    fnInjectCAN(ucCAN_field, ulCanID, iRTR, ucDLC, 0);
+                }
+    #endif
+            }
             return;                                                      // empty line - ignore
         default:                                                         // other characters or while space
+            if (iCANmode != 0) {
+                ucCAN_field[iCanFieldInput++] = ucCharacter;
+                if (iCanFieldInput >= sizeof(ucCAN_field)) {
+                    iCanFieldInput = 0;
+                }
+                break;
+            }
             if ((ucCharacter < '0') && (ucCharacter != '-')) {           // ignore white space
                 break;
             }
@@ -701,12 +889,45 @@ static void fnInjectHardware_change(int iFile)
     return;                                                              // end of file
 }
 
+static int fnDetectCAN_mode(int iFile)
+{
+//  # Total Phase Komodo CAN GUI v1.00
+//  # (c) 2011 Total Phase, Inc.
+//  # www.totalphase.com
+//  #
+//  m:s.ms.us, ID, RTR, DLC, Data
+    const char *ptrMatch = "m:s.ms.us,ID,RTR,DLC,Data";                  // length of 25
+    unsigned char ucCharacter;
+    int iMatch = 0;
+    while (_read(iFile, &ucCharacter, 1) > 0) {
+        switch (ucCharacter) {
+        case '/':
+        case '+':
+        case '-':
+            return 0;
+        default:
+            if (ptrMatch[iMatch] == ucCharacter) {
+                iMatch++;
+                if (iMatch == 25) {
+                    return 1;
+                }
+            }
+            else {
+                iMatch = 0;
+            }
+            break;
+        }
+    }
+    return 0;
+}
+
 // We open a recording and play the data in
 //
 static int fnPlayPortScript(CHAR *file)                                  // {4}
-{
+{   
     static int iFilePort = 0;
     static unsigned long ulNextDelay = 0;
+    static int iCANmode = 0;
 
     if (iFilePort <= 0) {
 #if _VC80_UPGRADE<0x0600
@@ -714,7 +935,10 @@ static int fnPlayPortScript(CHAR *file)                                  // {4}
 #else
         _sopen_s(&iFilePort, file, (_O_RDONLY), _SH_DENYWR, _S_IREAD);   // {4}
 #endif
-
+        iCANmode = fnDetectCAN_mode(iFilePort);
+        if (iCANmode == 0) {
+            _lseek(iFilePort, 0, 0);
+        }
     }
 
     if (iFilePort < 0) {
@@ -723,7 +947,7 @@ static int fnPlayPortScript(CHAR *file)                                  // {4}
 
     if (ulNextDelay != 0) {
         if (--ulNextDelay == 0) {
-            fnInjectHardware_change(iFilePort);                          // do next simulation job
+            fnInjectHardware_change(iFilePort, iCANmode);                // do next simulation job
         }
         else {
             return 1;
@@ -731,12 +955,12 @@ static int fnPlayPortScript(CHAR *file)                                  // {4}
     }
 
     while (ulNextDelay == 0) {
-        ulNextDelay = fnGetTimeDelay(iFilePort);                         // get the next delay interval
+        ulNextDelay = fnGetTimeDelay(iFilePort, iCANmode);               // get the next delay interval
         if (ulNextDelay == 0) {
             break;                                                       // end of file or error
         }
         if (--ulNextDelay == 0) {                                        // immediate input
-            fnInjectHardware_change(iFilePort);                          // do next simulation job
+            fnInjectHardware_change(iFilePort, iCANmode);                // do next simulation job
         }
         else {
             return 1;                                                    // active
@@ -752,14 +976,14 @@ static int fnPlayPortScript(CHAR *file)                                  // {4}
 
 extern void fnDoPortSim(int iStart, CHAR *file)                          // {4}
 {
-    if ((iSimActive == 1) || (iStart)) {
-        if ((iStart) && (iSimActive)) {
+    if ((iSimActive == 1) || (iStart != 0)) {
+        if ((iStart != 0) && (iSimActive != 0)) {
             return;                                                      // ignore start when already active
         }
         iSimActive = fnPlayPortScript(file);                             // {4}
     }
     else {
-        if (iSimActive) {
+        if (iSimActive != 0) {
             iSimActive--;
         }
     }

@@ -9,7 +9,7 @@
 ..\..\..\uTasker\Driver.c
 ..\..\..\uTasker\eth_drv.c
 ..\..\..\uTasker\GlobalTimer.c
-..\..\..\uTasker\iic_drv.c
+..\..\..\uTasker\i2c_drv.c
 ..\..\..\uTasker\low_power.c
 ..\..\..\uTasker\SSC_drv.c
 ..\..\..\uTasker\time_keeper.c

@@ -3032,7 +3032,7 @@
       <name>$PROJ_DIR$\..\..\..\uTasker\GlobalTimer.c</name>
     </file>
     <file>
-      <name>$PROJ_DIR$\..\..\..\uTasker\iic_drv.c</name>
+      <name>$PROJ_DIR$\..\..\..\uTasker\i2c_drv.c</name>
     </file>
     <file>
       <name>$PROJ_DIR$\..\..\..\uTasker\low_power.c</name>

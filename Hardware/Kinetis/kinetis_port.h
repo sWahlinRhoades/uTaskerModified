@@ -11,10 +11,12 @@
     File:      kinetis_port.h (k60)
     Project:   Single Chip Embedded Internet
     ---------------------------------------------------------------------
-    Copyright (C) M.J.Butcher Consulting 2004..2016
+    Copyright (C) M.J.Butcher Consulting 2004..2018
     *********************************************************************
     27.10.2012 Reworked with new style and dedicated port strings, 121 pin completed
     21.04.2012 Added new K60 pin functions                               {1}
+    17.11.2016 Add SPI1_SCK to K64 144 pin on PTD5                       {2}
+    22.08.2017 Add ULPI interface to >= 120MHz K60                       {3}
 
 */
 
@@ -303,7 +305,7 @@ static CHAR *cDedicated[PORT_WIDTH] = {                                  // dedi
     "ADC0_DP1",
     "ADC0_DM1",
     "ADC1_DP1",
-    "ADC1_DM1"
+    "ADC1_DM1",
     "ADC0_DP0/ADC1_DP3",
     "ADC0_DM0/ADC1_DM3",
     "ADC1_DP0/ADC0_DP3",
@@ -345,9 +347,45 @@ static CHAR *cDedicated[PORT_WIDTH] = {                                  // dedi
 
 // Table not yet complete
 //
-static int ADC_DEDICATED_CHANNEL[PORT_WIDTH] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, ADC_SE16_SINGLE, 0, 0, 0, 0, ADC_DM1_SINGLE, ADC_DP1_SINGLE, ADC_DM1_SINGLE, ADC_DP1_SINGLE};
-static int ADC_DEDICATED_MODULE[PORT_WIDTH]  = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 2, 2, 1, 1}; // ADC0 is named 1, ADC1 is named 2 etc.
-static int ADC_MUX_CHANNEL[PORTS_AVAILABLE][PORT_WIDTH] = {0};           // not yet controlled
+#if defined KINETIS_K64
+    static int ADC_DEDICATED_CHANNEL[PORT_WIDTH] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, ADC_SE23_SINGLE, ADC_SE23_SINGLE, ADC_SE18_SINGLE, ADC_SE16_SINGLE, ADC_SE16_SINGLE, ADC_SE23_SINGLE, 0, 0, 0, ADC_DM0_SINGLE, ADC_DP0_SINGLE, ADC_DM0_SINGLE, ADC_DP0_SINGLE, ADC_DM1_SINGLE, ADC_DP1_SINGLE, ADC_DM1_SINGLE, ADC_DP1_SINGLE, 0, 0, 0, 0, 0};
+    static int ADC_DEDICATED_MODULE[PORT_WIDTH]  = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2,               1,               2,               1,               2,               1,               0, 0, 0, 2,              2,              1,              1,              2,              2,              1,              1,              0, 0, 0, 0, 0}; // ADC0 is named 1, ADC1 is named 2 etc.
+    static int ADC_MUX_CHANNEL[PORTS_AVAILABLE][PORT_WIDTH] = {
+        { -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1 }, // port A
+        { -1,-1,ADC_SE12_SINGLE,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1 }, // port B
+    #if PORTS_AVAILABLE > 2
+        { -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1 }, // port C
+    #endif
+    #if PORTS_AVAILABLE > 3
+        { -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1 }, // port D
+    #endif
+    #if PORTS_AVAILABLE > 4
+        { -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1 }, // port E
+    #endif
+    #if PORTS_AVAILABLE > 5
+        { -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1 }, // port F
+    #endif
+    };
+#else
+    static int ADC_DEDICATED_CHANNEL[PORT_WIDTH] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, ADC_SE16_SINGLE, 0, 0, 0, 0, ADC_DM1_SINGLE, ADC_DP1_SINGLE, ADC_DM1_SINGLE, ADC_DP1_SINGLE};
+    static int ADC_DEDICATED_MODULE[PORT_WIDTH]  = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 2, 2, 1, 1}; // ADC0 is named 1, ADC1 is named 2 etc.
+    static int ADC_MUX_CHANNEL[PORTS_AVAILABLE][PORT_WIDTH] = {
+        { -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1 }, // port A
+        { -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1 }, // port B
+    #if PORTS_AVAILABLE > 2
+        { -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1 }, // port C
+    #endif
+    #if PORTS_AVAILABLE > 3
+        { -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1 }, // port D
+    #endif
+    #if PORTS_AVAILABLE > 4
+        { -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1 }, // port E
+    #endif
+    #if PORTS_AVAILABLE > 5
+        { -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1 }, // port F
+    #endif
+    };
+#endif
 
 
 #if _PIN_COUNT == 0
@@ -411,12 +449,12 @@ static const char *cPer[PORTS_AVAILABLE][PORT_WIDTH][8] = {              // 100 
         // ALT 0           ALT 1    ALT2         ALT 3         ALT 4          ALT 5        ALT 6       ALT 7
     #if defined KINETIS_K64
         {  "ADC0_SE8/ADC1_SE8","PTB0/LLWU_P5","I2C0_SCL","FTM1_CH0","MII_MDIO","-",        "FTM1_QD_PHA", "-"              }, // PORT B
-        {  "ADC0_SE9/ADC1_SE9","PTB1","I2C0_SDA","FTM1_CH1",   "MII_MCD",     "-",         "FTM1_QD_PHB", "-"              },
+        {  "ADC0_SE9/ADC1_SE9","PTB1","I2C0_SDA","FTM1_CH1",   "MII_MDC",     "-",         "FTM1_QD_PHB", "-"              },
         {  "ADC0_SE12",   "PTB2","I2C0_SCL","UART0_RTS_b","ENET_1588_TMR0",   "-",         "FTM0_FLT3","-"                 },
         {  "ADC0_SE13",   "PTB3","I2C0_SDA","UART0_CTS_b/UART0_COL_b","ENET_1588_TMR1","-","FTM0_FLT0","-"                 },
     #else
         {  "ADC0_SE8/TSI0_CH1","PTB0/LLWU_P5","I2C0_SCL","FTM1_CH0","MII_MDIO","-",        "FTM1_QD_PHA", "-"              }, // PORT B {1}
-        {  "ADC0_SE9/TSI0_CH6","PTB1","I2C0_SDA","FTM1_CH1",   "MII_MCD",     "-",         "FTM1_QD_PHB", "-"              },
+        {  "ADC0_SE9/TSI0_CH6","PTB1","I2C0_SDA","FTM1_CH1",   "MII_MDC",     "-",         "FTM1_QD_PHB", "-"              },
         {  "ADC0_SE12/TSI0_CH7","PTB2","I2C0_SCL","UART0_RTS", "ENET_1588_TMR0","-",       "FTM0_FLT3","-"                 },
         {  "ADC0_SE13/TSI0_CH8","PTB3","I2C0_SDA","UART0_CTS", "ENET_1588_TMR1","-",       "FTM0_FLT0","-"                 },
     #endif
@@ -617,7 +655,7 @@ static const char *cPer[PORTS_AVAILABLE][PORT_WIDTH][8] = {              // 121 
         // ALT 0           ALT 1    ALT2         ALT 3         ALT 4          ALT 5        ALT 6       ALT 7
         {  "TSI0_CH1",     "PTA0",  "UART0_CTS_b","FTM0_CH5",  "-",           "-",         "-",        "JTAG_TCLK/SWD_CLK" }, // PORT A
         {  "TSI0_CH2",     "PTA1",  "UART0_RX",  "FTM0_CH6",   "-",           "-",         "-",        "JTAG_TDI"          },
-        {  "TSI0_CH3",     "PTA2",  "UART0_TX",  "FTM0_CH7",   "-",           "-",         "-",        "JTAG_TDI/TRACE_SWO"},
+        {  "TSI0_CH3",     "PTA2",  "UART0_TX",  "FTM0_CH7",   "-",           "-",         "-",        "JTAG_TDO/TRACE_SWO"},
         {  "TSI0_CH4",     "PTA3",  "UART0_RTS_b","FTM0_CH0",  "-",           "-",         "-",        "JTAG_TMS/SWD_DIO"  },
         {  "TSI0_CH5",     "PTA4",  "-",         "FTM0_CH1",   "-",           "-",         "-",        "NMI_b"             },
         {  "-",            "PTA5",  "-",         "FTM0_CH2",   "MII_RXER",    "CMP2_OUT",  "I2S0_RX_BCLK","JTAG_TRST"      },
@@ -651,7 +689,7 @@ static const char *cPer[PORTS_AVAILABLE][PORT_WIDTH][8] = {              // 121 
     {
         // ALT 0           ALT 1    ALT2         ALT 3         ALT 4          ALT 5        ALT 6       ALT 7
         {  "ADC0_SE8/TSI0_CH1","PTB0/LLWU_P5","I2C0_SCL","FTM1_CH0","MII_MDIO","-",        "FTM1_QD_PHA", "-"              }, // PORT B {1}
-        {  "ADC0_SE9/TSI0_CH6","PTB1","I2C0_SDA","FTM1_CH1",   "MII_MCD",     "-",         "FTM1_QD_PHB", "-"              },
+        {  "ADC0_SE9/TSI0_CH6","PTB1","I2C0_SDA","FTM1_CH1",   "MII_MDC",     "-",         "FTM1_QD_PHB", "-"              },
         {  "ADC0_SE12/TSI0_CH7","PTB2","I2C0_SCL","UART0_RTS_b","ENET_1588_TMR0","-",      "FTM0_FLT3","-"                 },
         {  "ADC0_SE13/TSI0_CH8","PTB3","I2C0_SDA","UART0_CTS_b","ENET_1588_TMR1","-",      "FTM0_FLT0","-"                 },
         {  "-",            "-",     "-",         "-",          "-",           "-",         "-",        "-"                 },
@@ -796,7 +834,7 @@ static const char *cPer[PORTS_AVAILABLE][PORT_WIDTH][8] = {              // 144 
     #if defined KINETIS_K64
         {  "-",            "PTA0",  "UART0_CTS_b/UART0_COL_b", "FTM0_CH5","-","-",         "-",        "JTAG_TCLK/SWD_CLK" }, // PORT A
         {  "-",            "PTA1",  "UART0_RX",  "FTM0_CH6",   "-",           "-",         "-",        "JTAG_TDI"          },
-        {  "-",            "PTA2",  "UART0_TX",  "FTM0_CH7",   "-",           "-",         "-",        "JTAG_TDI/TRACE_SWO"},
+        {  "-",            "PTA2",  "UART0_TX",  "FTM0_CH7",   "-",           "-",         "-",        "JTAG_TDO/TRACE_SWO"},
         {  "-",            "PTA3",  "UART0_RTS_b","FTM0_CH0",  "-",           "-",         "-",        "JTAG_TMS/SWD_DIO"  },
         {  "-",            "PTA4/LLWU_P3", "-",  "FTM0_CH1",   "-",           "-",         "-",        "NMI_b"             },
         {  "-",            "PTA5",  "USB_CLKIN", "FTM0_CH2",   "MII_RXER",    "CMP2_OUT",  "I2S0_RX_BCLK","JTAG_TRST"      },
@@ -817,16 +855,25 @@ static const char *cPer[PORTS_AVAILABLE][PORT_WIDTH][8] = {              // 144 
     #else
         {  "TSI0_CH1",     "PTA0",  "UART0_CTS", "FTM0_CH5",   "-",           "-",         "-",        "JTAG_TCLK/SWD_CLK" }, // PORT A
         {  "TSI0_CH2",     "PTA1",  "UART0_RX",  "FTM0_CH6",   "-",           "-",         "-",        "JTAG_TDI"          },
-        {  "TSI0_CH3",     "PTA2",  "UART0_TX",  "FTM0_CH7",   "-",           "-",         "-",        "JTAG_TDI/TRACE_SWO"},
+        {  "TSI0_CH3",     "PTA2",  "UART0_TX",  "FTM0_CH7",   "-",           "-",         "-",        "JTAG_TDO/TRACE_SWO"},
         {  "TSI0_CH4",     "PTA3",  "UART0_RTS", "FTM0_CH0",   "-",           "-",         "-",        "JTAG_TMS/SWD_DIO"  },
         {  "TSI0_CH5",     "PTA4",  "-",         "FTM0_CH1",   "-",           "-",         "-",        "NMI"               },
         {  "-",            "PTA5",  "-",         "FTM0_CH2",   "MII_RXER",    "CMP2_OUT",  "I2S0_RX_BCLK","JTAG_TRST"      },
+        #if KINETIS_MAX_SPEED >= 120000000                               // {3}
+        {  "ADC3_SE6a",    "PTA6",  "ULPI_CLK",  "FTM0_CH3",   "I2S1_RXD0",   "-",         "-",        "TRACE_CLKOUT" },
+        {  "ADC0_SE10",    "PTA7",  "ULPI_DIR",  "FTM0_CH4",   "I2S1_RX_BCLK","-",         "-",        "TRACE_D3" },
+        {  "ADC0_SE11",    "PTA8",  "ULPI_NXP",  "FTM1_CH0",   "I2S1_RX_FS",  "-",         "FTM1_QD_PHA","TRACE_D2" },
+        {  "ADC3_SE5a",    "PTA9",  "ULPI_STP",  "FTM1_CH1",   "MII_RXD3",    "-",         "FTM1_QD_PHB","TRACE_D1" },
+        {  "ADC3_SE4a",    "PTA10", "ULPI_DATA0","FTM2_CH0",   "MII_RXD2",    "-",         "FTM2_QD_PHA","TRACE_D0" },
+        {  "ADC3_SE15",    "PTA11", "ULPI_DATA1","FTM2_CH1",   "MII_RXCLK",   "-",         "FTM2_QD_PHB","-" },
+        #else
         {  "-",            "PTA6",  "-",         "FTM0_CH3",   "-",           "-",         "-",        "TRACE_CLKOUT"      },
         {  "ADC0_SE10",    "PTA7",  "-",         "FTM0_CH4",   "-",           "-",         "-",        "TRACE_D3"          },
         {  "ADC0_SE11",    "PTA8",  "-",         "FTM1_CH0",   "-",           "-",         "FTM1_QD_PHA","TRACE_D2"        },
         {  "-",            "PTA9",  "-",         "FTM1_CH1",   "MII_RXD3",    "-",         "FTM1_QD_PHB","TRACE_D1"        },
         {  "-",            "PTA10", "-",         "FTM2_CH0",   "MII_RXD2",    "-",         "FTM2_QD_PHA","TRACE_D0"        },
         {  "-",            "PTA11", "-",         "FTM2_CH1",   "MII_RXCLK",   "-",         "FTM2_QD_PHB","-"               },
+        #endif
         {  "CMP2_IN0",     "PTA12", "CAN0_TX",   "FTM1_CH0",   "MII_RXD1",    "-",         "I2S0_TXD", "FTM1_QD_PHA"       },
         {  "CMP2_IN1",     "PTA13/LLWU_P4","CAN0_RX","FTM1_CH1","MII_RXD0",   "-",         "I2S0_TX_FS","FTM1_QD_PHB"      }, // {1}
         {  "-",            "PTA14", "SPI0_PCS0", "UART0_TX",   "MII_CRS_DV",  "-",         "I2S0_RX_BCLK","-"              },
@@ -840,12 +887,21 @@ static const char *cPer[PORTS_AVAILABLE][PORT_WIDTH][8] = {              // 144 
         {  "-",            "-",     "-",         "-",          "-",           "-",         "-",        "-"                 },
         {  "-",            "-",     "-",         "-",          "-",           "-",         "-",        "-"                 },
         {  "-",            "-",     "-",         "-",          "-",           "-",         "-",        "-"                 },
+    #if !defined KINETIS_K64 && KINETIS_MAX_SPEED >= 120000000           // {3}
+        {  "CMP3_IN4",     "PTA24", "ULPI_DATA2","-",          "MII_TXD2",    "-",         "FB_A29",   "-"                 },
+        {  "CMP3_IN5",     "PTA25", "ULPI_DATA3","-",          "MII_TXCLK",   "-",         "FB_A28",   "-"                 },
+        {  "ADC2_SE15",    "PTA26", "ULPI_DATA4","-",          "MII_TXD3",    "-",         "FB_A27",   "-"                 },                
+        {  "ADC2_SE14",    "PTA27", "ULPI_DATA5","-",          "MII_CRS",     "-",         "FB_A26",   "-"                 },
+        {  "ADC2_SE13",    "PTA28", "ULPI_DATA6","-",          "MII_TXER",    "-",         "FB_A25",   "-"                 },
+        {  "ADC2_SE12",    "PTA29", "ULPI_DATA7","-",          "MII_COL",     "-",         "FB_A24",   "-"                 },
+    #else
         {  "-",            "PTA24", "-",         "-",          "MII_TXD2",    "-",         "FB_A29",   "-"                 },
         {  "-",            "PTA25", "-",         "-",          "MII_TXCLK",   "-",         "FB_A28",   "-"                 },
         {  "-",            "PTA26", "-",         "-",          "MII_TXD3",    "-",         "FB_A27",   "-"                 },                
         {  "-",            "PTA27", "-",         "-",          "MII_CRS",     "-",         "FB_A26",   "-"                 },
         {  "-",            "PTA28", "-",         "-",          "MII_TXER",    "-",         "FB_A25",   "-"                 },
         {  "-",            "PTA29", "-",         "-",          "MII_COL",     "-",         "FB_A24",   "-"                 },
+    #endif
         {  "-",            "-",     "-",         "-",          "-",           "-",         "-",        "-"                 },
         {  "-",            "-",     "-",         "-",          "-",           "-",         "-",        "-"                 }
     },
@@ -853,7 +909,7 @@ static const char *cPer[PORTS_AVAILABLE][PORT_WIDTH][8] = {              // 144 
         // ALT 0           ALT 1    ALT2         ALT 3         ALT 4          ALT 5        ALT 6       ALT 7
     #if defined KINETIS_K64
         {  "ADC0_SE8/ADC1_SE8","PTB0/LLWU_P5","I2C0_SCL","FTM1_CH0","MII_MDIO","-",        "FTM1_QD_PHA", "-"              }, // PORT B {1}
-        {  "ADC0_SE9/ADC1_SE9","PTB1","I2C0_SDA","FTM1_CH1",   "MII_MCD",     "-",         "FTM1_QD_PHB", "-"              },
+        {  "ADC0_SE9/ADC1_SE9","PTB1","I2C0_SDA","FTM1_CH1",   "MII_MDC",     "-",         "FTM1_QD_PHB", "-"              },
         {  "ADC0_SE12",    "PTB2","I2C0_SCL","UART0_RTS_b",    "ENET_1588_TMR0","-",       "FTM0_FLT3","-"                 },
         {  "ADC0_SE13",    "PTB3","I2C0_SDA","UART0_CTS_b/UART0_COL_b","ENET_1588_TMR1","-","FTM0_FLT0","-"                },
         {  "ADC1_SE10",    "PTB4",  "-",         "-",          "ENET_1588_TMR2","-",       "FTM1_FLT0","-"                 },
@@ -878,7 +934,7 @@ static const char *cPer[PORTS_AVAILABLE][PORT_WIDTH][8] = {              // 144 
         {  "-",            "PTB23", "SPI2_SIN",  "SPI0_PCS5",  "-",           "FB_AD28",   "-",        "-"                 },
     #else
         {  "ADC0_SE8/TSI0_CH1","PTB0/LLWU_P5","I2C0_SCL","FTM1_CH0","MII_MDIO","-",        "FTM1_QD_PHA", "-"              }, // PORT B {1}
-        {  "ADC0_SE9/TSI0_CH6","PTB1","I2C0_SDA","FTM1_CH1",   "MII_MCD",     "-",         "FTM1_QD_PHB", "-"              },
+        {  "ADC0_SE9/TSI0_CH6","PTB1","I2C0_SDA","FTM1_CH1",   "MII_MDC",     "-",         "FTM1_QD_PHB", "-"              },
         {  "ADC0_SE12/TSI0_CH7","PTB2","I2C0_SCL","UART0_RTS", "ENET_1588_TMR0","-",       "FTM0_FLT3","-"                 },
         {  "ADC0_SE13/TSI0_CH8","PTB3","I2C0_SDA","UART0_CTS", "ENET_1588_TMR1","-",       "FTM0_FLT0","-"                 },
         {  "ADC1_SE10",    "PTB4",  "-",         "-",          "ENET_1588_TMR2","-",       "FTM1_FLT0","-"                 },
@@ -977,7 +1033,7 @@ static const char *cPer[PORTS_AVAILABLE][PORT_WIDTH][8] = {              // 144 
         {  "-",            "PTD2/LLWU_P13","SPI0_SOUT","UART2_RX","FTM3_CH2", "FB_AD4",    "-",        "I2C0_SCL"          },
         {  "-",            "PTD3",  "SPI0_SIN",  "UART2_TX",   "FTM3_CH3",    "FB_AD3",    "-",        "I2C0_SDA"          },
         {  "-",            "PTD4/LLWU_P14","SPI0_PCS1","UART0_RTS_b","FTM0_CH4","FB_AD2",  "EWM_IN",   "SPI1_PCS0"         },
-        {  "ADC0_SE6b",    "PTD5",  "SPI0_PCS2", "UART0_CTS_b/UART0_COL_b","FTM0_CH5","FB_AD1","EWM_OUT_b","-"             },
+        {  "ADC0_SE6b",    "PTD5",  "SPI0_PCS2", "UART0_CTS_b/UART0_COL_b","FTM0_CH5","FB_AD1","EWM_OUT_b","SPI1_SCK"      }, // {2}
         {  "ADC0_SE7b",    "PTD6/LLWU_P15","SPI0_PCS3","UART0_RX","FTM0_CH6", "FB_AD0",    "FTM0_FLT0","SPI1_SOUT"         },
         {  "-",            "PTD7",  "CMT_IRO",   "UART0_TX",   "FTM0_CH7",    "-",         "FTM0_FLT1","SPI1_IN"           },
         {  "-",            "PTD8",  "I2C0_SCL",  "UART5_RX",   "-",           "-",         "FB_A16",   "-"                 },

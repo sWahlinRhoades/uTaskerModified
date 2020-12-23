@@ -8,10 +8,10 @@
     www.uTasker.com    Skype: M_J_Butcher
 
     ---------------------------------------------------------------------
-    File:        igmp.c
-    Project:     Single Chip Embedded Internet
+    File:      igmp.c
+    Project:   Single Chip Embedded Internet
     ---------------------------------------------------------------------
-    Copyright (C) M.J.Butcher Consulting 2004..2016
+    Copyright (C) M.J.Butcher Consulting 2004..2018
     *********************************************************************
     04.02.2016 Correct interface mask when there are multiple interfaces available {1}
 
@@ -75,7 +75,7 @@ extern void fnIgmp(TTASKTABLE *ptrTaskTable)
     IGMP_HOST *ptrIGMP_host;
     unsigned char ucInputMessage[SMALL_MESSAGE];                         // reserve space for receiving messages
 
-    while (fnRead(PortIDInternal, ucInputMessage, HEADER_LENGTH)) {      // check input queue
+    while (fnRead(PortIDInternal, ucInputMessage, HEADER_LENGTH)) {      // check task input queue
         switch (ucInputMessage[MSG_SOURCE_TASK]) {
             case TIMER_EVENT:
     #if (defined USE_IGMP_V2 || defined USE_IGMP_V3)
@@ -185,7 +185,7 @@ static void fnSendIGMP_report_delayed(int iHostGroupID, unsigned char ucMaxDelay
     #endif
     if (ptrIGMP_host->report_delay != 0) {                               // if a report is already queued we generally leave it to timeout and be sent
     #if defined USE_IGMP_V2 && !defined USE_IGMP_V3
-        if (ptrIGMP_host->report_delay <= (ucMaxDelay * SEC)) {          // if the existing delay is greater than the maximum specified delay
+        if (ptrIGMP_host->report_delay <= (DELAY_LIMIT)(ucMaxDelay * SEC)) { // if the existing delay is greater than the maximum specified delay
             return;
         }
     #else

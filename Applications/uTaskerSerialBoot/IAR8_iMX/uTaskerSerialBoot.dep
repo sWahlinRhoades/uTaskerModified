@@ -1,0 +1,1594 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project>
+    <fileVersion>4</fileVersion>
+    <fileChecksum>1217589325</fileChecksum>
+    <configuration>
+        <name>FallBackLoader</name>
+        <outputs>
+            <file>$PROJ_DIR$\..\..\..\stack\tcp.c</file>
+            <file>$PROJ_DIR$\..\TaskConfig.h</file>
+            <file>$PROJ_DIR$\..\..\..\uTasker\USB_drv.c</file>
+            <file>$PROJ_DIR$\..\types.h</file>
+            <file>$PROJ_DIR$\..\..\..\uTasker\i2c_drv.c</file>
+            <file>$PROJ_DIR$\..\..\..\uTasker\uTasker.c</file>
+            <file>$PROJ_DIR$\..\..\..\stack\icmp.c</file>
+            <file>$PROJ_DIR$\..\..\..\stack\ip_utils.c</file>
+            <file>$PROJ_DIR$\..\..\..\uTasker\utFAT\mass_storage.c</file>
+            <file>$PROJ_DIR$\..\..\..\stack\Ethernet.c</file>
+            <file>$PROJ_DIR$\..\..\..\stack\webutils.c</file>
+            <file>$PROJ_DIR$\..\..\..\uTasker\uGLCDLIB\GLCD.c</file>
+            <file>$PROJ_DIR$\..\..\..\uTasker\crypto.c</file>
+            <file>$PROJ_DIR$\..\..\..\uTasker\uFile.c</file>
+            <file>$PROJ_DIR$\..\..\..\stack\arp.c</file>
+            <file>$PROJ_DIR$\..\..\..\stack\ip.c</file>
+            <file>$PROJ_DIR$\..\..\..\uTasker\Watchdog.c</file>
+            <file>$PROJ_DIR$\..\..\..\uTasker\Tty_drv.c</file>
+            <file>$PROJ_DIR$\..\..\..\uTasker\Driver.c</file>
+            <file>$PROJ_DIR$\..\..\..\uTasker\uMalloc.c</file>
+            <file>$PROJ_DIR$\..\disk_loader.c</file>
+            <file>$PROJ_DIR$\..\..\..\Hardware\iMX\iMX.c</file>
+            <file>$PROJ_DIR$\..\..\..\stack\SSL\mbedtls-1.3.10\aes_mbedTLS.c</file>
+            <file>$PROJ_DIR$\..\..\..\uTasker\eth_drv.c</file>
+            <file>$PROJ_DIR$\..\..\..\stack\http.c</file>
+            <file>$PROJ_DIR$\..\app_hw_kinetis.h</file>
+            <file>$PROJ_DIR$\..\config.h</file>
+            <file>$PROJ_DIR$\..\Loader.h</file>
+            <file>$PROJ_DIR$\..\serial_loader.c</file>
+            <file>$PROJ_DIR$\FallBackLoader\Obj\Driver.xcl</file>
+            <file>$PROJ_DIR$\FallBackLoader\Obj\Driver.o</file>
+            <file>$PROJ_DIR$\FallBackLoader\Obj\serial_loader.__cstat.et</file>
+            <file>$PROJ_DIR$\..\..\..\Hardware\SPI_Memory\spi_flash_interface.h</file>
+            <file>$PROJ_DIR$\FallBackLoader\Obj\ip_utils.__cstat.et</file>
+            <file>$PROJ_DIR$\FallBackLoader\Obj\GLCD.o</file>
+            <file>$TOOLKIT_DIR$\inc\c\iccarm_builtin.h</file>
+            <file>$TOOLKIT_DIR$\inc\c\intrinsics.h</file>
+            <file>$PROJ_DIR$\..\..\..\Hardware\SPI_Memory\spi_flash_AT25SF.h</file>
+            <file>$PROJ_DIR$\..\..\..\Hardware\Kinetis\kinetis_USB_HS_OTG.h</file>
+            <file>$TOOLKIT_DIR$\inc\c\DLib_Product.h</file>
+            <file>$TOOLKIT_DIR$\inc\c\iar_intrinsics_common.h</file>
+            <file>$TOOLKIT_DIR$\inc\c\string.h</file>
+            <file>$PROJ_DIR$\..\..\..\uTasker\driver.h</file>
+            <file>$TOOLKIT_DIR$\inc\c\ycheck.h</file>
+            <file>$TOOLKIT_DIR$\inc\c\stdint.h</file>
+            <file>$PROJ_DIR$\..\..\..\Hardware\packages.h</file>
+            <file>$PROJ_DIR$\..\app_hw_iMX.h</file>
+            <file>$PROJ_DIR$\..\..\..\Hardware\Kinetis\kinetis_PIT.h</file>
+            <file>$PROJ_DIR$\FallBackLoader\Obj\uTaskerBootLoader.xcl</file>
+            <file>$PROJ_DIR$\..\..\..\Hardware\SPI_Memory\spi_flash_IS25LP.h</file>
+            <file>$PROJ_DIR$\..\..\..\Hardware\iMX\iMX_CMP.h</file>
+            <file>$PROJ_DIR$\FallBackLoader\Obj\usb_device_loader.__cstat.et</file>
+            <file>$PROJ_DIR$\..\..\..\Hardware\SPI_Memory\spi_flash_w25q.h</file>
+            <file>$TOOLKIT_DIR$\inc\c\DLib_Defaults.h</file>
+            <file>$PROJ_DIR$\FallBackLoader\Obj\ip_utils.xcl</file>
+            <file>$PROJ_DIR$\FallBackLoader\Obj\iMX.__cstat.et</file>
+            <file>$TOOLKIT_DIR$\inc\c\DLib_Product_string.h</file>
+            <file>$PROJ_DIR$\FallBackLoader\Obj\uMalloc.__cstat.et</file>
+            <file>$PROJ_DIR$\FallBackLoader\Obj\Tty_drv.__cstat.et</file>
+            <file>$PROJ_DIR$\FallBackLoader\Obj\USB_drv.__cstat.et</file>
+            <file>$PROJ_DIR$\FallBackLoader\Obj\webutils.__cstat.et</file>
+            <file>$PROJ_DIR$\FallBackLoader\Obj\disk_loader.__cstat.et</file>
+            <file>$PROJ_DIR$\FallBackLoader\Obj\usb_host_loader.__cstat.et</file>
+            <file>$PROJ_DIR$\FallBackLoader\Obj\Watchdog.__cstat.et</file>
+            <file>$PROJ_DIR$\FallBackLoader\Obj\GLCD.__cstat.et</file>
+            <file>$PROJ_DIR$\FallBackLoader\Obj\usb_application.__cstat.et</file>
+            <file>$PROJ_DIR$\FallBackLoader\Obj\ip.__cstat.et</file>
+            <file>$PROJ_DIR$\FallBackLoader\Obj\eth_drv.__cstat.et</file>
+            <file>$PROJ_DIR$\FallBackLoader\Obj\mass_storage.o</file>
+            <file>$PROJ_DIR$\FallBackLoader\Obj\icmp.xcl</file>
+            <file>$PROJ_DIR$\FallBackLoader\Obj\aes_mbedTLS.__cstat.et</file>
+            <file>$PROJ_DIR$\FallBackLoader\List\uTaskerSerialBoot.map</file>
+            <file>$PROJ_DIR$\FallBackLoader\Obj\mass_storage.__cstat.et</file>
+            <file>$PROJ_DIR$\FallBackLoader\Obj\arp.__cstat.et</file>
+            <file>$PROJ_DIR$\FallBackLoader\Exe\uTaskerSerialBoot.out</file>
+            <file>$PROJ_DIR$\FallBackLoader\Obj\icmp.o</file>
+            <file>$PROJ_DIR$\FallBackLoader\Obj\Ethernet.xcl</file>
+            <file>$PROJ_DIR$\FallBackLoader\Obj\i2c_drv.__cstat.et</file>
+            <file>$PROJ_DIR$\FallBackLoader\Obj\tcp.__cstat.et</file>
+            <file>$PROJ_DIR$\FallBackLoader\Obj\Ethernet.__cstat.et</file>
+            <file>$PROJ_DIR$\FallBackLoader\Obj\GLCD.xcl</file>
+            <file>$PROJ_DIR$\FallBackLoader\Obj\uTaskerBootLoader.__cstat.et</file>
+            <file>$PROJ_DIR$\FallBackLoader\Exe\uTaskerSerialBoot_BM.bin</file>
+            <file>$PROJ_DIR$\FallBackLoader\Obj\uFile.__cstat.et</file>
+            <file>$PROJ_DIR$\FallBackLoader\Obj\crypto.__cstat.et</file>
+            <file>$PROJ_DIR$\FallBackLoader\Obj\USB_drv.o</file>
+            <file>$PROJ_DIR$\FallBackLoader\Obj\uTasker.__cstat.et</file>
+            <file>$PROJ_DIR$\FallBackLoader\Obj\webInterface.__cstat.et</file>
+            <file>$PROJ_DIR$\FallBackLoader\Obj\uTaskerSerialBoot.pbd</file>
+            <file>$PROJ_DIR$\FallBackLoader\Obj\icmp.__cstat.et</file>
+            <file>$PROJ_DIR$\FallBackLoader\Obj\Driver.__cstat.et</file>
+            <file>$TOOLKIT_DIR$\inc\c\inttypes.h</file>
+            <file>$PROJ_DIR$\..\..\..\Hardware\iMX\iMX_PORTS.h</file>
+            <file>$TOOLKIT_DIR$\inc\c\yvals.h</file>
+            <file>$PROJ_DIR$\..\..\..\stack\tcpip.h</file>
+            <file>$PROJ_DIR$\..\..\..\Hardware\iMX\iMX_Caches_MPU.h</file>
+            <file>$PROJ_DIR$\..\..\..\uTasker\usb.h</file>
+            <file>$PROJ_DIR$\..\..\..\Hardware\iMX\iMX.h</file>
+            <file>$PROJ_DIR$\..\..\..\Hardware\iMX\iMX_FLASH.h</file>
+            <file>$PROJ_DIR$\..\..\..\Hardware\hardware.h</file>
+            <file>$PROJ_DIR$\..\..\..\Hardware\Kinetis\kinetis_uart_pins.h</file>
+            <file>$PROJ_DIR$\..\..\..\uTasker\uTasker.h</file>
+            <file>$PROJ_DIR$\..\..\..\Hardware\SPI_Memory\spi_flash_S26KL.h</file>
+            <file>$PROJ_DIR$\..\..\..\Hardware\iMX\iMX_Clock.h</file>
+            <file>$PROJ_DIR$\..\..\..\stack\SSL\mbedtls-1.3.10\aes.h</file>
+            <file>$PROJ_DIR$\FallBackLoader\Obj\crypto.o</file>
+            <file>$PROJ_DIR$\FallBackLoader\Obj\iMX.xcl</file>
+            <file>$PROJ_DIR$\FallBackLoader\Obj\Ethernet.o</file>
+            <file>$PROJ_DIR$\FallBackLoader\Obj\eth_drv.o</file>
+            <file>$PROJ_DIR$\FallBackLoader\Obj\arp.xcl</file>
+            <file>$PROJ_DIR$\FallBackLoader\Obj\Tty_drv.xcl</file>
+            <file>$PROJ_DIR$\FallBackLoader\Obj\aes_mbedTLS.o</file>
+            <file>$PROJ_DIR$\FallBackLoader\Obj\Watchdog.o</file>
+            <file>$PROJ_DIR$\FallBackLoader\Obj\tcp.xcl</file>
+            <file>$PROJ_DIR$\FallBackLoader\Obj\crypto.xcl</file>
+            <file>$PROJ_DIR$\FallBackLoader\Obj\serial_loader.o</file>
+            <file>$PROJ_DIR$\FallBackLoader\Obj\http.__cstat.et</file>
+            <file>$PROJ_DIR$\FallBackLoader\Obj\uMalloc.o</file>
+            <file>$PROJ_DIR$\FallBackLoader\Obj\usb_device_loader.o</file>
+            <file>$PROJ_DIR$\FallBackLoader\Obj\disk_loader.xcl</file>
+            <file>$PROJ_DIR$\FallBackLoader\Obj\uMalloc.xcl</file>
+            <file>$PROJ_DIR$\FallBackLoader\Obj\http.o</file>
+            <file>$PROJ_DIR$\FallBackLoader\Obj\http.xcl</file>
+            <file>$PROJ_DIR$\settings\iMX_RT_10xx_FlexSPI_NOR_Boot.icf</file>
+            <file>$PROJ_DIR$\FallBackLoader\Obj\usb_host_loader.xcl</file>
+            <file>$PROJ_DIR$\FallBackLoader\Obj\arp.o</file>
+            <file>$PROJ_DIR$\FallBackLoader\Obj\serial_loader.xcl</file>
+            <file>$PROJ_DIR$\FallBackLoader\Obj\usb_application.o</file>
+            <file>$PROJ_DIR$\FallBackLoader\Obj\aes_mbedTLS.xcl</file>
+            <file>$PROJ_DIR$\FallBackLoader\Obj\usb_host_loader.o</file>
+            <file>$PROJ_DIR$\FallBackLoader\Obj\ip_utils.o</file>
+            <file>$PROJ_DIR$\FallBackLoader\Obj\iMX.o</file>
+            <file>$PROJ_DIR$\FallBackLoader\Obj\tcp.o</file>
+            <file>$PROJ_DIR$\FallBackLoader\Obj\Tty_drv.o</file>
+            <file>$PROJ_DIR$\FallBackLoader\Obj\Watchdog.xcl</file>
+            <file>$PROJ_DIR$\FallBackLoader\Obj\uTasker.xcl</file>
+            <file>$PROJ_DIR$\FallBackLoader\Obj\uTaskerBootLoader.o</file>
+            <file>$PROJ_DIR$\FallBackLoader\Obj\webInterface.xcl</file>
+            <file>$PROJ_DIR$\FallBackLoader\Obj\i2c_drv.xcl</file>
+            <file>$PROJ_DIR$\..\usb_application.c</file>
+            <file>$PROJ_DIR$\FallBackLoader\Obj\eth_drv.xcl</file>
+            <file>$PROJ_DIR$\FallBackLoader\Obj\i2c_drv.o</file>
+            <file>$PROJ_DIR$\..\..\..\Hardware\Kinetis\kinetis_UART.h</file>
+            <file>$PROJ_DIR$\..\webInterface.c</file>
+            <file>$TOOLKIT_DIR$\inc\c\DLib_Config_Normal.h</file>
+            <file>$PROJ_DIR$\..\..\..\Hardware\Kinetis\kinetis_DMA.h</file>
+            <file>$TOOLKIT_DIR$\inc\c\ysizet.h</file>
+            <file>$PROJ_DIR$\FallBackLoader\Obj\mass_storage.xcl</file>
+            <file>$PROJ_DIR$\FallBackLoader\Obj\uFile.xcl</file>
+            <file>$PROJ_DIR$\FallBackLoader\Obj\usb_device_loader.xcl</file>
+            <file>$PROJ_DIR$\FallBackLoader\Obj\webInterface.o</file>
+            <file>$PROJ_DIR$\FallBackLoader\Obj\webutils.o</file>
+            <file>$TOOLKIT_DIR$\lib\m7M_tlv.a</file>
+            <file>$PROJ_DIR$\..\usb_device_loader.c</file>
+            <file>$TOOLKIT_DIR$\lib\rt7M_tl.a</file>
+            <file>$PROJ_DIR$\..\..\..\Hardware\iMX\iMX_errata.h</file>
+            <file>$PROJ_DIR$\FallBackLoader\Obj\ip.xcl</file>
+            <file>$PROJ_DIR$\FallBackLoader\Obj\uTasker.o</file>
+            <file>$PROJ_DIR$\FallBackLoader\Obj\disk_loader.o</file>
+            <file>$PROJ_DIR$\FallBackLoader\Obj\uFile.o</file>
+            <file>$PROJ_DIR$\..\..\..\Hardware\SPI_Memory\spi_flash_ATXP.h</file>
+            <file>$PROJ_DIR$\..\usb_host_loader.c</file>
+            <file>$PROJ_DIR$\..\..\uTaskerBoot\uTaskerBootLoader.c</file>
+            <file>$PROJ_DIR$\FallBackLoader\Obj\USB_drv.xcl</file>
+            <file>$PROJ_DIR$\FallBackLoader\Obj\webutils.xcl</file>
+            <file>$PROJ_DIR$\FallBackLoader\Obj\ip.o</file>
+            <file>$PROJ_DIR$\FallBackLoader\Obj\usb_application.xcl</file>
+            <file>$TOOLKIT_DIR$\lib\dl7M_tln.a</file>
+        </outputs>
+        <file>
+            <name>[ROOT_NODE]</name>
+            <outputs>
+                <tool>
+                    <name>ILINK</name>
+                    <file> 71 74</file>
+                </tool>
+            </outputs>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\..\..\stack\tcp.c</name>
+            <outputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 132</file>
+                </tool>
+                <tool>
+                    <name>__cstat</name>
+                    <file> 78</file>
+                </tool>
+                <tool>
+                    <name>BICOMP</name>
+                    <file> 113</file>
+                </tool>
+            </outputs>
+            <inputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 26 3 45 46 97 36 35 93 53 144 39 40 155 42 96 94 99 101 27 1</file>
+                </tool>
+            </inputs>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\..\..\uTasker\USB_drv.c</name>
+            <outputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 85</file>
+                </tool>
+                <tool>
+                    <name>__cstat</name>
+                    <file> 59</file>
+                </tool>
+                <tool>
+                    <name>BICOMP</name>
+                    <file> 163</file>
+                </tool>
+            </outputs>
+            <inputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 26 3 45 46 97 36 35 93 53 144 39 40 155 42 96 94 99 101 27 1</file>
+                </tool>
+            </inputs>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\..\..\uTasker\i2c_drv.c</name>
+            <outputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 141</file>
+                </tool>
+                <tool>
+                    <name>__cstat</name>
+                    <file> 77</file>
+                </tool>
+                <tool>
+                    <name>BICOMP</name>
+                    <file> 138</file>
+                </tool>
+            </outputs>
+            <inputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 26 3 45 46 97 36 35 93 53 144 39 40 155 42 96 94 99 101 27 1</file>
+                </tool>
+            </inputs>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\..\..\uTasker\uTasker.c</name>
+            <outputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 157</file>
+                </tool>
+                <tool>
+                    <name>__cstat</name>
+                    <file> 86</file>
+                </tool>
+                <tool>
+                    <name>BICOMP</name>
+                    <file> 135</file>
+                </tool>
+            </outputs>
+            <inputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 26 3 45 46 97 36 35 93 53 144 39 40 155 42 96 94 99 101 27 1</file>
+                </tool>
+            </inputs>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\..\..\stack\icmp.c</name>
+            <outputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 75</file>
+                </tool>
+                <tool>
+                    <name>__cstat</name>
+                    <file> 89</file>
+                </tool>
+                <tool>
+                    <name>BICOMP</name>
+                    <file> 69</file>
+                </tool>
+            </outputs>
+            <inputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 26 3 45 46 97 36 35 93 53 144 39 40 155 42 96 94 99 101 27 1</file>
+                </tool>
+            </inputs>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\..\..\stack\ip_utils.c</name>
+            <outputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 130</file>
+                </tool>
+                <tool>
+                    <name>__cstat</name>
+                    <file> 33</file>
+                </tool>
+                <tool>
+                    <name>BICOMP</name>
+                    <file> 54</file>
+                </tool>
+            </outputs>
+            <inputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 26 3 45 46 97 36 35 93 53 144 39 40 155 42 96 94 99 101 27 1</file>
+                </tool>
+            </inputs>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\..\..\uTasker\utFAT\mass_storage.c</name>
+            <outputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 68</file>
+                </tool>
+                <tool>
+                    <name>__cstat</name>
+                    <file> 72</file>
+                </tool>
+                <tool>
+                    <name>BICOMP</name>
+                    <file> 147</file>
+                </tool>
+            </outputs>
+            <inputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 26 3 45 46 97 36 35 93 53 144 39 40 155 42 96 94 99 101 27 1</file>
+                </tool>
+            </inputs>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\..\..\stack\Ethernet.c</name>
+            <outputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 107</file>
+                </tool>
+                <tool>
+                    <name>__cstat</name>
+                    <file> 79</file>
+                </tool>
+                <tool>
+                    <name>BICOMP</name>
+                    <file> 76</file>
+                </tool>
+            </outputs>
+            <inputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 26 3 45 46 97 36 35 93 53 144 39 40 155 42 96 94 99 101 27 1</file>
+                </tool>
+            </inputs>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\..\..\stack\webutils.c</name>
+            <outputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 151</file>
+                </tool>
+                <tool>
+                    <name>__cstat</name>
+                    <file> 60</file>
+                </tool>
+                <tool>
+                    <name>BICOMP</name>
+                    <file> 164</file>
+                </tool>
+            </outputs>
+            <inputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 26 3 45 46 97 36 35 93 53 144 39 40 155 42 96 94 99 101 27 1</file>
+                </tool>
+            </inputs>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\..\..\uTasker\uGLCDLIB\GLCD.c</name>
+            <outputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 34</file>
+                </tool>
+                <tool>
+                    <name>__cstat</name>
+                    <file> 64</file>
+                </tool>
+                <tool>
+                    <name>BICOMP</name>
+                    <file> 80</file>
+                </tool>
+            </outputs>
+            <inputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 26 3 45 46 97 36 35 93 53 144 39 40 155 42 96 94 99 101 27 1</file>
+                </tool>
+            </inputs>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\..\..\uTasker\crypto.c</name>
+            <outputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 105</file>
+                </tool>
+                <tool>
+                    <name>__cstat</name>
+                    <file> 84</file>
+                </tool>
+                <tool>
+                    <name>BICOMP</name>
+                    <file> 114</file>
+                </tool>
+            </outputs>
+            <inputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 26 3 45 46 97 36 35 93 53 144 39 40 155 42 96 94 99 101 27 1 104 41 43 146 56 91 44</file>
+                </tool>
+            </inputs>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\..\..\uTasker\uFile.c</name>
+            <outputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 159</file>
+                </tool>
+                <tool>
+                    <name>__cstat</name>
+                    <file> 83</file>
+                </tool>
+                <tool>
+                    <name>BICOMP</name>
+                    <file> 148</file>
+                </tool>
+            </outputs>
+            <inputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 26 3 45 46 97 36 35 93 53 144 39 40 155 42 96 94 99 101 27 1</file>
+                </tool>
+            </inputs>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\..\..\stack\arp.c</name>
+            <outputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 125</file>
+                </tool>
+                <tool>
+                    <name>__cstat</name>
+                    <file> 73</file>
+                </tool>
+                <tool>
+                    <name>BICOMP</name>
+                    <file> 109</file>
+                </tool>
+            </outputs>
+            <inputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 26 3 45 46 97 36 35 93 53 144 39 40 155 42 96 94 99 101 27 1</file>
+                </tool>
+            </inputs>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\..\..\stack\ip.c</name>
+            <outputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 165</file>
+                </tool>
+                <tool>
+                    <name>__cstat</name>
+                    <file> 66</file>
+                </tool>
+                <tool>
+                    <name>BICOMP</name>
+                    <file> 156</file>
+                </tool>
+            </outputs>
+            <inputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 26 3 45 46 97 36 35 93 53 144 39 40 155 42 96 94 99 101 27 1</file>
+                </tool>
+            </inputs>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\..\..\uTasker\Watchdog.c</name>
+            <outputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 112</file>
+                </tool>
+                <tool>
+                    <name>__cstat</name>
+                    <file> 63</file>
+                </tool>
+                <tool>
+                    <name>BICOMP</name>
+                    <file> 134</file>
+                </tool>
+            </outputs>
+            <inputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 26 3 45 46 97 36 35 93 53 144 39 40 155 42 96 94 99 101 27 1</file>
+                </tool>
+            </inputs>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\..\..\uTasker\Tty_drv.c</name>
+            <outputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 133</file>
+                </tool>
+                <tool>
+                    <name>__cstat</name>
+                    <file> 58</file>
+                </tool>
+                <tool>
+                    <name>BICOMP</name>
+                    <file> 110</file>
+                </tool>
+            </outputs>
+            <inputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 26 3 45 46 97 36 35 93 53 144 39 40 155 42 96 94 99 101 27 1</file>
+                </tool>
+            </inputs>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\..\..\uTasker\Driver.c</name>
+            <outputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 30</file>
+                </tool>
+                <tool>
+                    <name>__cstat</name>
+                    <file> 90</file>
+                </tool>
+                <tool>
+                    <name>BICOMP</name>
+                    <file> 29</file>
+                </tool>
+            </outputs>
+            <inputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 26 3 45 46 97 36 35 93 53 144 39 40 155 42 96 94 99 101 27 1</file>
+                </tool>
+            </inputs>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\..\..\uTasker\uMalloc.c</name>
+            <outputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 117</file>
+                </tool>
+                <tool>
+                    <name>__cstat</name>
+                    <file> 57</file>
+                </tool>
+                <tool>
+                    <name>BICOMP</name>
+                    <file> 120</file>
+                </tool>
+            </outputs>
+            <inputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 26 3 45 46 97 36 35 93 53 144 39 40 155 42 96 94 99 101 27 1</file>
+                </tool>
+            </inputs>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\disk_loader.c</name>
+            <outputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 158</file>
+                </tool>
+                <tool>
+                    <name>__cstat</name>
+                    <file> 61</file>
+                </tool>
+                <tool>
+                    <name>BICOMP</name>
+                    <file> 119</file>
+                </tool>
+            </outputs>
+            <inputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 26 3 45 46 97 36 35 93 53 144 39 40 155 42 96 94 99 101 27 1</file>
+                </tool>
+            </inputs>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\..\..\Hardware\iMX\iMX.c</name>
+            <outputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 131</file>
+                </tool>
+                <tool>
+                    <name>__cstat</name>
+                    <file> 55</file>
+                </tool>
+                <tool>
+                    <name>BICOMP</name>
+                    <file> 106</file>
+                </tool>
+            </outputs>
+            <inputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 26 3 45 46 97 36 35 93 53 144 39 40 155 42 96 94 99 101 27 1 37 49 102 160 52 98 32 95 103 145 38 142 100 47 92 50</file>
+                </tool>
+            </inputs>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\..\..\stack\SSL\mbedtls-1.3.10\aes_mbedTLS.c</name>
+            <outputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 111</file>
+                </tool>
+                <tool>
+                    <name>__cstat</name>
+                    <file> 70</file>
+                </tool>
+                <tool>
+                    <name>BICOMP</name>
+                    <file> 128</file>
+                </tool>
+            </outputs>
+            <inputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 26 3 45 46 97 36 35 93 53 144 39 40 155 42 96 94 99 101 27 1 104 41 43 146 56 91 44</file>
+                </tool>
+            </inputs>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\..\..\uTasker\eth_drv.c</name>
+            <outputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 108</file>
+                </tool>
+                <tool>
+                    <name>__cstat</name>
+                    <file> 67</file>
+                </tool>
+                <tool>
+                    <name>BICOMP</name>
+                    <file> 140</file>
+                </tool>
+            </outputs>
+            <inputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 26 3 45 46 97 36 35 93 53 144 39 40 155 42 96 94 99 101 27 1</file>
+                </tool>
+            </inputs>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\..\..\stack\http.c</name>
+            <outputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 121</file>
+                </tool>
+                <tool>
+                    <name>__cstat</name>
+                    <file> 116</file>
+                </tool>
+                <tool>
+                    <name>BICOMP</name>
+                    <file> 122</file>
+                </tool>
+            </outputs>
+            <inputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 26 3 45 46 97 36 35 93 53 144 39 40 155 42 96 94 99 101 27 1</file>
+                </tool>
+            </inputs>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\serial_loader.c</name>
+            <outputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 115</file>
+                </tool>
+                <tool>
+                    <name>__cstat</name>
+                    <file> 31</file>
+                </tool>
+                <tool>
+                    <name>BICOMP</name>
+                    <file> 126</file>
+                </tool>
+            </outputs>
+            <inputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 26 3 45 46 97 36 35 93 53 144 39 40 155 42 96 94 99 101 27 1</file>
+                </tool>
+            </inputs>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\FallBackLoader\Exe\uTaskerSerialBoot.out</name>
+            <outputs>
+                <tool>
+                    <name>OBJCOPY</name>
+                    <file> 82</file>
+                </tool>
+                <tool>
+                    <name>ILINK</name>
+                    <file> 71</file>
+                </tool>
+            </outputs>
+            <inputs>
+                <tool>
+                    <name>ILINK</name>
+                    <file> 123 111 125 105 158 30 108 107 34 121 141 75 131 165 130 68 115 132 133 159 117 127 118 85 129 157 136 112 150 151 154 152 167</file>
+                </tool>
+            </inputs>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\usb_application.c</name>
+            <outputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 127</file>
+                </tool>
+                <tool>
+                    <name>__cstat</name>
+                    <file> 65</file>
+                </tool>
+                <tool>
+                    <name>BICOMP</name>
+                    <file> 166</file>
+                </tool>
+            </outputs>
+            <inputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 26 3 45 46 97 36 35 93 53 144 39 40 155 42 96 94 99 101 27 1</file>
+                </tool>
+            </inputs>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\webInterface.c</name>
+            <outputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 150</file>
+                </tool>
+                <tool>
+                    <name>__cstat</name>
+                    <file> 87</file>
+                </tool>
+                <tool>
+                    <name>BICOMP</name>
+                    <file> 137</file>
+                </tool>
+            </outputs>
+            <inputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 26 3 45 46 97 36 35 93 53 144 39 40 155 42 96 94 99 101 27 1</file>
+                </tool>
+            </inputs>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\usb_device_loader.c</name>
+            <outputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 118</file>
+                </tool>
+                <tool>
+                    <name>__cstat</name>
+                    <file> 51</file>
+                </tool>
+                <tool>
+                    <name>BICOMP</name>
+                    <file> 149</file>
+                </tool>
+            </outputs>
+            <inputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 26 3 45 46 97 36 35 93 53 144 39 40 155 42 96 94 99 101 27 1</file>
+                </tool>
+            </inputs>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\usb_host_loader.c</name>
+            <outputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 129</file>
+                </tool>
+                <tool>
+                    <name>__cstat</name>
+                    <file> 62</file>
+                </tool>
+                <tool>
+                    <name>BICOMP</name>
+                    <file> 124</file>
+                </tool>
+            </outputs>
+            <inputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 26 3 45 46 97 36 35 93 53 144 39 40 155 42 96 94 99 101 27 1</file>
+                </tool>
+            </inputs>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\..\uTaskerBoot\uTaskerBootLoader.c</name>
+            <outputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 136</file>
+                </tool>
+                <tool>
+                    <name>__cstat</name>
+                    <file> 81</file>
+                </tool>
+                <tool>
+                    <name>BICOMP</name>
+                    <file> 48</file>
+                </tool>
+            </outputs>
+            <inputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 26 3 45 46 97 36 35 93 53 144 39 40 155 42 96 94 99 101 27 1</file>
+                </tool>
+            </inputs>
+        </file>
+    </configuration>
+    <configuration>
+        <name>SerialLoader</name>
+        <outputs>
+            <file>$PROJ_DIR$\..\..\..\stack\tcp.c</file>
+            <file>$PROJ_DIR$\..\TaskConfig.h</file>
+            <file>$PROJ_DIR$\..\..\..\uTasker\USB_drv.c</file>
+            <file>$PROJ_DIR$\..\types.h</file>
+            <file>$PROJ_DIR$\..\..\..\uTasker\i2c_drv.c</file>
+            <file>$PROJ_DIR$\..\..\..\uTasker\uTasker.c</file>
+            <file>$PROJ_DIR$\..\..\..\stack\icmp.c</file>
+            <file>$PROJ_DIR$\..\..\..\stack\ip_utils.c</file>
+            <file>$PROJ_DIR$\..\..\..\uTasker\utFAT\mass_storage.c</file>
+            <file>$PROJ_DIR$\..\..\..\stack\Ethernet.c</file>
+            <file>$PROJ_DIR$\..\..\..\stack\webutils.c</file>
+            <file>$PROJ_DIR$\..\..\..\uTasker\uGLCDLIB\GLCD.c</file>
+            <file>$PROJ_DIR$\..\..\..\uTasker\crypto.c</file>
+            <file>$PROJ_DIR$\..\..\..\uTasker\uFile.c</file>
+            <file>$PROJ_DIR$\..\..\..\stack\arp.c</file>
+            <file>$PROJ_DIR$\..\..\..\stack\ip.c</file>
+            <file>$PROJ_DIR$\..\..\..\uTasker\Watchdog.c</file>
+            <file>$PROJ_DIR$\..\..\..\uTasker\Tty_drv.c</file>
+            <file>$PROJ_DIR$\..\..\..\uTasker\Driver.c</file>
+            <file>$PROJ_DIR$\..\..\..\uTasker\uMalloc.c</file>
+            <file>$PROJ_DIR$\..\disk_loader.c</file>
+            <file>$PROJ_DIR$\..\..\..\Hardware\iMX\iMX.c</file>
+            <file>$PROJ_DIR$\..\..\..\stack\SSL\mbedtls-1.3.10\aes_mbedTLS.c</file>
+            <file>$PROJ_DIR$\..\..\..\uTasker\eth_drv.c</file>
+            <file>$PROJ_DIR$\..\..\..\stack\http.c</file>
+            <file>$PROJ_DIR$\..\config.h</file>
+            <file>$PROJ_DIR$\..\Loader.h</file>
+            <file>$PROJ_DIR$\..\serial_loader.c</file>
+            <file>$PROJ_DIR$\..\..\..\Hardware\SPI_Memory\spi_flash_interface.h</file>
+            <file>$TOOLKIT_DIR$\inc\c\iccarm_builtin.h</file>
+            <file>$TOOLKIT_DIR$\inc\c\intrinsics.h</file>
+            <file>$PROJ_DIR$\..\..\..\Hardware\SPI_Memory\spi_flash_AT25SF.h</file>
+            <file>$PROJ_DIR$\..\..\..\Hardware\Kinetis\kinetis_USB_HS_OTG.h</file>
+            <file>$TOOLKIT_DIR$\inc\c\DLib_Product.h</file>
+            <file>$TOOLKIT_DIR$\inc\c\iar_intrinsics_common.h</file>
+            <file>$TOOLKIT_DIR$\inc\c\string.h</file>
+            <file>$PROJ_DIR$\..\..\..\uTasker\driver.h</file>
+            <file>$TOOLKIT_DIR$\inc\c\ycheck.h</file>
+            <file>$TOOLKIT_DIR$\inc\c\stdint.h</file>
+            <file>$PROJ_DIR$\..\..\..\Hardware\packages.h</file>
+            <file>$PROJ_DIR$\..\app_hw_iMX.h</file>
+            <file>$PROJ_DIR$\..\..\..\Hardware\Kinetis\kinetis_PIT.h</file>
+            <file>$PROJ_DIR$\..\..\..\Hardware\SPI_Memory\spi_flash_IS25LP.h</file>
+            <file>$PROJ_DIR$\..\..\..\Hardware\iMX\iMX_CMP.h</file>
+            <file>$PROJ_DIR$\..\..\..\Hardware\SPI_Memory\spi_flash_w25q.h</file>
+            <file>$TOOLKIT_DIR$\inc\c\DLib_Defaults.h</file>
+            <file>$TOOLKIT_DIR$\inc\c\DLib_Product_string.h</file>
+            <file>$PROJ_DIR$\SerialLoader\Obj\tcp.xcl</file>
+            <file>$PROJ_DIR$\SerialLoader\Obj\http.xcl</file>
+            <file>$PROJ_DIR$\SerialLoader\Obj\Ethernet.xcl</file>
+            <file>$PROJ_DIR$\SerialLoader\Obj\aes_mbedTLS.o</file>
+            <file>$PROJ_DIR$\SerialLoader\Obj\uTasker.o</file>
+            <file>$PROJ_DIR$\SerialLoader\Obj\tcp.o</file>
+            <file>$PROJ_DIR$\SerialLoader\Obj\Driver.xcl</file>
+            <file>$PROJ_DIR$\SerialLoader\Obj\Ethernet.o</file>
+            <file>$PROJ_DIR$\SerialLoader\Obj\disk_loader.xcl</file>
+            <file>$PROJ_DIR$\SerialLoader\Obj\Tty_drv.xcl</file>
+            <file>$PROJ_DIR$\SerialLoader\Obj\serial_loader.xcl</file>
+            <file>$PROJ_DIR$\SerialLoader\Obj\eth_drv.o</file>
+            <file>$PROJ_DIR$\SerialLoader\Obj\ip.xcl</file>
+            <file>$PROJ_DIR$\SerialLoader\Obj\GLCD.xcl</file>
+            <file>$PROJ_DIR$\SerialLoader\Obj\iMX.o</file>
+            <file>$PROJ_DIR$\SerialLoader\Obj\usb_application.o</file>
+            <file>$PROJ_DIR$\SerialLoader\Obj\eth_drv.xcl</file>
+            <file>$PROJ_DIR$\SerialLoader\Obj\usb_device_loader.xcl</file>
+            <file>$PROJ_DIR$\SerialLoader\Obj\GLCD.o</file>
+            <file>$PROJ_DIR$\SerialLoader\Obj\uMalloc.o</file>
+            <file>$PROJ_DIR$\SerialLoader\Obj\usb_application.xcl</file>
+            <file>$PROJ_DIR$\SerialLoader\Obj\icmp.o</file>
+            <file>$PROJ_DIR$\SerialLoader\Obj\uTaskerBootLoader.o</file>
+            <file>$PROJ_DIR$\SerialLoader\Obj\webInterface.o</file>
+            <file>$PROJ_DIR$\SerialLoader\Obj\crypto.xcl</file>
+            <file>$PROJ_DIR$\SerialLoader\List\uTaskerSerialBoot.map</file>
+            <file>$PROJ_DIR$\SerialLoader\Obj\Watchdog.xcl</file>
+            <file>$PROJ_DIR$\SerialLoader\Obj\ip_utils.o</file>
+            <file>$PROJ_DIR$\SerialLoader\Obj\crypto.o</file>
+            <file>$PROJ_DIR$\SerialLoader\Obj\Driver.o</file>
+            <file>$PROJ_DIR$\SerialLoader\Obj\webutils.xcl</file>
+            <file>$PROJ_DIR$\SerialLoader\Obj\aes_mbedTLS.xcl</file>
+            <file>$PROJ_DIR$\SerialLoader\Obj\mass_storage.o</file>
+            <file>$TOOLKIT_DIR$\inc\c\inttypes.h</file>
+            <file>$PROJ_DIR$\SerialLoader\Exe\uTaskerSerialBoot_BM.bin</file>
+            <file>$PROJ_DIR$\SerialLoader\Obj\disk_loader.o</file>
+            <file>$PROJ_DIR$\..\..\..\Hardware\iMX\iMX_PORTS.h</file>
+            <file>$TOOLKIT_DIR$\inc\c\yvals.h</file>
+            <file>$PROJ_DIR$\SerialLoader\Obj\uFile.xcl</file>
+            <file>$PROJ_DIR$\..\..\..\stack\tcpip.h</file>
+            <file>$PROJ_DIR$\..\..\..\Hardware\iMX\iMX_Caches_MPU.h</file>
+            <file>$PROJ_DIR$\..\..\..\uTasker\usb.h</file>
+            <file>$PROJ_DIR$\..\..\..\Hardware\iMX\iMX.h</file>
+            <file>$PROJ_DIR$\..\..\..\Hardware\iMX\iMX_FLASH.h</file>
+            <file>$PROJ_DIR$\SerialLoader\Obj\webutils.o</file>
+            <file>$PROJ_DIR$\SerialLoader\Obj\uTaskerBootLoader.xcl</file>
+            <file>$PROJ_DIR$\SerialLoader\Obj\serial_loader.o</file>
+            <file>$PROJ_DIR$\SerialLoader\Obj\ip.o</file>
+            <file>$PROJ_DIR$\SerialLoader\Obj\Watchdog.o</file>
+            <file>$PROJ_DIR$\..\..\..\Hardware\hardware.h</file>
+            <file>$PROJ_DIR$\SerialLoader\Obj\usb_host_loader.xcl</file>
+            <file>$PROJ_DIR$\SerialLoader\Obj\usb_device_loader.o</file>
+            <file>$PROJ_DIR$\..\..\..\Hardware\Kinetis\kinetis_uart_pins.h</file>
+            <file>$PROJ_DIR$\SerialLoader\Exe\uTaskerSerialBoot.out</file>
+            <file>$PROJ_DIR$\..\..\..\uTasker\uTasker.h</file>
+            <file>$PROJ_DIR$\SerialLoader\Obj\USB_drv.o</file>
+            <file>$PROJ_DIR$\..\..\..\Hardware\SPI_Memory\spi_flash_S26KL.h</file>
+            <file>$PROJ_DIR$\SerialLoader\Obj\webInterface.xcl</file>
+            <file>$PROJ_DIR$\SerialLoader\Obj\USB_drv.xcl</file>
+            <file>$PROJ_DIR$\SerialLoader\Obj\uTasker.xcl</file>
+            <file>$PROJ_DIR$\..\..\..\Hardware\iMX\iMX_Clock.h</file>
+            <file>$PROJ_DIR$\..\..\..\stack\SSL\mbedtls-1.3.10\aes.h</file>
+            <file>$PROJ_DIR$\SerialLoader\Obj\icmp.xcl</file>
+            <file>$PROJ_DIR$\settings\iMX_RT_10xx_FlexSPI_NOR_Boot.icf</file>
+            <file>$PROJ_DIR$\..\usb_application.c</file>
+            <file>$PROJ_DIR$\..\..\..\Hardware\Kinetis\kinetis_UART.h</file>
+            <file>$PROJ_DIR$\..\webInterface.c</file>
+            <file>$TOOLKIT_DIR$\inc\c\DLib_Config_Normal.h</file>
+            <file>$PROJ_DIR$\..\..\..\Hardware\Kinetis\kinetis_DMA.h</file>
+            <file>$TOOLKIT_DIR$\inc\c\ysizet.h</file>
+            <file>$TOOLKIT_DIR$\lib\m7M_tlv.a</file>
+            <file>$PROJ_DIR$\..\usb_device_loader.c</file>
+            <file>$TOOLKIT_DIR$\lib\rt7M_tl.a</file>
+            <file>$PROJ_DIR$\..\..\..\Hardware\iMX\iMX_errata.h</file>
+            <file>$PROJ_DIR$\..\..\..\Hardware\SPI_Memory\spi_flash_ATXP.h</file>
+            <file>$PROJ_DIR$\..\usb_host_loader.c</file>
+            <file>$PROJ_DIR$\..\..\uTaskerBoot\uTaskerBootLoader.c</file>
+            <file>$TOOLKIT_DIR$\lib\dl7M_tln.a</file>
+            <file>$PROJ_DIR$\SerialLoader\Obj\arp.o</file>
+            <file>$PROJ_DIR$\SerialLoader\Obj\iMX.xcl</file>
+            <file>$PROJ_DIR$\SerialLoader\Obj\uFile.o</file>
+            <file>$PROJ_DIR$\SerialLoader\Obj\i2c_drv.xcl</file>
+            <file>$PROJ_DIR$\SerialLoader\Obj\ip_utils.xcl</file>
+            <file>$PROJ_DIR$\SerialLoader\Obj\mass_storage.xcl</file>
+            <file>$PROJ_DIR$\SerialLoader\Obj\http.o</file>
+            <file>$PROJ_DIR$\SerialLoader\Obj\usb_host_loader.o</file>
+            <file>$PROJ_DIR$\SerialLoader\Obj\i2c_drv.o</file>
+            <file>$PROJ_DIR$\SerialLoader\Obj\uMalloc.xcl</file>
+            <file>$PROJ_DIR$\SerialLoader\Obj\Tty_drv.o</file>
+            <file>$PROJ_DIR$\SerialLoader\Obj\arp.xcl</file>
+        </outputs>
+        <file>
+            <name>[ROOT_NODE]</name>
+            <outputs>
+                <tool>
+                    <name>ILINK</name>
+                    <file> 72 100</file>
+                </tool>
+            </outputs>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\..\..\stack\tcp.c</name>
+            <outputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 52</file>
+                </tool>
+                <tool>
+                    <name>BICOMP</name>
+                    <file> 47</file>
+                </tool>
+            </outputs>
+            <inputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 25 3 39 40 89 30 29 84 45 114 33 34 120 36 88 86 96 101 26 1</file>
+                </tool>
+            </inputs>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\..\..\uTasker\USB_drv.c</name>
+            <outputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 102</file>
+                </tool>
+                <tool>
+                    <name>BICOMP</name>
+                    <file> 105</file>
+                </tool>
+            </outputs>
+            <inputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 25 3 39 40 89 30 29 84 45 114 33 34 120 36 88 86 96 101 26 1</file>
+                </tool>
+            </inputs>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\..\..\uTasker\i2c_drv.c</name>
+            <outputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 133</file>
+                </tool>
+                <tool>
+                    <name>BICOMP</name>
+                    <file> 128</file>
+                </tool>
+            </outputs>
+            <inputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 25 3 39 40 89 30 29 84 45 114 33 34 120 36 88 86 96 101 26 1</file>
+                </tool>
+            </inputs>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\..\..\uTasker\uTasker.c</name>
+            <outputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 51</file>
+                </tool>
+                <tool>
+                    <name>BICOMP</name>
+                    <file> 106</file>
+                </tool>
+            </outputs>
+            <inputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 25 3 39 40 89 30 29 84 45 114 33 34 120 36 88 86 96 101 26 1</file>
+                </tool>
+            </inputs>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\..\..\stack\icmp.c</name>
+            <outputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 68</file>
+                </tool>
+                <tool>
+                    <name>BICOMP</name>
+                    <file> 109</file>
+                </tool>
+            </outputs>
+            <inputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 25 3 39 40 89 30 29 84 45 114 33 34 120 36 88 86 96 101 26 1</file>
+                </tool>
+            </inputs>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\..\..\stack\ip_utils.c</name>
+            <outputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 74</file>
+                </tool>
+                <tool>
+                    <name>BICOMP</name>
+                    <file> 129</file>
+                </tool>
+            </outputs>
+            <inputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 25 3 39 40 89 30 29 84 45 114 33 34 120 36 88 86 96 101 26 1</file>
+                </tool>
+            </inputs>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\..\..\uTasker\utFAT\mass_storage.c</name>
+            <outputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 79</file>
+                </tool>
+                <tool>
+                    <name>BICOMP</name>
+                    <file> 130</file>
+                </tool>
+            </outputs>
+            <inputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 25 3 39 40 89 30 29 84 45 114 33 34 120 36 88 86 96 101 26 1</file>
+                </tool>
+            </inputs>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\..\..\stack\Ethernet.c</name>
+            <outputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 54</file>
+                </tool>
+                <tool>
+                    <name>BICOMP</name>
+                    <file> 49</file>
+                </tool>
+            </outputs>
+            <inputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 25 3 39 40 89 30 29 84 45 114 33 34 120 36 88 86 96 101 26 1</file>
+                </tool>
+            </inputs>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\..\..\stack\webutils.c</name>
+            <outputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 91</file>
+                </tool>
+                <tool>
+                    <name>BICOMP</name>
+                    <file> 77</file>
+                </tool>
+            </outputs>
+            <inputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 25 3 39 40 89 30 29 84 45 114 33 34 120 36 88 86 96 101 26 1</file>
+                </tool>
+            </inputs>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\..\..\uTasker\uGLCDLIB\GLCD.c</name>
+            <outputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 65</file>
+                </tool>
+                <tool>
+                    <name>BICOMP</name>
+                    <file> 60</file>
+                </tool>
+            </outputs>
+            <inputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 25 3 39 40 89 30 29 84 45 114 33 34 120 36 88 86 96 101 26 1</file>
+                </tool>
+            </inputs>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\..\..\uTasker\crypto.c</name>
+            <outputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 75</file>
+                </tool>
+                <tool>
+                    <name>BICOMP</name>
+                    <file> 71</file>
+                </tool>
+            </outputs>
+            <inputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 25 3 39 40 89 30 29 84 45 114 33 34 120 36 88 86 96 101 26 1 108 35 37 116 46 80 38</file>
+                </tool>
+            </inputs>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\..\..\uTasker\uFile.c</name>
+            <outputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 127</file>
+                </tool>
+                <tool>
+                    <name>BICOMP</name>
+                    <file> 85</file>
+                </tool>
+            </outputs>
+            <inputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 25 3 39 40 89 30 29 84 45 114 33 34 120 36 88 86 96 101 26 1</file>
+                </tool>
+            </inputs>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\..\..\stack\arp.c</name>
+            <outputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 125</file>
+                </tool>
+                <tool>
+                    <name>BICOMP</name>
+                    <file> 136</file>
+                </tool>
+            </outputs>
+            <inputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 25 3 39 40 89 30 29 84 45 114 33 34 120 36 88 86 96 101 26 1</file>
+                </tool>
+            </inputs>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\..\..\stack\ip.c</name>
+            <outputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 94</file>
+                </tool>
+                <tool>
+                    <name>BICOMP</name>
+                    <file> 59</file>
+                </tool>
+            </outputs>
+            <inputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 25 3 39 40 89 30 29 84 45 114 33 34 120 36 88 86 96 101 26 1</file>
+                </tool>
+            </inputs>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\..\..\uTasker\Watchdog.c</name>
+            <outputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 95</file>
+                </tool>
+                <tool>
+                    <name>BICOMP</name>
+                    <file> 73</file>
+                </tool>
+            </outputs>
+            <inputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 25 3 39 40 89 30 29 84 45 114 33 34 120 36 88 86 96 101 26 1</file>
+                </tool>
+            </inputs>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\..\..\uTasker\Tty_drv.c</name>
+            <outputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 135</file>
+                </tool>
+                <tool>
+                    <name>BICOMP</name>
+                    <file> 56</file>
+                </tool>
+            </outputs>
+            <inputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 25 3 39 40 89 30 29 84 45 114 33 34 120 36 88 86 96 101 26 1</file>
+                </tool>
+            </inputs>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\..\..\uTasker\Driver.c</name>
+            <outputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 76</file>
+                </tool>
+                <tool>
+                    <name>BICOMP</name>
+                    <file> 53</file>
+                </tool>
+            </outputs>
+            <inputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 25 3 39 40 89 30 29 84 45 114 33 34 120 36 88 86 96 101 26 1</file>
+                </tool>
+            </inputs>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\..\..\uTasker\uMalloc.c</name>
+            <outputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 66</file>
+                </tool>
+                <tool>
+                    <name>BICOMP</name>
+                    <file> 134</file>
+                </tool>
+            </outputs>
+            <inputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 25 3 39 40 89 30 29 84 45 114 33 34 120 36 88 86 96 101 26 1</file>
+                </tool>
+            </inputs>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\disk_loader.c</name>
+            <outputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 82</file>
+                </tool>
+                <tool>
+                    <name>BICOMP</name>
+                    <file> 55</file>
+                </tool>
+            </outputs>
+            <inputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 25 3 39 40 89 30 29 84 45 114 33 34 120 36 88 86 96 101 26 1</file>
+                </tool>
+            </inputs>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\..\..\Hardware\iMX\iMX.c</name>
+            <outputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 61</file>
+                </tool>
+                <tool>
+                    <name>BICOMP</name>
+                    <file> 126</file>
+                </tool>
+            </outputs>
+            <inputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 25 3 39 40 89 30 29 84 45 114 33 34 120 36 88 86 96 101 26 1 31 42 103 121 44 90 28 87 107 115 32 112 99 41 83 43</file>
+                </tool>
+            </inputs>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\..\..\stack\SSL\mbedtls-1.3.10\aes_mbedTLS.c</name>
+            <outputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 50</file>
+                </tool>
+                <tool>
+                    <name>BICOMP</name>
+                    <file> 78</file>
+                </tool>
+            </outputs>
+            <inputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 25 3 39 40 89 30 29 84 45 114 33 34 120 36 88 86 96 101 26 1 108 35 37 116 46 80 38</file>
+                </tool>
+            </inputs>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\..\..\uTasker\eth_drv.c</name>
+            <outputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 58</file>
+                </tool>
+                <tool>
+                    <name>BICOMP</name>
+                    <file> 63</file>
+                </tool>
+            </outputs>
+            <inputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 25 3 39 40 89 30 29 84 45 114 33 34 120 36 88 86 96 101 26 1</file>
+                </tool>
+            </inputs>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\..\..\stack\http.c</name>
+            <outputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 131</file>
+                </tool>
+                <tool>
+                    <name>BICOMP</name>
+                    <file> 48</file>
+                </tool>
+            </outputs>
+            <inputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 25 3 39 40 89 30 29 84 45 114 33 34 120 36 88 86 96 101 26 1</file>
+                </tool>
+            </inputs>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\serial_loader.c</name>
+            <outputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 93</file>
+                </tool>
+                <tool>
+                    <name>BICOMP</name>
+                    <file> 57</file>
+                </tool>
+            </outputs>
+            <inputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 25 3 39 40 89 30 29 84 45 114 33 34 120 36 88 86 96 101 26 1</file>
+                </tool>
+            </inputs>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\SerialLoader\Exe\uTaskerSerialBoot.out</name>
+            <outputs>
+                <tool>
+                    <name>OBJCOPY</name>
+                    <file> 81</file>
+                </tool>
+                <tool>
+                    <name>ILINK</name>
+                    <file> 72</file>
+                </tool>
+            </outputs>
+            <inputs>
+                <tool>
+                    <name>ILINK</name>
+                    <file> 110 50 125 75 82 76 58 54 65 131 133 68 61 94 74 79 93 52 135 127 66 62 98 102 132 51 69 95 70 91 119 117 124</file>
+                </tool>
+            </inputs>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\usb_application.c</name>
+            <outputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 62</file>
+                </tool>
+                <tool>
+                    <name>BICOMP</name>
+                    <file> 67</file>
+                </tool>
+            </outputs>
+            <inputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 25 3 39 40 89 30 29 84 45 114 33 34 120 36 88 86 96 101 26 1</file>
+                </tool>
+            </inputs>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\webInterface.c</name>
+            <outputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 70</file>
+                </tool>
+                <tool>
+                    <name>BICOMP</name>
+                    <file> 104</file>
+                </tool>
+            </outputs>
+            <inputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 25 3 39 40 89 30 29 84 45 114 33 34 120 36 88 86 96 101 26 1</file>
+                </tool>
+            </inputs>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\usb_device_loader.c</name>
+            <outputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 98</file>
+                </tool>
+                <tool>
+                    <name>BICOMP</name>
+                    <file> 64</file>
+                </tool>
+            </outputs>
+            <inputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 25 3 39 40 89 30 29 84 45 114 33 34 120 36 88 86 96 101 26 1</file>
+                </tool>
+            </inputs>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\usb_host_loader.c</name>
+            <outputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 132</file>
+                </tool>
+                <tool>
+                    <name>BICOMP</name>
+                    <file> 97</file>
+                </tool>
+            </outputs>
+            <inputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 25 3 39 40 89 30 29 84 45 114 33 34 120 36 88 86 96 101 26 1</file>
+                </tool>
+            </inputs>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\..\uTaskerBoot\uTaskerBootLoader.c</name>
+            <outputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 69</file>
+                </tool>
+                <tool>
+                    <name>BICOMP</name>
+                    <file> 92</file>
+                </tool>
+            </outputs>
+            <inputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 25 3 39 40 89 30 29 84 45 114 33 34 120 36 88 86 96 101 26 1</file>
+                </tool>
+            </inputs>
+        </file>
+    </configuration>
+</project>

@@ -11,7 +11,7 @@
     File:      dhcp.c
     Project:   Single Chip Embedded Internet
     ---------------------------------------------------------------------
-    Copyright (C) M.J.Butcher Consulting 2004..2017
+    Copyright (C) M.J.Butcher Consulting 2004..2020
     *********************************************************************
     10.06.2007 Quieten GNU compiler by initialising a variable           {1}
     22.06.2008 Allow operation without random number generator support   {2}
@@ -54,6 +54,8 @@
 
 
 #if defined USE_DHCP_CLIENT || defined USE_DHCP_SERVER
+
+//#define DHCP_DEBUG
 
 #define ALLOW_OVERLOAD_OPTIONS                                           // {3}
 #define VERIFY_TIMERS                                                    // {6}
@@ -346,18 +348,18 @@ extern void fnDHCP(TTASKTABLE *ptrTaskTable)
     unsigned char ucInputMessage[SMALL_QUEUE];                           // reserve space for receiving messages
     int iNetwork = 0;
 
-    while (fnRead(PortIDInternal, ucInputMessage, HEADER_LENGTH) != 0) { // check input queue
+    while (fnRead(PortIDInternal, ucInputMessage, HEADER_LENGTH) != 0) { // check task input queue
         if (ucInputMessage[MSG_SOURCE_TASK] == TASK_ARP) {
             // Note that we receive ARP messages only on our attempt to send a test message to a node with our allocated IP address.
             // Since DHCP uses broadcast messages until this point there can be no ARP errors
             //
             fnRead(PortIDInternal, ucInputMessage, ucInputMessage[MSG_CONTENT_LENGTH]); // read the contents
             if (ARP_RESOLUTION_SUCCESS == ucInputMessage[0]) {
-#if IP_NETWORK_COUNT > 1
+    #if IP_NETWORK_COUNT > 1
                 USOCKET socket;
                 uMemcpy(&socket, &ucInputMessage[1], sizeof(socket));    // {50} extract the socket number from the received message
                 iNetwork = extractNetwork(socket);
-#endif
+    #endif
                 if (ucResendAfterArp[iNetwork] != 0) {
                     fnSendDHCP(ucResendAfterArp[iNetwork], iNetwork);
                 }
@@ -369,23 +371,23 @@ extern void fnDHCP(TTASKTABLE *ptrTaskTable)
                 // We have probed to ensure than no one else has the IP address which we have received
                 // the probing failed which means we can use it - inform application...
                 //
-#if IP_NETWORK_COUNT > 1
+    #if IP_NETWORK_COUNT > 1
                 USOCKET socket;
                 uMemcpy(&socket, &ucInputMessage[1], sizeof(socket));    // {50} extract the socket number from the received message
                 iNetwork = extractNetwork(socket);
-#endif
+    #endif
                 fnStateEventDHCP(E_DHCP_BIND_NOW, iNetwork);
             }
             ucResendAfterArp[iNetwork] = 0;
         }
         else {                                                           // assume a timer event
-#if IP_NETWORK_COUNT > 1
+    #if IP_NETWORK_COUNT > 1
             while (ucInputMessage[MSG_TIMER_EVENT] >= E_NETWORK_TIMER_OFFSET) { // extract the network number from the timer event
                 iNetwork++;
                 ucInputMessage[MSG_TIMER_EVENT] -= E_NETWORK_TIMER_OFFSET;
             }
             ucLastTimer[iNetwork] = 0;                                   // mark that the timer is no longer active
-#endif
+    #endif
             fnStateEventDHCP(ucInputMessage[MSG_TIMER_EVENT], iNetwork); // timer event
         }
     }
@@ -489,13 +491,25 @@ static void fnSendDHCP(unsigned char ucDHCP_message, int iNetwork)
     }
 #endif
     *ucBuf = DHCP_OPT_END;                                               // end option list
-        
+#if defined DHCP_DEBUG
+    fnDebugMsg("DHCP(");
+    fnDebugDec((unsigned long)iNetwork, 0);
+#endif        
     if (ucDHCP_state[iNetwork] & (DHCP_STATE_BOUND | DHCP_STATE_RENEWING)) { // send unicast - message is fixed length with padding
+#if defined DHCP_DEBUG
+        fnDebugMsg("): Unicast\r\n");
+#endif
         if (NO_ARP_ENTRY == fnSendUDP(DHCPClientSocketNetwork[iNetwork], ucDHCP_SERVER_IP[iNetwork], DHCP_SERVER_PORT, (unsigned char *)&tUDP_Message.tUDP_Header, DHCP_BUFFER, OWN_TASK)) {
+#if defined DHCP_DEBUG
+            fnDebugMsg("Resolve\r\n");
+#endif
             ucResendAfterArp[iNetwork] = ucDHCP_message;                 // we no longer have the address of the DHCP server in our ARP cache so we must repeat after the address has been resolved
         }
     }
     else {                                                               // or broadcast
+#if defined DHCP_DEBUG
+        fnDebugMsg("): Broadcast\r\n");
+#endif
         fnSendUDP(DHCPClientSocketNetwork[iNetwork], (unsigned char *)cucBroadcast, DHCP_SERVER_PORT, (unsigned char *)&tUDP_Message.tUDP_Header, DHCP_BUFFER, OWN_TASK);
     }
 }
@@ -533,6 +547,14 @@ static void fnCheckTimerValidity(int iNetwork)                           // {12}
 //
 static void fnStateEventDHCP(unsigned char ucEvent, int iNetwork)
 {
+#if defined DHCP_DEBUG
+    fnDebugMsg("DHCP(");
+    fnDebugDec((unsigned long)iNetwork, 0);
+    fnDebugMsg("): State:");
+    fnDebugDec(ucDHCP_state[iNetwork], WITH_SPACE);
+    fnDebugMsg(" Event:");
+    fnDebugDec(ucEvent, (WITH_SPACE | WITH_CR_LF));
+#endif
     switch (ucDHCP_state[iNetwork]) {
         case DHCP_STATE_INIT_REBOOT:                                     // try to obtain a preferred address which we already know
             ucDHCP_state[iNetwork] = DHCP_STATE_REBOOTING;               // move to rebooting state
@@ -1204,7 +1226,7 @@ _next_base_par:
 
 static void fnHandleClient(BOOTP_PACKET *ptrBootp, const unsigned char *ptrParameterList, const unsigned char *ptrRequestedIP, unsigned char ucMessageType, USOCKET SocketNr)
 {
-    int iNetwork = extractNetwork(SocketNr);                                 // the network that the reception was received on
+    int iNetwork = extractNetwork(SocketNr);                             // the network that the reception was received on
     DHCP_CLIENT_ENTRY *ptrFreeEntry = 0;
     DHCP_CLIENT_ENTRY *ptrClientEntry = dncp_clients;
     unsigned char *ptrData = (unsigned char *)(ptrBootp + 1);

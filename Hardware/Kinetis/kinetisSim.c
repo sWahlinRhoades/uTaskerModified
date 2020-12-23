@@ -11,7 +11,7 @@
     File:      kinetisSim.c
     Project:   Single Chip Embedded Internet
     ---------------------------------------------------------------------
-    Copyright (C) M.J.Butcher Consulting 2004..2017
+    Copyright (C) M.J.Butcher Consulting 2004..2020
     *********************************************************************
     04.03.2012 Add NAND Flash controller                                 {1}
     18.03.2012 Add ADC                                                   {2}
@@ -56,7 +56,22 @@
     17.01.2016 Add fnResetENET()                                         {41}
     02.02.2017 Adapt for us tick resolution
     24.03.2017 Reset all host endpoints data frame types                 {42}
-
+    03.05.2017 Improve LPUART and UART rx DMA operation
+    18.05.2017 Add optional logging of UART reception to a simulation file {43}
+    13.07.2017 Define KL82 disabled ports                                {44}
+    04.08.2017 Add fnSetBitBandPeripheralValue() and fnClearBitBandPeripheralValue()
+    11.08.2017 Add PCC support                                           {45}
+    12.09.2017 Add INTMUX support and LPUART2 using its interrupts       {46}
+    26.09.2017 Add LPIT support                                          {47}
+    04.11.2017 Add true rando number generator registers initialisation  {48}
+    08.05.2018 Added simulation of all FTM/TPM channel interrupts        {49}
+    29.08.2018 Add input capture simulation                              {50}
+    03.09.2018 Extend CAN support to 3 CAN controllers
+    18.09.2018 Add key input port defaut override and extended port default states {51}
+    29.05.2019 Add FTM channel DMA trigger simulation                    {52}
+    28.06.2020 Add HSUSB periodic list handling                          {53}
+    15.10.2020 Correct SRTC to increment the RTC count by 32 on each LPO edge {54}
+ 
 */  
                           
 
@@ -66,10 +81,14 @@
 
 #include "config.h"
 
-#if defined _KINETIS
+#if defined _KINETIS                                                     // only on Kinetis parts
 
-#if defined CAN_INTERFACE && defined SIM_KOMODO
-    #include "..\..\WinSim\Komodo\komodo.h" 
+#if defined CAN_INTERFACE
+    #if defined SIM_KOMODO
+        #include "..\..\WinSim\Komodo\komodo.h" 
+    #else
+        #define Komodo int 
+    #endif
 #endif
 
 #define PROGRAM_ONCE_AREA_SIZE   64                                      // 64 bytes in 8 blocks of 8 bytes
@@ -78,30 +97,45 @@ KINETIS_PERIPH  kinetis = {0};
 
 unsigned char uninitialisedRAM[16];
 
-unsigned long vector_ram[(sizeof(VECTOR_TABLE))/sizeof(unsigned long)]; // long word aligned
+unsigned long vector_ram[(sizeof(VECTOR_TABLE))/sizeof(unsigned long)];  // long word aligned
 
 #if defined _EXTERNAL_PORT_COUNT && _EXTERNAL_PORT_COUNT > 0             // {8}
     extern unsigned long fnGetExtPortFunction(int iExtPortReference);
     extern unsigned long fnGetExtPortState(int iExtPortReference);
 #endif
+extern int fnCrystalFonzKey(unsigned char ucPort, int iChange, unsigned long ulBit);
 
 static unsigned long ulPort_in_A, ulPort_in_B, ulPort_in_C, ulPort_in_D, ulPort_in_E;
 #if PORTS_AVAILABLE > 5
     static unsigned long ulPort_in_F;
 #endif
-
-#if defined KINETIS_KE
+#if PORTS_AVAILABLE > 6
+    static unsigned long ulPort_in_G;
+#endif
+#if PORTS_AVAILABLE > 7
+    static unsigned long ulPort_in_H;
+#endif
+#if PORTS_AVAILABLE > 8
+    static unsigned long ulPort_in_I;
+#endif
+#if defined SERIAL_INTERFACE
+    static int iUART_rx_Active[LPUARTS_AVAILABLE + UARTS_AVAILABLE] = {0};
+#endif
+#if defined KINETIS_KE && !defined KINETIS_KE15 && !defined KINETIS_KE18
     static unsigned char ucPortFunctions[PORTS_AVAILABLE_8_BIT][PORT_WIDTH] = {0};
 #else
     static unsigned char ucPortFunctions[PORTS_AVAILABLE][PORT_WIDTH] = {0};
 #endif
 static unsigned long ulPeripherals[PORTS_AVAILABLE] = {0};
 #if defined SUPPORT_ADC
-    static unsigned short usADC_values[ADC_CHANNELS * ADC_CONTROLLERS];
+    static unsigned short usADC_values[ADC_CONTROLLERS][32] = {{0}};
     static void *ptrPorts[2] = {(void *)ucPortFunctions, (void *)usADC_values}; // {2}
 #endif
 #if defined RUN_IN_FREE_RTOS
     extern void fnExecutePendingInterrupts(int iRecursive);
+#endif
+#if defined USB_INTERFACE
+    extern void fnChangeUSBState(int iNewState, int iController);
 #endif
 
 static const unsigned long ulDisabled[PORTS_AVAILABLE] = {
@@ -111,6 +145,18 @@ static const unsigned long ulDisabled[PORTS_AVAILABLE] = {
     0x00000c30,                                                          // port C disabled default pins
     0x0000009d,                                                          // port D disabled default pins
     0x00000003                                                           // port E disabled default pins
+#elif defined KINETIS_K27 || defined KINETIS_K28
+    (PORTA_BIT5 | PORTA_BIT6 | PORTA_BIT9 | PORTA_BIT10 | PORTA_BIT11 | PORTA_BIT12 | PORTA_BIT13 | PORTA_BIT14 | PORTA_BIT15 | PORTA_BIT16 | PORTA_BIT17 | PORTA_BIT20 | PORTA_BIT21 | PORTA_BIT22 | PORTA_BIT23 | PORTA_BIT24 | PORTA_BIT25 | PORTA_BIT26 | PORTA_BIT27 | PORTA_BIT28 | PORTA_BIT29 | PORTA_BIT30 | PORTA_BIT31), // port A disabled default pins
+    (PORTB_BIT4 | PORTB_BIT5 | PORTB_BIT6 | PORTB_BIT7 | PORTB_BIT8 | PORTB_BIT9 | PORTB_BIT10 | PORTB_BIT11 | PORTB_BIT12 | PORTB_BIT13 | PORTB_BIT14 | PORTB_BIT15 | PORTB_BIT16 | PORTB_BIT17 | PORTB_BIT18 | PORTB_BIT19 | PORTB_BIT20 | PORTB_BIT21 | PORTB_BIT22 | PORTB_BIT23), // port B disabled default pins
+    (PORTC_BIT4 | PORTC_BIT5 | PORTC_BIT10 | PORTC_BIT11 | PORTC_BIT12 | PORTC_BIT13 | PORTC_BIT14 | PORTC_BIT15 | PORTC_BIT16 | PORTC_BIT17 | PORTC_BIT18 | PORTC_BIT19 | PORTC_BIT20 | PORTC_BIT21 | PORTC_BIT22 | PORTC_BIT23 | PORTC_BIT24 | PORTC_BIT25 | PORTC_BIT26 | PORTC_BIT27 | PORTC_BIT28 | PORTC_BIT29), // port C disabled default pins
+    (PORTD_BIT0 | PORTD_BIT2 | PORTD_BIT3 | PORTD_BIT4 | PORTD_BIT7 | PORTD_BIT8 | PORTD_BIT9 | PORTD_BIT10 | PORTD_BIT11 | PORTD_BIT12 | PORTD_BIT13 | PORTD_BIT14 | PORTD_BIT15),                              // port D disabled default pins
+    (PORTE_BIT0 | PORTE_BIT1 | PORTE_BIT2 | PORTE_BIT3 | PORTE_BIT4 | PORTE_BIT5 | PORTE_BIT6 | PORTE_BIT7 | PORTE_BIT8 | PORTE_BIT9 | PORTE_BIT10 | PORTE_BIT11 | PORTE_BIT12 | PORTE_BIT13 | PORTE_BIT20 | PORTE_BIT21 | PORTE_BIT22 | PORTE_BIT23)                                            // port E disabled default pins
+#elif defined KINETIS_K12
+    (PORTA_BIT17 | PORTA_BIT16 | PORTA_BIT15 | PORTA_BIT14 | PORTA_BIT13 | PORTA_BIT12 | PORTA_BIT5), // port A disabled default pins
+    (PORTB_BIT19 | PORTB_BIT18 | PORTB_BIT17 | PORTB_BIT16 | PORTB_BIT13 | PORTB_BIT12 | PORTB_BIT11 | PORTB_BIT10), // port B disabled default pins
+    (PORTC_BIT17 | PORTC_BIT16 | PORTC_BIT13 | PORTC_BIT12 | PORTC_BIT11 | PORTC_BIT10 | PORTC_BIT5 | PORTC_BIT4), // port C disabled default pins
+    (PORTD_BIT3 | PORTD_BIT2 | PORTD_BIT0),                              // port D disabled default pins
+    (PORTE_BIT5 | PORTE_BIT4)                                            // port E disabled default pins
 #elif defined KINETIS_K10
     0x3f01ce60,                                                          // port A disabled default pins
     0x00f00300,                                                          // port B disabled default pins
@@ -174,11 +220,11 @@ static const unsigned long ulDisabled[PORTS_AVAILABLE] = {
     0x0000fc00,                                                          // port D disabled default pins
     0x1c001ff0                                                           // port E disabled default pins
 #elif defined KINETIS_K64
-    0x3f01ce60,                                                          // port A disabled default pins
-    0x00ff3300,                                                          // port B disabled default pins
-    0x000ff030,                                                          // port C disabled default pins
-    0x00007f9d,                                                          // port D disabled default pins
-    0x1c001ff0                                                           // port E disabled default pins
+    (PORTA_BIT29 | PORTA_BIT28 | PORTA_BIT27 | PORTA_BIT26 | PORTA_BIT25 | PORTA_BIT24 | PORTA_BIT16 | PORTA_BIT15 | PORTA_BIT14 | PORTA_BIT11 | PORTA_BIT10 | PORTA_BIT9 | PORTA_BIT6 | PORTA_BIT5), // port A disabled default pins
+    (PORTB_BIT23 | PORTB_BIT22 | PORTB_BIT21 | PORTB_BIT20 | PORTB_BIT19 | PORTB_BIT18 | PORTB_BIT17 | PORTB_BIT16 | PORTB_BIT13 | PORTB_BIT12 | PORTB_BIT9 | PORTB_BIT8), // port B disabled default pins
+    (PORTC_BIT19 | PORTC_BIT18 | PORTC_BIT17 | PORTC_BIT16 | PORTC_BIT15 | PORTC_BIT14 | PORTC_BIT13 | PORTC_BIT12 | PORTC_BIT5 | PORTC_BIT4), // port C disabled default pins
+    (PORTD_BIT15 | PORTD_BIT14 | PORTD_BIT13 | PORTD_BIT12 | PORTD_BIT11 | PORTD_BIT10 | PORTD_BIT9 | PORTD_BIT8 | PORTD_BIT7 | PORTD_BIT4 | PORTD_BIT3 | PORTD_BIT2 | PORTD_BIT0), // port D disabled default pins
+    (PORTE_BIT28 | PORTE_BIT27 | PORTE_BIT26 | PORTE_BIT12 | PORTE_BIT11 | PORTE_BIT10 | PORTE_BIT9 | PORTE_BIT8 | PORTE_BIT7 | PORTE_BIT6 | PORTE_BIT5 | PORTE_BIT4) // port E disabled default pins
 #elif defined KINETIS_K60
     0x3f01ce40,                                                          // port A disabled default pins
     0x00f00300,                                                          // port B disabled default pins
@@ -211,7 +257,13 @@ static const unsigned long ulDisabled[PORTS_AVAILABLE] = {
     0x000ff030,                                                          // port C disabled default pins
     0x0000ff9d,                                                          // port D disabled default pins
     0x1c001ff0                                                           // port E disabled default pins
-#elif defined KINETIS_KE                                                 // not used by KE
+#elif defined KINETIS_KE15 || defined KINETIS_KE18
+    0x0003ff00,                                                          // port A disabled default pins
+    0x00038f00,                                                          // port B disabled default pins
+    0x00003f00,                                                          // port C disabled default pins
+    0x0003fd00,                                                          // port D disabled default pins
+    0x0001f080                                                           // port E disabled default pins
+#elif defined KINETIS_KE                                                 // not used by most KE
     0x00000000,
     #if PORTS_AVAILABLE > 1
     0x00000000
@@ -238,12 +290,24 @@ static const unsigned long ulDisabled[PORTS_AVAILABLE] = {
     0x00f73c38,                                                          // port C disabled default pins
     0x0000009d,                                                          // port D disabled default pins
     0x8700003f                                                           // port E disabled default pins
-    #elif defined KINETIS_KL27
+    #elif defined KINETIS_KL17 || defined KINETIS_KL27
     0x00003026,                                                          // port A disabled default pins
     0x000f0000,                                                          // port B disabled default pins
     0x00000c38,                                                          // port C disabled default pins
     0x0000009d,                                                          // port D disabled default pins
     0x83000003                                                           // port E disabled default pins
+    #elif defined KINETIS_KL28
+    (PORTA_BIT29 | PORTA_BIT16 | PORTA_BIT15 | PORTA_BIT14 | PORTA_BIT13 | PORTA_BIT12 | PORTA_BIT11 | PORTA_BIT10 | PORTA_BIT7 | PORTA_BIT6 | PORTA_BIT5 | PORTA_BIT4 | PORTA_BIT2 | PORTA_BIT1), // port A disabled default pins
+    (PORTB_BIT23 | PORTB_BIT22 | PORTB_BIT21 | PORTB_BIT20 | PORTB_BIT11 | PORTB_BIT10 | PORTB_BIT9 | PORTB_BIT8 | PORTB_BIT7 | PORTB_BIT6), // port B disabled default pins
+    (PORTC_BIT23 | PORTC_BIT22 | PORTC_BIT19 | PORTC_BIT18 | PORTC_BIT17 | PORTC_BIT16 | PORTC_BIT15 | PORTC_BIT14 | PORTC_BIT13 | PORTC_BIT12 | PORTC_BIT11 | PORTC_BIT10 | PORTC_BIT5 | PORTC_BIT4), // port C disabled default pins
+    (PORTD_BIT15 | PORTD_BIT14 | PORTD_BIT13 | PORTD_BIT12 | PORTD_BIT11 | PORTD_BIT10 | PORTD_BIT9 | PORTD_BIT8 | PORTD_BIT7 | PORTD_BIT4 | PORTD_BIT3 | PORTD_BIT2 | PORTD_BIT0), // port D disabled default pins
+    (PORTE_BIT31 | PORTE_BIT26 | PORTE_BIT6 | PORTE_BIT5 | PORTE_BIT4)   // port E disabled default pins
+    #elif defined KINETIS_KL82                                           // {44}
+    0x2003fc00,                                                          // port A disabled default pins
+    0x00f00ff0,                                                          // port B disabled default pins
+    0x000ffc38,                                                          // port C disabled default pins
+    0x0000ff9d,                                                          // port D disabled default pins
+    0xffffffff                                                           // port E disabled default pins
     #else                                                                // KL20/KL40
     0x0003f0e6,                                                          // port A disabled default pins
     0x00000000,                                                          // port B disabled default pins
@@ -253,19 +317,29 @@ static const unsigned long ulDisabled[PORTS_AVAILABLE] = {
     0x8700007f                                                           // port E disabled default pins
         #endif
     #endif
-#elif defined KINETIS_KV10
+#elif defined KINETIS_KV10 || defined KINETIS_KV11
     0x00000006,                                                          // port A disabled default pins
     0x00030000,                                                          // port B disabled default pins
     0x00000030,                                                          // port C disabled default pins
     0x0000009d,                                                          // port D disabled default pins
     0x03000000                                                           // port E disabled default pins
-#elif defined KINETIS_KV30 || defined KINETIS_KV50
+#elif defined KINETIS_KV30 || defined KINETIS_KV40 || defined KINETIS_KV50
     0x0001f020,                                                          // port A disabled default pins
     0x00ff0200,                                                          // port B disabled default pins
     0x0007f030,                                                          // port C disabled default pins
     0x0000009d,                                                          // port D disabled default pins
     0x04000070                                                           // port E disabled default pins
 #elif defined KINETIS_KW2X
+    0x00000000,                                                          // port A disabled default pins
+    0x00000000,                                                          // port B disabled default pins
+    0x00000030,                                                          // port C disabled default pins
+    0x0000000d,                                                          // port D disabled default pins
+    0x00000010                                                           // port E disabled default pins
+#elif defined KINETIS_KW3X || defined KINETIS_KW4X
+    (PORTA_BIT16 | PORTA_BIT17 | PORTA_BIT18 | PORTA_BIT19),             // port A disabled default pins
+    (PORTB_BIT0 | PORTB_BIT1 | PORTB_BIT2 | PORTB_BIT3),                 // port B disabled default pins
+    (PORTC_BIT0 | PORTC_BIT1 | PORTC_BIT2 | PORTC_BIT3 | PORTC_BIT4 | PORTC_BIT5 | PORTC_BIT6 | PORTC_BIT7 | PORTC_BIT16 | PORTC_BIT17 | PORTC_BIT18 | PORTC_BIT19), // port C disabled default pins
+#elif defined KINETIS_KM
     0x00000000,                                                          // port A disabled default pins
     0x00000000,                                                          // port B disabled default pins
     0x00000030,                                                          // port C disabled default pins
@@ -282,7 +356,12 @@ static int iFlagRefresh = 0;
     #define _fnLE_add(x) (void *)x
 
     #if defined USB_HS_INTERFACE                                         // {12}
-        static unsigned char ucHSTxBuffer[NUMBER_OF_USBHS_ENDPOINTS] = {0}; // monitor the high speed controller's transmission buffer use
+        #if defined NUMBER_OF_HOST_ENDPOINTS && (NUMBER_OF_HOST_ENDPOINTS > NUMBER_OF_USBHS_ENDPOINTS)
+            #define ENDPOINTS_TO_CHECK     (NUMBER_OF_HOST_ENDPOINTS)
+        #else
+            #define ENDPOINTS_TO_CHECK     (NUMBER_OF_USBHS_ENDPOINTS)
+        #endif
+        static unsigned char ucHSTxBuffer[ENDPOINTS_TO_CHECK] = {0};     // monitor the high speed controller's transmission buffer use
         static unsigned long ulHSEndpointInt = 0;
     #endif
     static unsigned char ucTxBuffer[NUMBER_OF_USB_ENDPOINTS] = {0};      // monitor the controller's transmission buffer use
@@ -292,8 +371,13 @@ static int iFlagRefresh = 0;
     static int iData1Frame[NUMBER_OF_USB_ENDPOINTS] = {0};
     #endif
 #endif
-#if defined KINETIS_KL                                                   // {24}
+#if defined KINETIS_WITH_COP
     static unsigned long ulCOPcounter = 0;
+#endif
+#if defined KINETIS_KM
+    #define PORT_CAST unsigned char
+#else
+    #define PORT_CAST unsigned long
 #endif
 
 // Initialisation of all non-zero registers in the device
@@ -304,21 +388,53 @@ static void fnSetDevice(unsigned long *port_inits)
 
 #if defined SUPPORT_ADC
     int i;
+    int j;
 #endif
+    unsigned long initial_input_state;
+
+    kinetis.CORTEX_M4_REGS.ulPRIMASK = INTERRUPT_MASKED;                 // interrupts are masked out of reset
 
 #if !defined KINETIS_KL
     FMC_PFAPR  = 0x00f8003f;                                             // flash memory controller
+    #if defined KINETIS_K65 || defined KINETIS_K66
+    FMC_PFB01CR = 0x3004001f;
+    FMC_PFB23CR = 0x3004001f;
+    #else
     FMC_PFB0CR = 0x3002001f;
     FMC_PFB1CR = 0x3002001f;
+    #endif
 #endif
 
-#if defined KINETIS_K_FPU || defined KINETIS_KL || defined KINETIS_REVISION_2 || (KINETIS_MAX_SPEED > 100000000) // {26}
-    #if defined KINETIS_KL && defined RTC_USES_LPO_1kHz
-    RCM_SRS0 = RCM_SRS0_PIN;                                             // simulate external reset
+#if defined FLASH_CONTROLLER_FTMRE
+    FTMRH_FSTAT = FTMRH_STAT_CCIF;
+    FTMRH_FSEC = KINETIS_FLASH_CONFIGURATION_SECURITY;
+    FTMRH_FPROT = KINETIS_FLASH_CONFIGURATION_DATAFLASH_PROT;
+    FTMRH_FOPT = KINETIS_FLASH_CONFIGURATION_NONVOL_OPTION;
+#else
+    FTFL_FSTAT = FTFL_STAT_CCIF;                                        // flash controller
+    FTFL_FSEC = KINETIS_FLASH_CONFIGURATION_SECURITY;
+    FTFL_FOPT = KINETIS_FLASH_CONFIGURATION_NONVOL_OPTION;
+    FTFL_FEPROT = KINETIS_FLASH_CONFIGURATION_EEPROM_PROT;
+    FTFL_FDPROT = KINETIS_FLASH_CONFIGURATION_DATAFLASH_PROT;
+    FTFL_FPROT0 = (unsigned char)(KINETIS_FLASH_CONFIGURATION_PROGRAM_PROTECTION >> 24);
+    FTFL_FPROT1 = (unsigned char)(KINETIS_FLASH_CONFIGURATION_PROGRAM_PROTECTION >> 16);
+    FTFL_FPROT2 = (unsigned char)(KINETIS_FLASH_CONFIGURATION_PROGRAM_PROTECTION >> 8);
+    FTFL_FPROT3 = (unsigned char)(KINETIS_FLASH_CONFIGURATION_PROGRAM_PROTECTION);
+#endif
+#if defined KINETIS_K_FPU || defined KINETIS_KL || defined KINETIS_KM || defined KINETIS_REVISION_2 || (KINETIS_MAX_SPEED > 100000000) // {26}
+    #if defined KINETIS_KL28
+    RCM_VERID = 0x03000003;
+    RCM_PARAM = 0x00002eef;
+    RCM_SRS = 0x00000082;
+    RCM_SSRS = 0x00000082;
     #else
+        #if defined KINETIS_KL && defined RTC_USES_LPO_1kHz
+    RCM_SRS0 = RCM_SRS0_PIN;                                             // simulate external reset
+        #else
     RCM_SRS0 = (RCM_SRS0_POR | RCM_SRS0_LVD);                            // reset control module - reset status due to power on reset
+        #endif
     #endif
-    #if defined KINETIS_KL || defined KINETIS_K22
+    #if defined KINETIS_KL || defined KINETIS_K22 || defined KINETIS_K65 || defined KINETIS_K66
     SMC_STOPCTRL = SMC_STOPCTRL_VLLSM_VLLS3;
     #else
     SMC_VLLSCTRL = SMC_VLLSCTRL_VLLSM_VLLS3;
@@ -327,7 +443,11 @@ static void fnSetDevice(unsigned long *port_inits)
 #elif !defined KINETIS_KE && !defined KINETIS_KEA
     MC_SRSL = (MC_SRSL_POR | MC_SRSL_LVD);                               // mode control - reset status due to power on reset
 #endif
-#if defined KINETIS_KL && !defined KINETIS_KL82
+#if defined KINETIS_WITH_WDOG32
+    WDOG0_CS = (0xffff0000 | WDOG_CS_CMD32EN | WDOG_CS_CLK_1kHz | WDOG_CS_EN);
+    WDOG0_CNT = 0x00000002;
+    WDOG0_TOVAL = 0x00000400;
+#elif defined KINETIS_WITH_COP
     SIM_COPC = SIM_COPC_COPT_LONGEST;                                    // COP (computer operating properly) rather than watchdog
 #elif defined KINETIS_KE
     WDOG_CS1 = WDOG_CS1_EN;
@@ -343,18 +463,19 @@ static void fnSetDevice(unsigned long *port_inits)
     WDOG_UNLOCK = 0xd928;
     WDOG_PRESC = 0x0400;
 #endif
-#if defined KINETIS_KL                                                   // {24}
-    #if defined KINETIS_WITH_SCG
-    SCG_VERID = 0x00000040;
-    SCG_CSR = 0x02000001;
-    SCG_RCCR = 0x02000001;
-    SCG_VCCR = 0x02000001;
-    SCG_HCCR = 0x02000001;
-    SCG_CLKOUTCNFG = 0x02000000;
-    SCG_SOSCCFG = 0x00000010;
-    SCG_SIRCCSR = 0x03000005;
+#if defined KINETIS_WITH_SCG
+    SCG_VERID = 0x01000000;
+    SCG_PARAM = (SCG_PARAM_CLKPRES_SOSC | SCG_PARAM_CLKPRES_SIRC | SCG_PARAM_CLKPRES_FIRC | SCG_PARAM_CLKPRES_SPLL | SCG_PARAM_DIVPRES_DIVSLOW | SCG_PARAM_DIVPRES_DIVCORE);
+    SCG_CSR = (SCG_CSR_SCS_SIRC_CLK | ((1 - 1) << SCG_CSR_DIVCORE_SHIFT) | ((2 - 1) << SCG_CSR_DIVSLOW_SHIFT));
+    SCG_RCCR = (SCG_RCCR_SCS_SIRC_CLK | ((1 - 1) << SCG_RCCR_DIVCORE_SHIFT) | ((2 - 1) << SCG_RCCR_DIVSLOW_SHIFT));
+    SCG_VCCR = (SCG_VCCR_SCS_SIRC_CLK | ((1 - 1) << SCG_VCCR_DIVCORE_SHIFT) | ((2 - 1) << SCG_VCCR_DIVSLOW_SHIFT));
+    SCG_HCCR = (SCG_HCCR_SCS_SIRC_CLK | ((1 - 1) << SCG_HCCR_DIVCORE_SHIFT) | ((2 - 1) << SCG_HCCR_DIVSLOW_SHIFT));
+    SCG_CLKOUTCNFG = SCG_CLKOUTCNFG_SIRC_CLK;
+    SCG_SOSCCFG = SCG_SOSCCFG_RANGE_LOW;
+    SCG_SIRCCSR = (SCG_SIRCCSR_SIRCEN | SCG_SIRCCSR_SIRLPEN | SCG_SIRCCSR_SIRCEN | SCG_SIRCCSR_SIRCEN);
     SCG_SIRCCFG = 0x00000001;
-    #elif defined KINETIS_KL03 || defined KINETIS_KL43 || defined KINETIS_KL27
+#elif defined KINETIS_KL                                                 // {24}
+    #if defined KINETIS_WITH_MCG_LITE
     MCG_C1 = MCG_C1_CLKS_LIRC;
     MCG_C2 = MCG_C2_IRCS;
     MCG_S  = MCG_S_CLKST_LICR;
@@ -368,15 +489,25 @@ static void fnSetDevice(unsigned long *port_inits)
     ICS_S = ICS_S_IREFST;
 #else
     EWM_CMPH = 0xff;                                                     // external watchdog monitor
-
     MCG_C1 = MCG_C1_IREFS;                                               // multi-purpose clock generator
     MCG_C2 = MCG_C2_LOCRE0;
     MCG_S  = MCG_S_IREFST;
-    #if defined KINETIS_K_FPU || (KINETIS_MAX_SPEED > 100000000)
-    MCG_SC = 0x02;
+    #if defined MCG_SC
+    MCG_SC = MCG_SC_FCRDIV_2;
+    #endif
+    #if defined MCG_C10 && (defined KINETIS_K_FPU || (KINETIS_MAX_SPEED > 100000000))
     MCG_C10 = 0x80;
     #endif
-    SIM_SDID = 0x014a;                                                   // K60 ID
+    #if defined KINETIS_REVISION_2
+    SIM_SDID = 0x114a;                                                   // K60 ID (revision 2)
+    #else
+    SIM_SDID = 0x014a;                                                   // K60 ID (revision 1)
+    #endif
+#endif
+#if defined KINETIS_KL28
+    PMC_VERID = 0x04000000;
+    PMC_PARAM = 0x00000003;
+    PMC_HVDSC1 = 0x00000001;
 #endif
     PMC_LVDSC1 = PMC_LVDSC1_LVDRE;                                       // low voltage detect reset enabled by default
     PMC_REGSC = PMC_REGSC_REGONS;                                        // regulator is in run regulation
@@ -400,9 +531,94 @@ static void fnSetDevice(unsigned long *port_inits)
     MPU_RGD15_WORD1 = 0x0000001f;
 #endif
 #if !defined KINETIS_WITHOUT_PIT
+    #if defined LPITS_AVAILABLE                                          // {47}
+    LPIT0_VERID = 0x01000000;
+    LPIT0_PARAM = (LPIT_CHANNELS | (LPIT_INPUT_TRIGGERS << 8));
+    LPIT0_CVAL0 = 0xffffffff;
+    LPIT0_CVAL1 = 0xffffffff;
+    LPIT0_CVAL2 = 0xffffffff;
+    LPIT0_CVAL3 = 0xffffffff;
+    #else
     PIT_MCR = PIT_MCR_MDIS;                                              // PITs disabled
+    #endif
 #endif
-#if defined KINETIS_KE
+#if defined KINETIS_WITH_PCC                                             // {45}
+    #if defined KINETIS_KE15 || defined KINETIS_KE18
+    PCC_DMA0 = (PCC_PR | PCC_CGC);
+    PCC_FLASH = (PCC_PR | PCC_CGC);
+    PCC_DMAMUX0 = PCC_PR;
+    PCC_ADC1 = (PCC_PR | PCC_CGC);
+    PCC_LPSPI0 = PCC_PR;
+    PCC_LPSPI1 = PCC_PR;
+    PCC_CRC = PCC_PR;
+    PCC_PDB0 = PCC_PR;
+    PCC_LPIT0 = PCC_PR;
+    PCC_FLEXTMR0 = PCC_PR;
+    PCC_FLEXTMR1 = PCC_PR;
+    PCC_FLEXTMR2 = PCC_PR;
+    PCC_ADC0 = (PCC_PR | PCC_CGC);
+    PCC_RTC = PCC_PR;
+    PCC_LPTMR0 = PCC_PR;
+    #if !defined KINETIS_KE18
+    PCC_TSI = PCC_PR;
+    #endif
+    PCC_PORTA = PCC_PR;
+    PCC_PORTB = PCC_PR;
+    PCC_PORTC = PCC_PR;
+    PCC_PORTD = PCC_PR;
+    PCC_PORTE = PCC_PR;
+    PCC_PWT = PCC_PR;
+    PCC_FLEXIO = PCC_PR;
+    PCC_OSC32 = PCC_PR;
+    PCC_EWM = PCC_PR;
+    PCC_LPI2C0 = PCC_PR;
+    PCC_LPI2C1 = PCC_PR;
+    PCC_LPUART0 = PCC_PR;
+    PCC_LPUART1 = PCC_PR;
+    PCC_LPUART2 = PCC_PR;
+    PCC_CMP0 = PCC_PR;
+    PCC_CMP1 = PCC_PR;
+    #else
+    PCC_DMA0 = PCC_PR;
+    PCC_FLASH = (PCC_PR | PCC_CGC);
+    PCC_DMAMUX0 = PCC_PR;
+    PCC_INTMUX0 = PCC_PR;
+    PCC_TPM2    = PCC_PR;
+    PCC_LPIT0   = PCC_PR;
+    PCC_LPTMR0  = PCC_PR;
+    PCC_RTC     = PCC_PR;
+    PCC_LPSPI2  = PCC_PR;
+    PCC_LPI2C2  = PCC_PR;
+    PCC_LPUART2 = PCC_PR;
+    PCC_SAI0    = PCC_PR;
+    PCC_EMVSIM0 = PCC_PR;
+    PCC_USB0FS  = PCC_PR;
+    PCC_PORTA   = PCC_PR;
+    PCC_PORTB   = PCC_PR;
+    PCC_PORTC   = PCC_PR;
+    PCC_PORTD   = PCC_PR;
+    PCC_PORTE   = PCC_PR;
+    PCC_TSI0    = PCC_PR;
+    PCC_ADC0    = PCC_PR;
+    PCC_DAC0    = PCC_PR;
+    PCC_CMP0    = PCC_PR;
+    PCC_VREF    = PCC_PR;
+    PCC_CRC     = PCC_PR;
+    PCC_TRNG    = PCC_PR;
+    PCC_TPM0    = PCC_PR;
+    PCC_TPM1    = PCC_PR;
+    PCC_LPTMR1  = PCC_PR;
+    PCC_LPSPI0  = PCC_PR;
+    PCC_LPSPI1  = PCC_PR;
+    PCC_LPI2C0  = PCC_PR;
+    PCC_LPI2C1  = PCC_PR;
+    PCC_LPUART0 = PCC_PR;
+    PCC_LPUART1 = PCC_PR;
+    PCC_FLEXIO0 = PCC_PR;
+    PCC_CMP1    = PCC_PR;
+    #endif
+#endif
+#if defined KINETIS_KE && !defined KINETIS_KE15 && !defined KINETIS_KE18
     SIM_SCGC = (SIM_SCGC_FLASH | SIM_SCGC_SWD);
     SIM_SOPT0 = (SIM_SOPT_NMIE | SIM_SOPT_RSTPE | SIM_SOPT_SWDE);        // PTB4 functions as NMI, PTA5 pin functions as RESET, PTA4 and PTC4 function as single wire debug
 #elif defined KINETIS_KV
@@ -410,17 +626,29 @@ static void fnSetDevice(unsigned long *port_inits)
     SIM_SCGC5 = 0x00040180;
     SIM_SCGC6 = SIM_SCGC6_FTFL;
     SIM_SCGC7 = 0x00000100;
+    #if defined KINETIS_KV40
+    if ((FTFL_FOPT & FTFL_FOPT_LPBOOT_CLK_DIV_1) != 0) {
+        SIM_CLKDIV1 = (SIM_CLKDIV1_SYSTEM_1 | SIM_CLKDIV1_FAST_BUS_1 | SIM_CLKDIV1_BUS_2); // fast boot
+    }
+    else {
+        SIM_CLKDIV1 = (SIM_CLKDIV1_SYSTEM_8 | SIM_CLKDIV1_FAST_BUS_8 | SIM_CLKDIV1_BUS_16); // low power boot
+    }
+    #else
     SIM_CLKDIV1 = (SIM_CLKDIV1_BUS_2 | SIM_CLKDIV5_ADC_2);
-#else
+    #endif
+#elif !defined KINETIS_WITH_PCC
     SIM_SCGC6 = (0x40000000 | SIM_SCGC6_FTFL);
     #if defined KINETIS_HAS_IRC48M && !defined KINETIS_KL
     SIM_SOPT2 = (SIM_SOPT2_TRACECLKSEL);
     #elif defined KINETIS_K_FPU || (KINETIS_MAX_SPEED > 100000000)
     SIM_SOPT2 = (SIM_SOPT2_TRACECLKSEL | 0x04000000 | SIM_SOPT2_NFCSRC_MCGPLL0CLK);
     SIM_CLKDIV4 = 0x00000002;
-    #elif !defined KINETIS_KL
+    #elif !defined KINETIS_KL && !defined KINETIS_KW3X && !defined KINETIS_KW4X
     SIM_SOPT2 = SIM_SOPT2_TRACECLKSEL;
     #endif
+#endif
+#if defined SIM_SCGC7_DMA
+    SIM_SCGC7 = SIM_SCGC7_DMA;
 #endif
 #if defined KINETIS_KL
     #if defined KINETIS_KL02 || defined KINETIS_KL03 || defined KINETIS_KL05
@@ -438,12 +666,12 @@ static void fnSetDevice(unsigned long *port_inits)
     PORTA_PCR3 = (PORT_PS_UP_ENABLE | PORT_DSE_HIGH | PORT_MUX_ALT7);
     PORTA_PCR4 = (PORT_PS_UP_ENABLE | PORT_DSE_HIGH | PORT_MUX_ALT7);
     #endif
-#elif defined KINETIS_KE
+#elif defined KINETIS_KE && !defined KINETIS_KE15 && !defined KINETIS_KE18
     GPIOA_PIDR = 0xffffffff;                                             // port input disable registers
     #if PORTS_AVAILABLE > 1
     GPIOB_PIDR = 0xffffffff;
     #endif
-    #if (defined KINETIS_KE04 && (SIZE_OF_FLASH > (8 * 1024))) || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
+    #if (defined KINETIS_KE04 && (SIZE_OF_FLASH > (8 * 1024))) || defined KINETIS_KE06 || defined KINETIS_KEA128
     PORT_IOFLT0 = 0x00c00000;
     PORT_PUE0   = 0x00100000;
     #else
@@ -454,11 +682,16 @@ static void fnSetDevice(unsigned long *port_inits)
     PORT_PUEL  = 0x00100000;
         #endif
     #endif
-#elif defined KINETIS_KV10
+#elif defined KINETIS_KV10 || defined KINETIS_KV11
     PORTA_PCR0 = (PORT_PE | PORT_DSE_HIGH | PORT_MUX_ALT7);              // port configuration defaults (JTAG/SWD)
     PORTA_PCR3 = (PORT_PS_UP_ENABLE | PORT_DSE_HIGH | PORT_MUX_ALT7);
     PORTA_PCR4 = (PORT_PS_UP_ENABLE | PORT_DSE_HIGH | PORT_MUX_ALT7);
     PORTA_PCR20 = (PORT_PS_UP_ENABLE | PORT_DSE_HIGH | PORT_MUX_ALT7);
+#elif defined KINETIS_KE15 || defined KINETIS_KE18
+    PORTD_PCR3 = (PORT_PS_UP_ENABLE | PORT_DSE_HIGH | PORT_MUX_ALT7);    // NMI
+    PORTA_PCR5 = (PORT_PS_UP_ENABLE | PORT_DSE_HIGH | PORT_MUX_ALT7);    // reset
+    PORTC_PCR4 = (PORT_PS_UP_ENABLE | PORT_DSE_HIGH | PORT_MUX_ALT7);    // SWD_CLK
+    PORTA_PCR4 = (PORT_PS_UP_ENABLE | PORT_DSE_HIGH | PORT_MUX_ALT7);    // SWD_DIO
 #else
     PORTA_PCR0 = (PORT_PE | PORT_DSE_HIGH | PORT_MUX_ALT7);              // port configuration defaults (JTAG/SWD)
     PORTA_PCR1 = (PORT_PS_UP_ENABLE | PORT_DSE_HIGH | PORT_MUX_ALT7);
@@ -475,15 +708,22 @@ static void fnSetDevice(unsigned long *port_inits)
     REV = 0x33;
     ADD_INFO = IEHOST;
     OTG_INT_STAT = MSEC_1;
+    #if defined KINETIS_KL28
+    USB_CLK_RECOVER_INT_EN = USB_CLK_RECOVER_INT_EN_OVF_ERROR_EN;
+    #endif
 #endif
-#if LPUARTS_AVAILABLE > 0
+#if (LPUARTS_AVAILABLE > 0)
     LPUART0_BAUD = (LPUART_BAUD_OSR_16 | 0x00000004);
     LPUART0_STAT = (LPUART_STAT_TDRE | LPUART_STAT_TC);
     LPUART0_DATA = (LPUART_DATA_RXEMPT);
-#elif UARTS_AVAILABLE > 0
+#endif
+#if ((UARTS_AVAILABLE > 0) && (LPUARTS_AVAILABLE == 0)) || (defined LPUARTS_PARALLEL && (UARTS_AVAILABLE > 0))
     UART0_BDL    = 0x04;                                                 // UARTs
     UART0_S1     = (UART_S1_TDRE | UART_S1_TC);
-    #if !defined KINETIS_KL && !defined KINETIS_KE
+    #if defined KINETIS_KL
+    UART0_C4 = UART_C4_OSR_16;
+    #endif
+    #if !defined UART_WITHOUT_MODEM_CONTROL
     UART0_SFIFO  = 0xc0;
     UART0_RWFIFO = 0x01;
     UART0_WP7816T0 = 0x0a;
@@ -497,38 +737,52 @@ static void fnSetDevice(unsigned long *port_inits)
 #elif UARTS_AVAILABLE > 1
     UART1_BDL    = 0x04;   
     UART1_S1     = 0xc0;
-        #if !defined KINETIS_KL && !defined KINETIS_KE
+    #if defined KINETIS_KL
+    UART1_C4 = UART_C4_OSR_16;
+    #endif
+    #if !defined UART_WITHOUT_MODEM_CONTROL
     UART1_SFIFO  = 0xc0;
     UART1_RWFIFO = 0x01;
     UART1_WP7816T0 = 0x0a;
     UART1_WF7816 = 0x01;
-        #endif
+    #endif
 #endif
 #if UARTS_AVAILABLE > 2 || (LPUARTS_AVAILABLE == 2 && UARTS_AVAILABLE == 1)
     UART2_BDL    = 0x04;   
     UART2_S1     = 0xc0;
-     #if !defined KINETIS_KL && !defined KINETIS_KE
+    #if defined KINETIS_KL
+    UART2_C4 = UART_C4_OSR_16;
+    #endif
+    #if !defined UART_WITHOUT_MODEM_CONTROL
     UART2_SFIFO  = 0xc0;
     UART2_RWFIFO = 0x01;
     UART2_WP7816T0 = 0x0a;
     UART2_WF7816 = 0x01;
     #endif
+#elif LPUARTS_AVAILABLE > 2
+    LPUART2_BAUD = (LPUART_BAUD_OSR_16 | 0x00000004);
+    LPUART2_STAT = (LPUART_STAT_TDRE | LPUART_STAT_TC);
+    LPUART2_DATA = (LPUART_DATA_RXEMPT);
 #endif
 #if UARTS_AVAILABLE > 3
     UART3_BDL    = 0x04;   
     UART3_S1     = 0xc0;
+    #if !defined UART_WITHOUT_MODEM_CONTROL
     UART3_SFIFO  = 0xc0;
     UART3_RWFIFO = 0x01;
     UART3_WP7816T0 = 0x0a;
     UART3_WF7816 = 0x01;
+    #endif
 #endif
 #if UARTS_AVAILABLE > 4
     UART4_BDL    = 0x04;   
     UART4_S1     = 0xc0;
+    #if !defined UART_WITHOUT_MODEM_CONTROL
     UART4_SFIFO  = 0xc0;
     UART4_RWFIFO = 0x01;
     UART4_WP7816T0 = 0x0a;
     UART4_WF7816 = 0x01;
+    #endif
 #endif
 #if UARTS_AVAILABLE > 5
     UART5_BDL    = 0x04;   
@@ -538,35 +792,24 @@ static void fnSetDevice(unsigned long *port_inits)
     UART5_WP7816T0 = 0x0a;
     UART5_WF7816 = 0x01;
 #endif
-#if defined KINETIS_KE
-    FTMRH_FSTAT = FTMRH_STAT_CCIF;
-    FTMRH_FSEC  = KINETIS_FLASH_CONFIGURATION_SECURITY;
-    FTMRH_FPROT = KINETIS_FLASH_CONFIGURATION_DATAFLASH_PROT;
-    FTMRH_FOPT  = KINETIS_FLASH_CONFIGURATION_NONVOL_OPTION;
-#else
-    FTFL_FSTAT  = FTFL_STAT_CCIF;                                        // flash controller
-    FTFL_FSEC   = KINETIS_FLASH_CONFIGURATION_SECURITY;
-    FTFL_FOPT   = KINETIS_FLASH_CONFIGURATION_NONVOL_OPTION;
-    FTFL_FEPROT = KINETIS_FLASH_CONFIGURATION_EEPROM_PROT;
-    FTFL_FDPROT = KINETIS_FLASH_CONFIGURATION_DATAFLASH_PROT;
-    FTFL_FPROT0 = (unsigned char)(KINETIS_FLASH_CONFIGURATION_PROGRAM_PROTECTION >> 24);
-    FTFL_FPROT1 = (unsigned char)(KINETIS_FLASH_CONFIGURATION_PROGRAM_PROTECTION >> 16);
-    FTFL_FPROT2 = (unsigned char)(KINETIS_FLASH_CONFIGURATION_PROGRAM_PROTECTION >> 8);
-    FTFL_FPROT3 = (unsigned char)(KINETIS_FLASH_CONFIGURATION_PROGRAM_PROTECTION);
-#endif
-#if defined KINETIS_KL || defined KINETIS_KE
-    SPI0_C1     = SPI_C1_CPHA;
-    SPI0_S      = SPI_S_SPTEF;
-    #if !defined KINETIS_KL03
-    SPI1_C1     = SPI_C1_CPHA;
-    SPI1_S      = SPI_S_SPTEF;
+#if defined LPSPI_SPI
+    LPSPI0_VERID = 0x01000004;
+    LPSPI0_SR = 0x00000001;
+    LPSPI0_TCR = 0x0000001f;
+    LPSPI0_RSR = 0x00000002;
+    #if SPI_AVAILABLE > 1
+    LPSPI1_VERID = 0x01000004;
+    LPSPI1_SR = 0x00000001;
+    LPSPI1_TCR = 0x0000001f;
+    LPSPI1_RSR = 0x00000002;
     #endif
-    #if defined MSCAN_CAN_INTERFACE
-    MSCAN_CANCTL0 = MSCAN_CANCTL0_INITRQ;
-    MSCAN_CANCTL1 = (MSCAN_CANCTL1_INITAK | MSCAN_CANCTL1_LISTEN);
-    MSCAN_CANTFLG = (MSCAN_CANTFLG_TXE0 | MSCAN_CANTFLG_TXE1 | MSCAN_CANTFLG_TXE2);
+    #if SPI_AVAILABLE > 2
+    LPSPI2_VERID = 0x01000004;
+    LPSPI2_SR = 0x00000001;
+    LPSPI2_TCR = 0x0000001f;
+    LPSPI2_RSR = 0x00000002;
     #endif
-#else
+#elif defined DSPI_SPI
     SPI0_MCR    = (SPI_MCR_DOZE | SPI_MCR_HALT);                         // DSPI
     SPI0_CTAR0  = 0x78000000;
     SPI0_CTAR1  = 0x78000000;
@@ -583,19 +826,35 @@ static void fnSetDevice(unsigned long *port_inits)
     SPI2_CTAR1  = 0x78000000;
     SPI2_SR     = 0x02000000;
     #endif
+#else
+    SPI0_C1     = SPI_C1_CPHA;
+    SPI0_S      = SPI_S_SPTEF;
+    #if !defined KINETIS_KL03
+    SPI1_C1     = SPI_C1_CPHA;
+    SPI1_S      = SPI_S_SPTEF;
+    #endif
+#endif
+#if defined KINETIS_KL || defined KINETIS_KE
+    #if defined MSCAN_CAN_INTERFACE
+    MSCAN_CANCTL0 = MSCAN_CANCTL0_INITRQ;
+    MSCAN_CANCTL1 = (MSCAN_CANCTL1_INITAK | MSCAN_CANCTL1_LISTEN);
+    MSCAN_CANTFLG = (MSCAN_CANTFLG_TXE0 | MSCAN_CANTFLG_TXE1 | MSCAN_CANTFLG_TXE2);
+    #endif
+#else
     SDHC_PROCTL    = SDHC_PROCTL_EMODE_LITTLE;                           // SDHC
     SDHC_SYSCTL    = (SDHC_SYSCTL_SDCLKFS_256 | SDHC_SYSCTL_SDCLKEN);
     SDHC_IRQSTATEN = 0x117f013f;
     SDHC_WML       = 0x00100010;
     SDHC_VENDOR    = SDHC_VENDOR_EXTDMAEN;
     SDHC_HOSTVER   = 0x00001201;
-
+    #if NUMBER_OF_CAN_INTERFACES > 0
     CAN0_MCR       = 0xd890000f;                                         // FlexCAN
     CAN0_RXGMASK   = 0xffffffff;
     CAN0_RX14MASK  = 0xffffffff;
     CAN0_RX15MASK  = 0xffffffff;
     CAN0_CTRL2     = 0x00c00000;
     CAN0_RXFGMASK  = 0xffffffff;
+    #endif
     #if NUMBER_OF_CAN_INTERFACES > 1
     CAN1_MCR       = 0xd890000f;
     CAN1_RXGMASK   = 0xffffffff;
@@ -603,6 +862,14 @@ static void fnSetDevice(unsigned long *port_inits)
     CAN1_RX15MASK  = 0xffffffff;
     CAN1_CTRL2     = 0x00c00000;
     CAN1_RXFGMASK  = 0xffffffff;
+    #endif
+    #if NUMBER_OF_CAN_INTERFACES > 2
+    CAN2_MCR       = 0xd890000f;
+    CAN2_RXGMASK   = 0xffffffff;
+    CAN2_RX14MASK  = 0xffffffff;
+    CAN2_RX15MASK  = 0xffffffff;
+    CAN2_CTRL2     = 0x00c00000;
+    CAN2_RXFGMASK  = 0xffffffff;
     #endif
 #endif
 #if defined KINETIS_K80                                                  // QSPI
@@ -612,21 +879,24 @@ static void fnSetDevice(unsigned long *port_inits)
     QuadSPI0_LCKCR  = 0x00000002;
 #endif
 #if !defined KINETIS_KL02
-    #if !defined KINETIS_KE
-        #if defined SUPPORT_RTC                                          // RTC
-    RTC_SR      = 0;                                                     // assume running
-        #else
+    #if !defined KINETIS_WITHOUT_RTC
+        #if !defined KINETIS_KE || defined KINETIS_WITH_SRTC
+            #if defined SUPPORT_RTC                                      // RTC
+  //RTC_SR      = 0;                                                     // assume running
+    RTC_SR      = RTC_SR_TIF;                                            // normally it would be running but we signal it as not so that the initialisation routine is exercised
+            #else
     RTC_SR      = RTC_SR_TIF;
-        #endif
+            #endif
     RTC_LR      = (RTC_LR_TCL | RTC_LR_CRL | RTC_LR_SRL | RTC_LR_LRL);
     RTC_IER     = (RTC_IER_TIIE | RTC_IER_TOIE | RTC_IER_TAIE);
-    #endif
-    #if defined KINETIS_KL
+        #endif
+        #if defined KINETIS_KL
     SIM_SOPT1   = SIM_SOPT1_OSC32KSEL_LPO_1kHz;                          // assume retained over reset
-    #elif !defined KINETIS_KE
+        #elif !defined KINETIS_KE || defined KINETIS_WITH_SRTC
     RTC_RAR     = (RTC_RAR_TSRW | RTC_RAR_TPRW | RTC_RAR_TARW| RTC_RAR_TCRW | RTC_RAR_CRW | RTC_RAR_SRW | RTC_RAR_LRW | RTC_RAR_IERW);
+        #endif
     #endif
-    #if !defined KINETIS_KL && !defined KINETIS_KE && !defined CROSSBAR_SWITCH_LITE
+    #if !defined KINETIS_KL && !defined KINETIS_KM && !defined KINETIS_KE && !defined CROSSBAR_SWITCH_LITE
     AXBS_CRS0 = 0x76543210;                                              // {34} default crossbar switch settings
     AXBS_CRS1 = 0x76543210;
     AXBS_CRS2 = 0x76543210;
@@ -653,11 +923,28 @@ static void fnSetDevice(unsigned long *port_inits)
     DMA_DCHPRI15   = 15;
     #endif
 #endif
-#if defined KINETIS_KE
+#if defined INTMUX0_AVAILABLE                                            // {46}
+    INTMUX0_CH0_CSR = 0x000;
+    INTMUX0_CH1_CSR = 0x100;
+    INTMUX0_CH2_CSR = 0x200;
+    INTMUX0_CH3_CSR = 0x300;
+#endif
+#if defined KINETIS_KE15 || defined KINETIS_KE18
+    ADC0_SC1A = ADC_SC1A_ADCH_OFF;                                       // ADC0
+    ADC0_SC1B = ADC_SC1A_ADCH_OFF;
+    ADC0_CFG2 = 0x0000000c;
+    ADC0_BASE_OFS = 0x00000040;
+    ADC0_XOFS = 0x00000030;
+    ADC0_YOFS = 0x00000037;
+    ADC0_G = 0x000002f0;
+    ADC0_UG = 0x00000004;
+    ADC0_CLPX_OFS = 0x00000440;
+    ADC0_CLP9_OFS = 0x00000240;
+#elif defined KINETIS_KE
     ADC0_SC1 = ADC_SC1A_ADCH_OFF;
     ADC0_SC2 = ADC_SC2_FEMPTY;
 #else
-    ADC0_SC1A   = ADC_SC1A_ADCH_OFF;                                     // ADC
+    ADC0_SC1A   = ADC_SC1A_ADCH_OFF;                                     // ADC0
     ADC0_SC1B   = ADC_SC1A_ADCH_OFF;
     ADC0_OFS    = 0x00000004;
     ADC0_PG     = 0x00008200;
@@ -678,6 +965,18 @@ static void fnSetDevice(unsigned long *port_inits)
     ADC0_CLM0   = 0x00000020;
 #endif
 #if ADC_CONTROLLERS > 1
+    #if defined KINETIS_KE15 || defined KINETIS_KE18
+    ADC1_SC1A = ADC_SC1A_ADCH_OFF;                                     // ADC1
+    ADC1_SC1B = ADC_SC1A_ADCH_OFF;
+    ADC1_CFG2 = 0x0000000c;
+    ADC1_BASE_OFS = 0x00000040;
+    ADC1_XOFS = 0x00000030;
+    ADC1_YOFS = 0x00000037;
+    ADC1_G = 0x000002f0;
+    ADC1_UG = 0x00000004;
+    ADC1_CLPX_OFS = 0x00000440;
+    ADC1_CLP9_OFS = 0x00000240;
+    #else
     ADC1_SC1A   = ADC_SC1A_ADCH_OFF;
     ADC1_SC1B   = ADC_SC1A_ADCH_OFF;
     ADC1_OFS    = 0x00000004;
@@ -697,8 +996,9 @@ static void fnSetDevice(unsigned long *port_inits)
     ADC1_CLM2   = 0x00000080;
     ADC1_CLM1   = 0x00000040;
     ADC1_CLM0   = 0x00000020;
+    #endif
 #endif
-#if DAC_CONTROLLERS > 1
+#if DAC_CONTROLLERS > 0 && !defined KINETIS_KE18
     DAC0_SR     = DAC_SR_DACBFRPTF;                                      // DAC
     DAC0_C2     = 0x0f;
     #if DAC_CONTROLLERS > 1
@@ -710,8 +1010,26 @@ static void fnSetDevice(unsigned long *port_inits)
     #if defined RANDOM_NUMBER_GENERATOR_B                                // {64}
     RNG_VER     = (RNG_VER_RNGB | 0x00000280);
     RNG_SR      = (RNG_SR_FIFO_SIZE_5 | RNG_SR_RS | RNG_SR_SLP | 0x00000001);
-    #else
-    RNG_SR      = (RNG_SR_OREG_SIZE);
+    #elif defined RANDOM_NUMBER_GENERATOR_A
+    RNGA_SR     = (RNGA_SR_OREG_SIZE);
+    #elif defined TRUE_RANDOM_NUMBER_GENERATOR                           // {48}
+    TRNG0_MCTL = (TRNG_MCTL_PRGM | TRNG_MCTL_TSTOP_OK | TRNG_MCTL_SAMP_MODE_RAW);
+    TRNG0_SCMISC = 0x00010022;
+    TRNG0_PKRRNG = 0x000009a3;
+    TRNG0_PKRMAX = 0x00006920;
+    TRNG0_SDCTL = 0x0c8009c4;
+    TRNG0_SBLIM = 0x0000003f;
+    TRNG0_FRQMIN = 0x00000640;
+    TRNG0_FRQMAX = 0x00006400;
+    TRNG0_SCML = 0x010c0568;
+    TRNG0_SCR1L = 0x00b20195;
+    TRNG0_SCR2L = 0x007a00dc;
+    TRNG0_SCR3L = 0x0058007d;
+    TRNG0_SCR4L = 0x0040004b;
+    TRNG0_SCR5L = 0x002e002f;
+    TRNG0_SCR6L = 0x002e002f;
+    TRNG0_INT_CTRL = 0xffffffff;
+    TRNG0_VID1 = 0x00300100;
     #endif
 #endif
     MCM_PLASC  = 0x001f;                                                  // {15}
@@ -730,12 +1048,14 @@ static void fnSetDevice(unsigned long *port_inits)
     ENET_FTRL  = 0x000007ff;
     ENET_ATPER = 0x3b9aca00;
 #endif
-#if !defined KINETIS_KL && !defined KINETIS_KE                           // {24}
+#if PDB_AVAILABLE > 0
     PDB0_MOD   = 0x0000ffff;                                             // PDB {16}
     PDB0_IDLY  = 0x0000ffff;
 #endif
+#if I2C_AVAILABLE > 0
     I2C0_S      = I2C_TCF;                                               // I2C
     I2C0_A2     = 0xc2;
+#endif
 #if I2C_AVAILABLE > 1
     I2C1_S      = 0x80;
     I2C1_A2     = 0xc2;
@@ -747,26 +1067,84 @@ static void fnSetDevice(unsigned long *port_inits)
 #if defined DEVICE_WITH_SLCD
     LCD_GCR     = 0x08350003;                                            // SLCD
 #endif
-    GPIOA_PDIR  = ulPort_in_A = *port_inits++;                           // set port inputs to default states
+    initial_input_state = fnKeyPadState(*port_inits++, _PORTA);          // {51} allow key input defaults override port input defaults
+    GPIOA_PDIR  = (PORT_CAST)(ulPort_in_A = initial_input_state);        // set port inputs to default states
 #if PORTS_AVAILABLE > 1
-    GPIOB_PDIR  = ulPort_in_B = *port_inits++;
+    initial_input_state = fnKeyPadState(*port_inits++, _PORTB);
+    GPIOB_PDIR  = (PORT_CAST)(ulPort_in_B = initial_input_state);
 #endif
 #if PORTS_AVAILABLE > 2
-    GPIOC_PDIR  = ulPort_in_C = *port_inits++;
+    initial_input_state = fnKeyPadState(*port_inits++, _PORTC);
+    GPIOC_PDIR  = (PORT_CAST)(ulPort_in_C = initial_input_state);
 #endif
 #if PORTS_AVAILABLE > 3
-    GPIOD_PDIR  = ulPort_in_D = *port_inits++;
+    initial_input_state = fnKeyPadState(*port_inits++, _PORTD);
+    GPIOD_PDIR  = (PORT_CAST)(ulPort_in_D = initial_input_state);
 #endif
 #if PORTS_AVAILABLE > 4
-    GPIOE_PDIR  = ulPort_in_E = *port_inits++;
+    initial_input_state = fnKeyPadState(*port_inits++, _PORTE);
+    GPIOE_PDIR  = (PORT_CAST)(ulPort_in_E = initial_input_state);
 #endif
 #if PORTS_AVAILABLE > 5
-    GPIOE_PDIR  = ulPort_in_F = *port_inits++;
+    initial_input_state = fnKeyPadState(*port_inits++, _PORTF);
+    GPIOF_PDIR  = (PORT_CAST)(ulPort_in_F = initial_input_state);
 #endif
-#if !defined KINETIS_KL && !defined KINETIS_KE
+#if PORTS_AVAILABLE > 6
+    initial_input_state = fnKeyPadState(*port_inits++, _PORTG);
+    GPIOG_PDIR = (PORT_CAST)(ulPort_in_G = initial_input_state);
+#endif
+#if PORTS_AVAILABLE > 7
+    initial_input_state = fnKeyPadState(*port_inits++, _PORTH);
+    GPIOH_PDIR = (PORT_CAST)(ulPort_in_H = initial_input_state);
+#endif
+#if PORTS_AVAILABLE > 8
+    initial_input_state = fnKeyPadState(*port_inits++, _PORTI);
+    GPIOI_PDIR = (PORT_CAST)(ulPort_in_I = initial_input_state);
+#endif
+#if defined _EXTERNAL_PORT_COUNT && (_EXTERNAL_PORT_COUNT > 0) && defined PORT_EXT0_DEFAULT_INPUT // {51}
+    initial_input_state = fnKeyPadState(PORT_EXT0_DEFAULT_INPUT, _PORT_EXT_0);
+    fnSetI2CPort(_PORT_EXT_0, DEFINE_INPUT, initial_input_state);
+#endif
+#if defined _EXTERNAL_PORT_COUNT && (_EXTERNAL_PORT_COUNT > 1) && defined PORT_EXT1_DEFAULT_INPUT
+    initial_input_state = fnKeyPadState(PORT_EXT1_DEFAULT_INPUT, _PORT_EXT_1);
+    fnSetI2CPort(_PORT_EXT_1, DEFINE_INPUT, initial_input_state);
+#endif
+#if defined _EXTERNAL_PORT_COUNT && (_EXTERNAL_PORT_COUNT > 2) && defined PORT_EXT2_DEFAULT_INPUT
+    initial_input_state = fnKeyPadState(PORT_EXT2_DEFAULT_INPUT, _PORT_EXT_2);
+    fnSetI2CPort(_PORT_EXT_2, DEFINE_INPUT, initial_input_state);
+#endif
+#if defined _EXTERNAL_PORT_COUNT && (_EXTERNAL_PORT_COUNT > 3) && defined PORT_EXT3_DEFAULT_INPUT
+    initial_input_state = fnKeyPadState(PORT_EXT3_DEFAULT_INPUT, _PORT_EXT_3);
+    fnSetI2CPort(_PORT_EXT_3, DEFINE_INPUT, initial_input_state);
+#endif
+#if defined _EXTERNAL_PORT_COUNT && (_EXTERNAL_PORT_COUNT > 4) && defined PORT_EXT0_DEFAULT_INPUT
+    initial_input_state = fnKeyPadState(PORT_EXT4_DEFAULT_INPUT, _PORT_EXT_4);
+    fnSetI2CPort(_PORT_EXT_4, DEFINE_INPUT, initial_input_state);
+#endif
+#if defined _EXTERNAL_PORT_COUNT && (_EXTERNAL_PORT_COUNT > 5) && defined PORT_EXT1_DEFAULT_INPUT
+    initial_input_state = fnKeyPadState(PORT_EXT5_DEFAULT_INPUT, _PORT_EXT_5);
+    fnSetI2CPort(_PORT_EXT_5, DEFINE_INPUT, initial_input_state);
+#endif
+#if defined _EXTERNAL_PORT_COUNT && (_EXTERNAL_PORT_COUNT > 6) && defined PORT_EXT2_DEFAULT_INPUT
+    initial_input_state = fnKeyPadState(PORT_EXT6_DEFAULT_INPUT, _PORT_EXT_6);
+    fnSetI2CPort(_PORT_EXT_6, DEFINE_INPUT, initial_input_state);
+#endif
+#if defined _EXTERNAL_PORT_COUNT && (_EXTERNAL_PORT_COUNT > 7) && defined PORT_EXT3_DEFAULT_INPUT
+    initial_input_state = fnKeyPadState(PORT_EXT7_DEFAULT_INPUT, _PORT_EXT_7);
+    fnSetI2CPort(_PORT_EXT_7, DEFINE_INPUT, initial_input_state);
+#endif
+#if !defined KINETIS_KL && !defined KINETIS_KE && (FLEX_TIMERS_AVAILABLE > 0)
     FTM0_MODE = FTM_MODE_WPDIS;                                          // FlexTimer
     FTM1_MODE = FTM_MODE_WPDIS;
     FTM2_MODE = FTM_MODE_WPDIS;
+#endif
+#if defined KINETIS_KL28
+    FTM0_VERID = 0x05000007;
+    FTM0_PARAM = 0x00101006;
+    FTM1_VERID = 0x05000007;
+    FTM1_PARAM = 0x00101006;
+    FTM2_VERID = 0x05000007;
+    FTM2_PARAM = 0x00101006;
 #endif
 #if defined SDRAM_CONTROLLER_AVAILABLE
     NFC_CMD1  = 0x30ff0000;                                              // {1} NAND flash controller
@@ -790,39 +1168,39 @@ static void fnSetDevice(unsigned long *port_inits)
     LCDC_LGWDCR = 0x80040060;
 #endif
 #if defined HS_USB_AVAILABLE                                             // {12}
-    USBHS_ID = 0xe461fa05;
-    USBHS_HWGENERAL = 0x00000085;
-    USBHS_HWHOST = 0x10020001;
-    USBHS_HWDEVICE = 0x00000009;
-    USBHS_HWTXBUF = 0x80070908;
-    USBHS_HWRXBUF = 0x00000808;
-    USBHS_HCIVERSION = 0x01000040;
-    USBHS_HCSPARAMS = 0x00010011;
-    USBHS_HCCPARAMS = 0x00000006;
-    USBHS_DCIVERSION = 0x0001;
-    USBHS_USBCMD = 0x00080000;
-    USBHS_BURSTSIZE = 0x00008080;
-    USBHS_PORTSC1 = 0x80000000;
-    USBHS_OTGSC = 0x00001020;
-    USBHS_USBMODE = 0x00005000;
-    USBHS_EPCR0 = 0x00800080;
+    USBHS0_ID = 0xe461fa05;
+    USBHS0_HWGENERAL = 0x00000085;
+    USBHS0_HWHOST = 0x10020001;
+    USBHS0_HWDEVICE = 0x00000009;
+    USBHS0_HWTXBUF = 0x80070908;
+    USBHS0_HWRXBUF = 0x00000808;
+    USBHS0_HCIVERSION = 0x01000040;
+    USBHS0_HCSPARAMS = 0x00010011;
+    USBHS0_HCCPARAMS = 0x00000006;
+    USBHS0_DCIVERSION = 0x0001;
+    USBHS0_USBCMD = 0x00080000;
+    USBHS0_BURSTSIZE = 0x00008080;
+    USBHS0_PORTSC1 = 0x80000000;
+    USBHS0_OTGSC = 0x00001020;
+    USBHS0_USBMODE = 0x00005000;
+    USBHS0_EPCR0 = 0x00800080;
     #if defined KINETIS_WITH_USBPHY
-    USBPHY_PWD = 0x001e1c00;
-    USBPHY_TX = 0x10060607;
-    USBPHY_CTRL = 0xc0000000;
-    USBPHY_DEBUG = 0x7f180000;
-    USBPHY_DEBUG1 = 0x00001000;
-    USBPHY_VERSION = 0x04030000;
-    USBPHY_PLL_SIC = 0x00012000;
-    USBPHY_USB1_VBUS_DETECT = 0x00700004;
-    USBPHY_ANACTRL = 0x00000402;
-    USBPHY_USB1_LOOPBACK = 0x00550000;
-    USBPHY_USB1_LOOPBACK_HSFSCNT = 0x00040010;
+    USBPHY0_PWD = 0x001e1c00;
+    USBPHY0_TX = 0x10060607;
+    USBPHY0_CTRL = 0xc0000000;
+    USBPHY0_DEBUG = 0x7f180000;
+    USBPHY0_DEBUG1 = 0x00001000;
+    USBPHY0_VERSION = 0x04030000;
+    USBPHY0_PLL_SIC = 0x00012000;
+    USBPHY0_USB1_VBUS_DETECT = 0x00700004;
+    USBPHY0_ANACTRL = 0x00000402;
+    USBPHY0_USB1_LOOPBACK = 0x00550000;
+    USBPHY0_USB1_LOOPBACK_HSFSCNT = 0x00040010;
     #endif
 #endif
 #if defined CHIP_HAS_FLEXIO
-    FLEXIO_VERID = 0x01000000;
-    FLEXIO_PARAM = 0x10080404;
+    FLEXIO0_VERID = 0x01010001;
+    FLEXIO0_PARAM = 0x04200808;
 #endif
 #if !defined KINETIS_KL && !defined KINETIS_KE
     CRC_CRC   = 0xffffffff;                                              // {6} CRC
@@ -833,8 +1211,13 @@ static void fnSetDevice(unsigned long *port_inits)
 #endif
     fnSimPers();                                                         // synchronise peripheral states with default settings
 #if defined SUPPORT_ADC
-    for (i = 0; i < (ADC_CHANNELS * ADC_CONTROLLERS); i++) {
-        usADC_values[i] = (unsigned short)*port_inits++;                 // {2} prime initial ADC values
+    for (j = 0; j < ADC_CONTROLLERS; j++) {
+        for (i = 0; i < ADC_CHANNELS; i++) {
+            usADC_values[j][i] = (unsigned short)*port_inits++;          // {2} prime initial ADC values
+        }
+        usADC_values[j][ADC_TEMP_SENSOR] = (unsigned short)((VTEMP_25_MV * 0xffff) / ADC_REFERENCE_VOLTAGE); // 25°C
+        usADC_values[j][ADC_BANDGAP] = (unsigned short)((1800 / ADC_REFERENCE_VOLTAGE) * 0xffff); // 1.8V
+        usADC_values[j][ADC_VREFH] = 0xffff;
     }
     fnEnterHW_table(ptrPorts);                                           
 #else
@@ -842,7 +1225,12 @@ static void fnSetDevice(unsigned long *port_inits)
 #endif
 }
 
-unsigned char ucFLASH[SIZE_OF_FLASH + PROGRAM_ONCE_AREA_SIZE];           // {7} internal memory plus program-once flash content
+#if defined SIZE_OF_EEPROM  && (SIZE_OF_EEPROM == 256)                   // KE and KEA parts with EEPROM
+    #define SIZE_OF_SIM_FLASH (SIZE_OF_FLASH + SIZE_OF_EEPROM)
+#else
+    #define SIZE_OF_SIM_FLASH (SIZE_OF_FLASH + PROGRAM_ONCE_AREA_SIZE)   // {7} internal memory plus program-once flash content
+#endif
+unsigned char ucFLASH[SIZE_OF_SIM_FLASH];
 
 extern void fnInitialiseDevice(void *port_inits)
 {
@@ -853,13 +1241,13 @@ extern void fnInitialiseDevice(void *port_inits)
 
 extern void fnDeleteFlashSector(unsigned char *ptrSector)
 {
-#if (defined KINETIS_KE && (defined SIZE_OF_EEPROM && SIZE_OF_EEPROM > 0))
-    if (ptrSector >= &ucFLASH[SIZE_OF_FLASH - SIZE_OF_EEPROM] ) {
-        uMemset(ptrSector, 0xff, KE_EEPROM_GRANULARITY);
+#if (defined KINETIS_KE && defined KINETIS_KE_EEPROM && (defined SIZE_OF_EEPROM && SIZE_OF_EEPROM > 0))
+    if (ptrSector >= &ucFLASH[SIZE_OF_FLASH]) {                          // access is in EEPROM memory
+        memset(ptrSector, 0xff, KE_EEPROM_GRANULARITY);
         return;
     }
 #endif
-    uMemset(ptrSector, 0xff, FLASH_GRANULARITY);
+    memset(ptrSector, 0xff, FLASH_GRANULARITY);                          // access in data flash
 }
 
 
@@ -899,13 +1287,13 @@ extern unsigned char *fnGetFlashAdd(unsigned char *ucAdd)
     if (ucAdd >= (unsigned char *)FLEXNVM_START_ADDRESS) {               // access may be in FlexNMV area
         ucAdd -= (FLEXNVM_START_ADDRESS - (SIZE_OF_FLASH - SIZE_OF_FLEXFLASH)); // move to contiguous simulation flash area
     }
-#elif defined KINETIS_KE && (defined SIZE_OF_EEPROM && SIZE_OF_EEPROM > 0)
+#elif defined KINETIS_KE && defined KINETIS_KE_EEPROM && (defined SIZE_OF_EEPROM && SIZE_OF_EEPROM > 0)
     if (ucAdd >= (unsigned char *)KE_EEPROM_START_ADDRESS) {             // access may be in EEPROM area
-        ucAdd -= (KE_EEPROM_START_ADDRESS - (SIZE_OF_FLASH - SIZE_OF_EEPROM)); // move to contiguous simulation flash area
+        ucAdd -= (KE_EEPROM_START_ADDRESS - SIZE_OF_FLASH);              // move to contiguous simulation flash area
     }
 #endif
     ucSimulatedFlash = ucAdd + (unsigned long)ucFLASH - (unsigned long)FLASH_START_ADDRESS;
-    if (ucSimulatedFlash >= &ucFLASH[SIZE_OF_FLASH/* - PROGRAM_ONCE_AREA_SIZE*/]) { // {21} check flash bounds
+    if (ucSimulatedFlash >= &ucFLASH[SIZE_OF_SIM_FLASH/* - PROGRAM_ONCE_AREA_SIZE*/]) { // {21} check flash bounds
         _EXCEPTION("Attempted access outside of internal Flash bounds!!!");
     }
     return (ucSimulatedFlash);                                           // location in simulated internal FLASH memory
@@ -924,8 +1312,8 @@ extern unsigned char fnMapPortBit(unsigned long ulRealBit)
     unsigned long ulBit = 0x80000000;
     unsigned char ucRef = 0;
 
-    while (ulBit) {
-        if (ulRealBit & ulBit) {
+    while (ulBit != 0) {
+        if ((ulRealBit & ulBit) != 0) {
             break;
         }
         ulBit >>= 1;
@@ -940,6 +1328,39 @@ extern void RealTimeInterrupt(void)
 {
 }
 
+#if defined INTMUX0_AVAILABLE                                            // {46}
+static void fnCallINTMUX(int iChannel, int iPeripheralReference, unsigned char *ptrVectLocation)
+{
+    VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
+    KINETIS_INTMUX *ptrINTMUX = (KINETIS_INTMUX *)INTMUX0_BLOCK;;
+    ptrINTMUX += iChannel;
+    if ((ptrINTMUX->INTMUX_CHn_IER_31_0 & (1 << iPeripheralReference)) != 0) {
+        ptrINTMUX->INTMUX_CHn_IPR_31_0 |= (1 << iPeripheralReference);
+        ptrINTMUX->INTMUX_CHn_CSR |= (INTMUX_CSR_IRQP);                  // interrupt pending
+        ptrINTMUX->INTMUX_CHn_VEC = (ptrVectLocation - (unsigned char *)ptrVect); // calculate the vector offset location
+        switch (iChannel) {
+        case 0:
+            ptrVect->processor_interrupts.irq_INTMUX0_0();               // call the interrupt handler
+            break;
+        case 1:
+            ptrVect->processor_interrupts.irq_INTMUX0_1();               // call the interrupt handler
+            break;
+        case 2:
+            ptrVect->processor_interrupts.irq_INTMUX0_2();               // call the interrupt handler
+            break;
+        case 3:
+            ptrVect->processor_interrupts.irq_INTMUX0_3();               // call the interrupt handler
+            break;
+        default:
+            _EXCEPTION("Invalid INTMUX0 channel!");
+            break;
+        }
+    }
+}
+#endif
+
+// Check whether a particular interrupt is enabled in the NVIC (and set its pending flag)
+//
 static int fnGenInt(int iIrqID)
 {
     if (iIrqID < 32) {
@@ -987,17 +1408,42 @@ static int fnGenInt(int iIrqID)
     return 0;
 }
 
+// Reset a particular interrupt in the NVIC
+//
+extern int fnResetNVICInt(int iIrqID)
+{
+    if (iIrqID < 32) {
+        IRQ0_31_SPR &= ~(1 << iIrqID);
+    }
+    else if (iIrqID < 64) {
+        IRQ32_63_SPR &= ~(1 << (iIrqID - 32));
+    }
+    else if (iIrqID < 96) {
+        IRQ64_95_SPR &= ~(1 << (iIrqID - 64));
+    }
+    else if (iIrqID < 128) {
+        IRQ96_127_SPR &= ~(1 << (iIrqID - 96));
+    }
+    else if (iIrqID < 160) {
+        IRQ128_159_SPR |= (1 << (iIrqID - 128));
+    }
+    else if (iIrqID < 192) {
+        IRQ160_191_SPR &= ~(1 << (iIrqID - 164));
+    }
+    return 0;
+}
+
 // Get the present state of a port
 //
 extern unsigned long fnGetPresentPortState(int portNr)
 {
-#if defined KINETIS_KE
+#if defined KINETIS_KE && !defined KINETIS_KE15 && !defined KINETIS_KE18
     int iShift;
 #else
     #define iShift 0
 #endif
     portNr--;
-#if defined KINETIS_KE
+#if defined KINETIS_KE && !defined KINETIS_KE15 && !defined KINETIS_KE18
     iShift = ((portNr % 4) * 8);
     portNr /= 4;                                                         // convert 8 bit port to 32 bit port
 #endif
@@ -1024,15 +1470,27 @@ extern unsigned long fnGetPresentPortState(int portNr)
     case _PORTF:
         return ((GPIOF_PDDR & GPIOF_PDOR) | (~GPIOF_PDDR & ulPort_in_F));
 #endif
+#if PORTS_AVAILABLE > 6
+    case _PORTG:
+        return ((GPIOG_PDDR & GPIOG_PDOR) | (~GPIOG_PDDR & ulPort_in_G));
+#endif
+#if PORTS_AVAILABLE > 7
+    case _PORTH:
+        return ((GPIOH_PDDR & GPIOH_PDOR) | (~GPIOH_PDDR & ulPort_in_H));
+#endif
+#if PORTS_AVAILABLE > 8
+    case _PORTI:
+        return ((GPIOI_PDDR & GPIOI_PDOR) | (~GPIOI_PDDR & ulPort_in_I));
+#endif
 #if defined _EXTERNAL_PORT_COUNT && _EXTERNAL_PORT_COUNT > 0             // {8}
-    case _PORT_EXP_0:                                                    // external ports extensions
-    case _PORT_EXP_1:
-    case _PORT_EXP_2:
-    case _PORT_EXP_3:
-    case _PORT_EXP_4:
-    case _PORT_EXP_5:
-    case _PORT_EXP_6:
-    case _PORT_EXP_7:
+    case _PORT_EXT_0:                                                    // external ports extensions
+    case _PORT_EXT_1:
+    case _PORT_EXT_2:
+    case _PORT_EXT_3:
+    case _PORT_EXT_4:
+    case _PORT_EXT_5:
+    case _PORT_EXT_6:
+    case _PORT_EXT_7:
         return (fnGetExtPortState(portNr));                              // {8} pin states of external port
 #endif
     default:
@@ -1047,13 +1505,13 @@ extern unsigned long fnGetPresentPortDir(int portNr)
     unsigned long ulConnectedGPIO;
     unsigned long ulCheckedPin;
     unsigned long ulBit = 0x00000001;
-#if defined KINETIS_KE
+#if defined KINETIS_KE && !defined KINETIS_KE15 && !defined KINETIS_KE18
     int iShift;
 #else
     unsigned long *ptrPCR = (unsigned long *)PORT0_BLOCK;
 #endif
     portNr--;
-#if defined KINETIS_KE
+#if defined KINETIS_KE && !defined KINETIS_KE15 && !defined KINETIS_KE18
     iShift = ((portNr % 4) * 8);
     portNr /= 4;                                                         // convert 8 bit port to 32 bit port
 #else
@@ -1089,21 +1547,21 @@ extern unsigned long fnGetPresentPortDir(int portNr)
         break;
 #endif
 #if defined _EXTERNAL_PORT_COUNT && _EXTERNAL_PORT_COUNT > 0             // {8}
-    case _PORT_EXP_0:                                                    // {8} external ports extensions
-    case _PORT_EXP_1:
-    case _PORT_EXP_2:
-    case _PORT_EXP_3:
-    case _PORT_EXP_4:
-    case _PORT_EXP_5:
-    case _PORT_EXP_6:
-    case _PORT_EXP_7:
+    case _PORT_EXT_0:                                                    // {8} external ports extensions
+    case _PORT_EXT_1:
+    case _PORT_EXT_2:
+    case _PORT_EXT_3:
+    case _PORT_EXT_4:
+    case _PORT_EXT_5:
+    case _PORT_EXT_6:
+    case _PORT_EXT_7:
         return (fnGetExtPortDirection(portNr));
 #endif
     default:
         return 0;
     }
     while (ulCheckedPin != 0) {
-#if !defined KINETIS_KE
+#if !defined KINETIS_KE || defined KINETIS_KE15 || defined KINETIS_KE18
         if ((*ptrPCR & PORT_MUX_MASK) != PORT_MUX_GPIO) {                // only connected port bits are considered as outputs
             ulConnectedGPIO &= ~ulBit;
         }
@@ -1118,11 +1576,11 @@ extern unsigned long fnGetPresentPortDir(int portNr)
 
 extern unsigned long fnGetPresentPortPeriph(int portNr)
 {
-#if defined KINETIS_KE
+#if defined KINETIS_KE && !defined KINETIS_KE15 && !defined KINETIS_KE18
     int iShift;
 #endif
     portNr--;
-#if defined KINETIS_KE
+#if defined KINETIS_KE && !defined KINETIS_KE15 && !defined KINETIS_KE18
     iShift = ((portNr % 4) * 8);
     portNr /= 4;                                                         // convert 8 bit port to 32 bit port
 #endif
@@ -1141,9 +1599,37 @@ extern unsigned long fnGetPresentPortPeriph(int portNr)
     case _PORTF:
         return (ulPeripherals[5]);
 #endif
+#if PORTS_AVAILABLE > 6
+    case _PORTG:
+        return (ulPeripherals[6]);
+#endif
+#if PORTS_AVAILABLE > 7
+    case _PORTH:
+        return (ulPeripherals[7]);
+#endif
+#if PORTS_AVAILABLE > 8
+    case _PORTI:
+        return (ulPeripherals[8]);
+#endif
     default:
         return 0;
     }
+}
+
+extern unsigned long fnCheckPortRead(int iPortRef, unsigned long ulValue)
+{
+#if defined KINETIS_WITH_PCC
+    volatile unsigned long *ptrPCC = PCC_PORT_ADDR;
+    ptrPCC += iPortRef;
+    if ((*ptrPCC & PCC_CGC) == 0) {                                      // if the port is not powered up
+        _EXCEPTION("Reading from a port that is not powered up!!!!!");
+    }
+#elif defined SIM_SCGC5
+    if ((SIM_SCGC5 & (SIM_SCGC5_PORTA << iPortRef)) == 0) {              // if the port is not powered up
+        _EXCEPTION("Reading from a port that is not powered up!!!!!");
+    }
+#endif
+    return ulValue;
 }
 
 
@@ -1152,13 +1638,23 @@ extern unsigned long fnGetPresentPortPeriph(int portNr)
 extern int fnPortChanges(int iForce)
 {
     int iRtn = iFlagRefresh;
-    static unsigned long ulPortDir0 = 0, ulPortDir1 = 0, ulPortDir2 = 0, ulPortDir3 = 0, ulPortDir4 = 0;
     static unsigned long ulPortVal0 = 0, ulPortVal1 = 0, ulPortVal2 = 0, ulPortVal3 = 0, ulPortVal4 = 0;
     static unsigned long ulPortFunction0 = 0, ulPortFunction1 = 0, ulPortFunction2 = 0, ulPortFunction3 = 0, ulPortFunction4 = 0;
 #if PORTS_AVAILABLE > 5
     static unsigned long ulPortFunction5 = 0; 
-    static unsigned long ulPortDir5 = 0;
     static unsigned long ulPortVal5 = 0;
+#endif
+#if PORTS_AVAILABLE > 6
+    static unsigned long ulPortFunction6 = 0;
+    static unsigned long ulPortVal6 = 0;
+#endif
+#if PORTS_AVAILABLE > 7
+    static unsigned long ulPortFunction7 = 0;
+    static unsigned long ulPortVal7 = 0;
+#endif
+#if PORTS_AVAILABLE > 8
+    static unsigned long ulPortFunction8 = 0;
+    static unsigned long ulPortVal8 = 0;
 #endif
 #if defined _EXTERNAL_PORT_COUNT && _EXTERNAL_PORT_COUNT > 0             // {8}
     static unsigned long ulPortExtValue[_EXTERNAL_PORT_COUNT] = {0};
@@ -1212,9 +1708,36 @@ extern int fnPortChanges(int iForce)
         iRtn |= PORT_CHANGE;
     }
 #endif
+#if PORTS_AVAILABLE > 6
+    ulNewValue = fnGetPresentPortState(_PORTG + 1);
+    ulNewPortPer = fnGetPresentPortPeriph(_PORTG + 1);
+    if ((ulNewValue != ulPortVal6) || (ulNewPortPer != ulPortFunction6)) {
+        ulPortVal6 = ulNewValue;
+        ulPortFunction6 = ulNewPortPer;
+        iRtn |= PORT_CHANGE;
+    }
+#endif
+#if PORTS_AVAILABLE > 7
+    ulNewValue = fnGetPresentPortState(_PORTH + 1);
+    ulNewPortPer = fnGetPresentPortPeriph(_PORTH + 1);
+    if ((ulNewValue != ulPortVal7) || (ulNewPortPer != ulPortFunction7)) {
+        ulPortVal7 = ulNewValue;
+        ulPortFunction7 = ulNewPortPer;
+        iRtn |= PORT_CHANGE;
+    }
+#endif
+#if PORTS_AVAILABLE > 8
+    ulNewValue = fnGetPresentPortState(_PORTI + 1);
+    ulNewPortPer = fnGetPresentPortPeriph(_PORTI + 1);
+    if ((ulNewValue != ulPortVal8) || (ulNewPortPer != ulPortFunction8)) {
+        ulPortVal8 = ulNewValue;
+        ulPortFunction8 = ulNewPortPer;
+        iRtn |= PORT_CHANGE;
+    }
+#endif
 #if defined _EXTERNAL_PORT_COUNT && _EXTERNAL_PORT_COUNT > 0             // {8}
     while (iExPort < _EXTERNAL_PORT_COUNT) {                             // external ports extensions
-        ulNewValue = fnGetPresentPortState(iExPort + (_PORT_EXP_0 + 1));
+        ulNewValue = fnGetPresentPortState(iExPort + (_PORT_EXT_0 + 1));
         if (ulNewValue != ulPortExtValue[iExPort]) {
             ulPortExtValue[iExPort] = ulNewValue;
             iRtn |= PORT_CHANGE;
@@ -1225,12 +1748,12 @@ extern int fnPortChanges(int iForce)
     return iRtn;
 }
 
-#if defined KINETIS_KE
+#if defined KINETIS_KE && !defined KINETIS_KE15 && !defined KINETIS_KE18
 static void fnHandleIRQ(int iPort, unsigned long ulNewState, unsigned long ulChangedBit, unsigned long *ptrPortConfig)
 {
     switch (iPort) {                                                     // check ports that have potential interrupt functions
     case KE_PORTA:
-        if (ulChangedBit & KE_PORTA_BIT5) {
+        if ((ulChangedBit & KE_PORTA_BIT5) != 0) {
             if ((SIM_SOPT0 & SIM_SOPT_RSTPE) == 0) {                     // PTA5 not programmed as reset pin
     #if defined SIM_PINSEL_IRQPS_PTI6
                 if ((SIM_PINSEL0 & SIM_PINSEL_IRQPS_PTI6) != SIM_PINSEL_IRQPS_PTA5) {
@@ -1289,8 +1812,8 @@ static void fnHandleIRQ(int iPort, unsigned long ulNewState, unsigned long ulCha
     }
     // IRQ input has changed so we check to see whether the change/state matches with the programmed one
     //
-    if (IRQ_SC & IRQ_SC_IRQIE) {                                         // interrupt is enabled
-        if (IRQ_SC & IRQ_SC_IRQEDG) {                                    // high or rising edge sensitive
+    if ((IRQ_SC & IRQ_SC_IRQIE) != 0) {                                  // interrupt is enabled
+        if ((IRQ_SC & IRQ_SC_IRQEDG) != 0) {                             // high or rising edge sensitive
             if ((ulNewState & ulChangedBit) == 0) {                      // input has changed to '0'
                 return;
             }
@@ -1318,176 +1841,176 @@ static void fnHandleKBI(int iController, int iPort, unsigned long ulNewState, un
     switch (iPort) {                                                     // check ports that have potential interrupt functions
     case KE_PORTA:
         if (iController == 0) {
-            if (ulChangedBit & KE_PORTA_BIT0) {
+            if ((ulChangedBit & KE_PORTA_BIT0) != 0) {
                 if (ucPortFunctions[iPort][0] == PA_0_KBI0_P0) {         // this input is programmed as keyboard interrupt
                     KBI_input = 0x01;
                     break;
                 }
             }
-            else if (ulChangedBit & KE_PORTA_BIT1) {
+            else if ((ulChangedBit & KE_PORTA_BIT1) != 0) {
                 if (ucPortFunctions[iPort][1] == PA_1_KBI0_P1) {         // this input is programmed as keyboard interrupt
                     KBI_input = 0x02;
                     break;
                 }
             }
-            else if (ulChangedBit & KE_PORTA_BIT2) {
+            else if ((ulChangedBit & KE_PORTA_BIT2) != 0) {
                 if (ucPortFunctions[iPort][2] == PA_2_KBI0_P2) {         // this input is programmed as keyboard interrupt
                     KBI_input = 0x04;
                     break;
                 }
             }
-            else if (ulChangedBit & KE_PORTA_BIT3) {
+            else if ((ulChangedBit & KE_PORTA_BIT3) != 0) {
                 if (ucPortFunctions[iPort][3] == PA_3_KBI0_P3) {         // this input is programmed as keyboard interrupt
                     KBI_input = 0x08;
                     break;
                 }
             }
-    #if defined KINETIS_KE04 || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
-            else if (ulChangedBit & KE_PORTA_BIT4) {
+    #if (defined KINETIS_KE04 && !(SIZE_OF_FLASH <= (8 * 1024))) || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
+            else if ((ulChangedBit & KE_PORTA_BIT4) != 0) {
                 if (ucPortFunctions[iPort][4] == PA_4_KBI0_P4) {         // this input is programmed as keyboard interrupt
                     KBI_input = 0x10;
                     break;
                 }
             }
-            else if (ulChangedBit & KE_PORTA_BIT5) {
+            else if ((ulChangedBit & KE_PORTA_BIT5) != 0) {
                 if (ucPortFunctions[iPort][5] == PA_5_KBI0_P5) {         // this input is programmed as keyboard interrupt
                     KBI_input = 0x20;
                     break;
                 }
             }
-            else if (ulChangedBit & KE_PORTA_BIT6) {
+            else if ((ulChangedBit & KE_PORTA_BIT6) != 0) {
                 if (ucPortFunctions[iPort][6] == PA_6_KBI0_P6) {         // this input is programmed as keyboard interrupt
                     KBI_input = 0x40;
                     break;
                 }
             }
-            else if (ulChangedBit & KE_PORTA_BIT7) {
+            else if ((ulChangedBit & KE_PORTA_BIT7) != 0) {
                 if (ucPortFunctions[iPort][7] == PA_7_KBI0_P7) {         // this input is programmed as keyboard interrupt
                     KBI_input = 0x80;
                     break;
                 }
             }
     #endif
-            else if (ulChangedBit & KE_PORTB_BIT0) {
-    #if defined KINETIS_KE04 || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
-                if (ucPortFunctions[iPort][8] == PB_0_KBI0_P8) {         // this input is programmed as keyboard interrupt
+            else if ((ulChangedBit & KE_PORTB_BIT0) != 0) {
+    #if (defined KINETIS_KE04 && !(SIZE_OF_FLASH <= (8 * 1024))) || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
+                if (ucPortFunctions[iPort + 1][0] == PB_0_KBI0_P8) {     // this input is programmed as keyboard interrupt
                     KBI_input = 0x100;
                     break;
                 }
     #else
-                if (ucPortFunctions[iPort][8] == PB_0_KBI0_P4) {         // this input is programmed as keyboard interrupt
+                if (ucPortFunctions[iPort + 1][0] == PB_0_KBI0_P4) {     // this input is programmed as keyboard interrupt
                     KBI_input = 0x10;
                     break;
                 }
     #endif
             }
-            else if (ulChangedBit & KE_PORTB_BIT1) {
-    #if defined KINETIS_KE04 || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
-                if (ucPortFunctions[iPort][9] == PB_1_KBI0_P9) {         // this input is programmed as keyboard interrupt
+            else if ((ulChangedBit & KE_PORTB_BIT1) != 0) {
+    #if (defined KINETIS_KE04 && !(SIZE_OF_FLASH <= (8 * 1024))) || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
+                if (ucPortFunctions[iPort + 1][1] == PB_1_KBI0_P9) {     // this input is programmed as keyboard interrupt
                     KBI_input = 0x200;
                     break;
                 }
     #else
-                if (ucPortFunctions[iPort][9] == PB_1_KBI0_P5) {         // this input is programmed as keyboard interrupt
+                if (ucPortFunctions[iPort + 1][1] == PB_1_KBI0_P5) {     // this input is programmed as keyboard interrupt
                     KBI_input = 0x20;
                     break;
                 }
     #endif
             }
-            else if (ulChangedBit & KE_PORTB_BIT2) {
-    #if defined KINETIS_KE04 || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
-                if (ucPortFunctions[iPort][10] == PB_2_KBI0_P10) {       // this input is programmed as keyboard interrupt
+            else if ((ulChangedBit & KE_PORTB_BIT2) != 0) {
+    #if (defined KINETIS_KE04 && !(SIZE_OF_FLASH <= (8 * 1024))) || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
+                if (ucPortFunctions[iPort + 1][2] == PB_2_KBI0_P10) {    // this input is programmed as keyboard interrupt
                     KBI_input = 0x400;
                     break;
                 }
     #else
-                if (ucPortFunctions[iPort][10] == PB_2_KBI0_P6) {        // this input is programmed as keyboard interrupt
+                if ((ucPortFunctions[iPort + 1][2] == PB_2_KBI0_P6) != 0) { // this input is programmed as keyboard interrupt
                     KBI_input = 0x40;
                     break;
                 }
     #endif
             }
-            else if (ulChangedBit & KE_PORTB_BIT3) {
-    #if defined KINETIS_KE04 || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
-                if (ucPortFunctions[iPort][11] == PB_3_KBI0_P11) {       // this input is programmed as keyboard interrupt
+            else if ((ulChangedBit & KE_PORTB_BIT3) != 0) {
+    #if (defined KINETIS_KE04 && !(SIZE_OF_FLASH <= (8 * 1024))) || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
+                if (ucPortFunctions[iPort + 1][3] == PB_3_KBI0_P11) {    // this input is programmed as keyboard interrupt
                     KBI_input = 0x800;
                     break;
                 }
     #else
-                if (ucPortFunctions[iPort][11] == PB_3_KBI0_P7) {        // this input is programmed as keyboard interrupt
+                if (ucPortFunctions[iPort + 1][3] == PB_3_KBI0_P7) {     // this input is programmed as keyboard interrupt
                     KBI_input = 0x80;
                     break;
                 }
     #endif
             }
-    #if defined KINETIS_KE04 || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
-            else if (ulChangedBit & KE_PORTB_BIT4) {
-                if (ucPortFunctions[iPort][12] == PB_4_KBI0_P12) {       // this input is programmed as keyboard interrupt
+    #if (defined KINETIS_KE04 && !(SIZE_OF_FLASH <= (8 * 1024))) || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
+            else if ((ulChangedBit & KE_PORTB_BIT4) != 0) {
+                if (ucPortFunctions[iPort + 1][4] == PB_4_KBI0_P12) {    // this input is programmed as keyboard interrupt
                     KBI_input = 0x1000;
                     break;
                 }
             }
-            else if (ulChangedBit & KE_PORTB_BIT5) {
-                if (ucPortFunctions[iPort][13] == PB_5_KBI0_P13) {       // this input is programmed as keyboard interrupt
+            else if ((ulChangedBit & KE_PORTB_BIT5) != 0) {
+                if (ucPortFunctions[iPort + 1][5] == PB_5_KBI0_P13) {    // this input is programmed as keyboard interrupt
                     KBI_input = 0x2000;
                     break;
                 }
             }
-            else if (ulChangedBit & KE_PORTB_BIT6) {
-                if (ucPortFunctions[iPort][14] == PB_6_KBI0_P14) {       // this input is programmed as keyboard interrupt
+            else if ((ulChangedBit & KE_PORTB_BIT6) != 0) {
+                if (ucPortFunctions[iPort + 1][6] == PB_6_KBI0_P14) {    // this input is programmed as keyboard interrupt
                     KBI_input = 0x4000;
                     break;
                 }
             }
-            else if (ulChangedBit & KE_PORTB_BIT7) {
-                if (ucPortFunctions[iPort][15] == PB_7_KBI0_P15) {       // this input is programmed as keyboard interrupt
+            else if ((ulChangedBit & KE_PORTB_BIT7) != 0) {
+                if (ucPortFunctions[iPort + 1][7] == PB_7_KBI0_P15) {    // this input is programmed as keyboard interrupt
                     KBI_input = 0x8000;
                     break;
                 }
             }
-            else if (ulChangedBit & KE_PORTC_BIT0) {
+            else if ((ulChangedBit & KE_PORTC_BIT0) != 0) {
                 if (ucPortFunctions[iPort][16] == PC_0_KBI0_P16) {       // this input is programmed as keyboard interrupt
                     KBI_input = 0x10000;
                     break;
                 }
             }
-            else if (ulChangedBit & KE_PORTC_BIT1) {
+            else if ((ulChangedBit & KE_PORTC_BIT1) != 0) {
                 if (ucPortFunctions[iPort][17] == PC_1_KBI0_P17) {       // this input is programmed as keyboard interrupt
                     KBI_input = 0x20000;
                     break;
                 }
             }
-            else if (ulChangedBit & KE_PORTC_BIT2) {
+            else if ((ulChangedBit & KE_PORTC_BIT2) != 0) {
                 if (ucPortFunctions[iPort][18] == PC_2_KBI0_P18) {       // this input is programmed as keyboard interrupt
                     KBI_input = 0x40000;
                     break;
                 }
             }
-            else if (ulChangedBit & KE_PORTC_BIT3) {
+            else if ((ulChangedBit & KE_PORTC_BIT3) != 0) {
                 if (ucPortFunctions[iPort][19] == PC_3_KBI0_P19) {       // this input is programmed as keyboard interrupt
                     KBI_input = 0x80000;
                     break;
                 }
             }
-            else if (ulChangedBit & KE_PORTC_BIT4) {
+            else if ((ulChangedBit & KE_PORTC_BIT4) != 0) {
                 if (ucPortFunctions[iPort][20] == PC_4_KBI0_P20) {       // this input is programmed as keyboard interrupt
                     KBI_input = 0x100000;
                     break;
                 }
             }
-            else if (ulChangedBit & KE_PORTC_BIT5) {
+            else if ((ulChangedBit & KE_PORTC_BIT5) != 0) {
                 if (ucPortFunctions[iPort][21] == PC_5_KBI0_P21) {       // this input is programmed as keyboard interrupt
                     KBI_input = 0x200000;
                     break;
                 }
             }
-            else if (ulChangedBit & KE_PORTC_BIT6) {
+            else if ((ulChangedBit & KE_PORTC_BIT6) != 0) {
                 if (ucPortFunctions[iPort][22] == PC_6_KBI0_P22) {       // this input is programmed as keyboard interrupt
                     KBI_input = 0x400000;
                     break;
                 }
             }
-            else if (ulChangedBit & KE_PORTC_BIT7) {
+            else if ((ulChangedBit & KE_PORTC_BIT7) != 0) {
                 if (ucPortFunctions[iPort][23] == PC_7_KBI0_P23) {       // this input is programmed as keyboard interrupt
                     KBI_input = 0x800000;
                     break;
@@ -1499,59 +2022,109 @@ static void fnHandleKBI(int iController, int iPort, unsigned long ulNewState, un
                     break;
                 }
             }
-            else if (ulChangedBit & KE_PORTD_BIT1) {
+            else if ((ulChangedBit & KE_PORTD_BIT1) != 0) {
                 if (ucPortFunctions[iPort][25] == PD_1_KBI0_P25) {       // this input is programmed as keyboard interrupt
                     KBI_input = 0x2000000;
                     break;
                 }
             }
-            else if (ulChangedBit & KE_PORTD_BIT2) {
+            else if ((ulChangedBit & KE_PORTD_BIT2) != 0) {
                 if (ucPortFunctions[iPort][26] == PD_2_KBI0_P26) {       // this input is programmed as keyboard interrupt
                     KBI_input = 0x4000000;
                     break;
                 }
             }
-            else if (ulChangedBit & KE_PORTD_BIT3) {
+            else if ((ulChangedBit & KE_PORTD_BIT3) != 0) {
                 if (ucPortFunctions[iPort][27] == PD_3_KBI0_P27) {       // this input is programmed as keyboard interrupt
                     KBI_input = 0x8000000;
                     break;
                 }
             }
-            else if (ulChangedBit & KE_PORTD_BIT4) {
+            else if ((ulChangedBit & KE_PORTD_BIT4) != 0) {
                 if (ucPortFunctions[iPort][28] == PD_4_KBI0_P28) {       // this input is programmed as keyboard interrupt
                     KBI_input = 0x10000000;
                     break;
                 }
             }
-            else if (ulChangedBit & KE_PORTD_BIT5) {
+            else if ((ulChangedBit & KE_PORTD_BIT5) != 0) {
                 if (ucPortFunctions[iPort][29] == PD_5_KBI0_P29) {       // this input is programmed as keyboard interrupt
                     KBI_input = 0x20000000;
                     break;
                 }
             }
-            else if (ulChangedBit & KE_PORTD_BIT6) {
+            else if ((ulChangedBit & KE_PORTD_BIT6) != 0) {
                 if (ucPortFunctions[iPort][30] == PD_6_KBI0_P30) {       // this input is programmed as keyboard interrupt
                     KBI_input = 0x40000000;
                     break;
                 }
             }
-            else if (ulChangedBit & KE_PORTD_BIT7) {
+            else if ((ulChangedBit & KE_PORTD_BIT7) != 0) {
                 if (ucPortFunctions[iPort][31] == PD_7_KBI0_P31) {       // this input is programmed as keyboard interrupt
                     KBI_input = 0x80000000;
                     break;
                 }
             }
-   #endif
+    #endif
         }
     #if KBIS_AVAILABLE > 1 &&  !defined KINETIS_KE04 && !defined KINETIS_KE06 && !defined KINETIS_KEA64 && !defined KINETIS_KEA128
         else {
-            if (ulChangedBit & KE_PORTD_BIT0) {
+        #if defined KINETIS_KEA8
+            if ((ulChangedBit & KE_PORTB_BIT4) != 0) {
+                if (ucPortFunctions[iPort][12] == PB_4_KBI1_P6) {        // this input is programmed as keyboard interrupt
+                    KBI_input = 0x40;
+                    break;
+                }
+            }
+            else if ((ulChangedBit & KE_PORTB_BIT5) != 0) {
+                if (ucPortFunctions[iPort][13] == PB_5_KBI1_P7) {        // this input is programmed as keyboard interrupt
+                    KBI_input = 0x80;
+                    break;
+                }
+            }
+            else if ((ulChangedBit & KE_PORTC_BIT0) != 0) {
+                if (ucPortFunctions[iPort][16] == PC_0_KBI1_P2) {        // this input is programmed as keyboard interrupt
+                    KBI_input = 0x04;
+                    break;
+                }
+            }
+            else if ((ulChangedBit & KE_PORTC_BIT1) != 0) {
+                if (ucPortFunctions[iPort][17] == PC_1_KBI1_P3) {       // this input is programmed as keyboard interrupt
+                    KBI_input = 0x08;
+                    break;
+                }
+            }
+            else if ((ulChangedBit & KE_PORTC_BIT2) != 0) {
+                if (ucPortFunctions[iPort][18] == PC_2_KBI1_P4) {        // this input is programmed as keyboard interrupt
+                    KBI_input = 0x10;
+                    break;
+                }
+            }
+            else if ((ulChangedBit & KE_PORTC_BIT3) != 0) {
+                if (ucPortFunctions[iPort][19] == PC_3_KBI1_P5) {        // this input is programmed as keyboard interrupt
+                    KBI_input = 0x20;
+                    break;
+                }
+            }
+            else if ((ulChangedBit & KE_PORTC_BIT4) != 0) {
+                if (ucPortFunctions[iPort][20] == PC_4_KBI1_P0) {        // this input is programmed as keyboard interrupt
+                    KBI_input = 0x01;
+                    break;
+                }
+            }
+            else if ((ulChangedBit & KE_PORTC_BIT5) != 0) {
+                if (ucPortFunctions[iPort][21] == PC_5_KBI1_P1) {        // this input is programmed as keyboard interrupt
+                    KBI_input = 0x02;
+                    break;
+                }
+            }
+        #endif
+            if ((ulChangedBit & KE_PORTD_BIT0) != 0) {
                 if (ucPortFunctions[iPort][24] == PD_0_KBI1_P0) {        // this input is programmed as keyboard interrupt
                     KBI_input = 0x01;
                     break;
                 }
             }
-            else if (ulChangedBit & KE_PORTD_BIT1) {
+            else if ((ulChangedBit & KE_PORTD_BIT1) != 0) {
                 if (ucPortFunctions[iPort][25] == PD_1_KBI1_P1) {        // this input is programmed as keyboard interrupt
                     KBI_input = 0x02;
                     break;
@@ -1563,13 +2136,13 @@ static void fnHandleKBI(int iController, int iPort, unsigned long ulNewState, un
                     break;
                 }
             }
-            else if (ulChangedBit & KE_PORTD_BIT3) {
+            else if ((ulChangedBit & KE_PORTD_BIT3) != 0) {
                 if (ucPortFunctions[iPort][27] == PD_3_KBI1_P3) {        // this input is programmed as keyboard interrupt
                     KBI_input = 0x08;
                     break;
                 }
             }
-            else if (ulChangedBit & KE_PORTD_BIT4) {
+            else if ((ulChangedBit & KE_PORTD_BIT4) != 0) {
                 if (ucPortFunctions[iPort][28] == PD_4_KBI1_P4) {        // this input is programmed as keyboard interrupt
                     KBI_input = 0x10;
                     break;
@@ -1581,13 +2154,13 @@ static void fnHandleKBI(int iController, int iPort, unsigned long ulNewState, un
                     break;
                 }
             }
-            else if (ulChangedBit & KE_PORTD_BIT6) {
+            else if ((ulChangedBit & KE_PORTD_BIT6) != 0) {
                 if (ucPortFunctions[iPort][30] == PD_6_KBI1_P6) {        // this input is programmed as keyboard interrupt
                     KBI_input = 0x40;
                     break;
                 }
             }
-            else if (ulChangedBit & KE_PORTD_BIT7) {
+            else if ((ulChangedBit & KE_PORTD_BIT7) != 0) {
                 if (ucPortFunctions[iPort][31] == PD_7_KBI1_P7) {        // this input is programmed as keyboard interrupt
                     KBI_input = 0x80;
                     break;
@@ -1596,45 +2169,45 @@ static void fnHandleKBI(int iController, int iPort, unsigned long ulNewState, un
         }
     #endif
         return;
-    #if defined KINETIS_KE04 || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
+    #if (defined KINETIS_KE04 && !(SIZE_OF_FLASH <= (8 * 1024))) || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
     case KE_PORTE:
-        if (ulChangedBit & KE_PORTE_BIT0) {
+        if ((ulChangedBit & KE_PORTE_BIT0) != 0) {
             if (ucPortFunctions[iPort][0] == PE_0_KBI1_P0) {             // this input is programmed as keyboard interrupt
                 KBI_input = 0x00000001;
                 break;
             }
         }
-        else if (ulChangedBit & KE_PORTE_BIT1) {
+        else if ((ulChangedBit & KE_PORTE_BIT1) != 0) {
             if (ucPortFunctions[iPort][1] == PE_1_KBI1_P1) {             // this input is programmed as keyboard interrupt
                 KBI_input = 0x00000002;
                 break;
             }
         }
-        else if (ulChangedBit & KE_PORTE_BIT2) {
+        else if ((ulChangedBit & KE_PORTE_BIT2) != 0) {
             if (ucPortFunctions[iPort][2] == PE_2_KBI1_P2) {             // this input is programmed as keyboard interrupt
                 KBI_input = 0x00000004;
                 break;
             }
         }
-        else if (ulChangedBit & KE_PORTE_BIT3) {
+        else if ((ulChangedBit & KE_PORTE_BIT3) != 0) {
             if (ucPortFunctions[iPort][3] == PE_3_KBI1_P3) {             // this input is programmed as keyboard interrupt
                 KBI_input = 0x00000008;
                 break;
             }
         }
-        else if (ulChangedBit & KE_PORTE_BIT4) {
+        else if ((ulChangedBit & KE_PORTE_BIT4) != 0) {
             if (ucPortFunctions[iPort][4] == PE_4_KBI1_P4) {             // this input is programmed as keyboard interrupt
                 KBI_input = 0x00000010;
                 break;
             }
         }
-        else if (ulChangedBit & KE_PORTE_BIT5) {
+        else if ((ulChangedBit & KE_PORTE_BIT5) != 0) {
             if (ucPortFunctions[iPort][5] == PE_5_KBI1_P5) {             // this input is programmed as keyboard interrupt
                 KBI_input = 0x00000020;
                 break;
             }
         }
-        else if (ulChangedBit & KE_PORTE_BIT6) {
+        else if ((ulChangedBit & KE_PORTE_BIT6) != 0) {
             if (ucPortFunctions[iPort][6] == PE_6_KBI1_P6) {           // this input is programmed as keyboard interrupt
                 KBI_input = 0x00000040;
                 break;
@@ -1742,50 +2315,50 @@ static void fnHandleKBI(int iController, int iPort, unsigned long ulNewState, un
                 break;
             }
         }
-        else if (ulChangedBit & KE_PORTH_BIT0) {
-            if (ucPortFunctions[iPort][24] == PH_0_KBI1_P24) {           // this input is programmed as keyboard interrupt
+        else if ((ulChangedBit & KE_PORTH_BIT0) != 0) {
+            if (ucPortFunctions[7][0] == PH_0_KBI1_P24) {                // this input is programmed as keyboard interrupt
                 KBI_input = 0x01000000;
                 break;
             }
         }
-        else if (ulChangedBit & KE_PORTH_BIT1) {
-            if (ucPortFunctions[iPort][25] == PH_1_KBI1_P25) {           // this input is programmed as keyboard interrupt
+        else if ((ulChangedBit & KE_PORTH_BIT1) != 0) {
+            if (ucPortFunctions[7][1] == PH_1_KBI1_P25) {                // this input is programmed as keyboard interrupt
                 KBI_input = 0x02000000;
                 break;
             }
         }
-        else if (ulChangedBit & KE_PORTH_BIT2) {
-            if (ucPortFunctions[iPort][26] == PH_2_KBI1_P26) {           // this input is programmed as keyboard interrupt
+        else if ((ulChangedBit & KE_PORTH_BIT2) != 0) {
+            if (ucPortFunctions[7][2] == PH_2_KBI1_P26) {                // this input is programmed as keyboard interrupt
                 KBI_input = 0x04000000;
                 break;
             }
         }
-        else if (ulChangedBit & KE_PORTH_BIT3) {
-            if (ucPortFunctions[iPort][27] == PH_3_KBI1_P27) {           // this input is programmed as keyboard interrupt
+        else if ((ulChangedBit & KE_PORTH_BIT3) != 0) {
+            if (ucPortFunctions[7][3] == PH_3_KBI1_P27) {                // this input is programmed as keyboard interrupt
                 KBI_input = 0x08000000;
                 break;
             }
         }
-        else if (ulChangedBit & KE_PORTH_BIT4) {
-            if (ucPortFunctions[iPort][28] == PH_4_KBI1_P28) {           // this input is programmed as keyboard interrupt
+        else if ((ulChangedBit & KE_PORTH_BIT4) != 0) {
+            if (ucPortFunctions[7][4] == PH_4_KBI1_P28) {                // this input is programmed as keyboard interrupt
                 KBI_input = 0x10000000;
                 break;
             }
         }
         else if (ulChangedBit & KE_PORTH_BIT5) {
-            if (ucPortFunctions[iPort][29] == PH_5_KBI1_P29) {           // this input is programmed as keyboard interrupt
+            if (ucPortFunctions[7][5] == PH_5_KBI1_P29) {                // this input is programmed as keyboard interrupt
                 KBI_input = 0x20000000;
                 break;
             }
         }
-        else if (ulChangedBit & KE_PORTH_BIT6) {
-            if (ucPortFunctions[iPort][30] == PH_6_KBI1_P30) {           // this input is programmed as keyboard interrupt
+        else if ((ulChangedBit & KE_PORTH_BIT6) != 0) {
+            if (ucPortFunctions[7][6] == PH_6_KBI1_P30) {                // this input is programmed as keyboard interrupt
                 KBI_input = 0x40000000;
                 break;
             }
         }
-        else if (ulChangedBit & KE_PORTH_BIT7) {
-            if (ucPortFunctions[iPort][31] == PH_7_KBI1_P31) {           // this input is programmed as keyboard interrupt
+        else if ((ulChangedBit & KE_PORTH_BIT7) != 0) {
+            if (ucPortFunctions[7][7] == PH_7_KBI1_P31) {                // this input is programmed as keyboard interrupt
                 KBI_input = 0x80000000;
                 break;
             }
@@ -1798,8 +2371,8 @@ static void fnHandleKBI(int iController, int iPort, unsigned long ulNewState, un
     // A valid keyboard interrupt input has changed so we check to see whether the change/state matches with the programmed one
     //
     if (iController == 0) {
-        if (KBI0_SC & KBI_SC_KBIE) {                                     // main KBI interrupt enabled
-            if (KBI0_ES & KBI_input) {                                   // high or rising edge sensitive
+        if ((KBI0_SC & KBI_SC_KBIE) != 0) {                              // main KBI interrupt enabled
+            if ((KBI0_ES & KBI_input) != 0) {                            // high or rising edge sensitive
                 if ((ulNewState & ulChangedBit) == 0) {                  // input has changed to '0'
                     return;
                 }
@@ -1811,7 +2384,7 @@ static void fnHandleKBI(int iController, int iPort, unsigned long ulNewState, un
             }
         }
         KBI0_SC |= KBI_SC_KBF;                                           // interrupt request detected
-    #if defined KINETIS_KE04 || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
+    #if (defined KINETIS_KE04 && !(SIZE_OF_FLASH <= (8 * 1024))) || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
         KBI0_SP |= ulChangedBit;                                         // flag the source that caused the interrupt
     #endif
         if (fnGenInt(irq_KBI0_ID) != 0) {                                // if the interrupt is enabled
@@ -1821,8 +2394,8 @@ static void fnHandleKBI(int iController, int iPort, unsigned long ulNewState, un
     }
     #if KBIS_AVAILABLE > 1
     else {
-        if (KBI1_SC & KBI_SC_KBIE) {                                     // main KBI interrupt enabled
-            if (KBI1_ES & KBI_input) {                                   // high or rising edge sensitive
+        if ((KBI1_SC & KBI_SC_KBIE) != 0) {                              // main KBI interrupt enabled
+            if ((KBI1_ES & KBI_input) != 0) {                            // high or rising edge sensitive
                 if ((ulNewState & ulChangedBit) == 0) {                  // input has changed to '0'
                     return;
                 }
@@ -1834,7 +2407,7 @@ static void fnHandleKBI(int iController, int iPort, unsigned long ulNewState, un
             }
         }
         KBI1_SC |= KBI_SC_KBF;                                           // interrupt request detected
-    #if defined KINETIS_KE04 || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
+    #if (defined KINETIS_KE04 && !(SIZE_OF_FLASH <= (8 * 1024))) || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
         KBI1_SP |= ulChangedBit;                                         // flag the source that caused the interrupt
     #endif
         if (fnGenInt(irq_KBI1_ID) != 0) {                                // if the interrupt is enabled
@@ -1849,7 +2422,7 @@ static void fnHandleKBI(int iController, int iPort, unsigned long ulNewState, un
 #if defined SUPPORT_ADC                                                  // {2}
 static unsigned short fnConvertSimADCvalue(KINETIS_ADC_REGS *ptrADC, unsigned short usStandardValue)
 {
-    #if defined KINETIS_KE
+    #if defined KINETIS_KE && !defined KINETIS_KE15 && !defined KINETIS_KE18
     switch (ptrADC->ADC_SC3 & (ADC_CFG1_MODE_MASK)) {
     case ADC_CFG1_MODE_12:                                               // conversion mode - single-ended 12 bit
         usStandardValue >>= 4;
@@ -1862,29 +2435,35 @@ static unsigned short fnConvertSimADCvalue(KINETIS_ADC_REGS *ptrADC, unsigned sh
         break;
     }
     #else
-    switch (ptrADC->ADC_CFG1 & ADC_CFG1_MODE_16) {
+    switch (ptrADC->ADC_CFG1 & ADC_WORD_LENGTH_MASK) {
+        #if defined KINETIS_KE15
+    default:
+        _EXCEPTION("KE15's ADC doesn't support 16 bit mode");
+        break;
+        #else
     case ADC_CFG1_MODE_16:                                               // conversion mode - single-ended 16 bit or differential 16 bit
         break;
+        #endif
     case ADC_CFG1_MODE_12:                                               // conversion mode - single-ended 12 bit or differential 13 bit
-        usStandardValue >>= 4;
-        if (ptrADC->ADC_SC1A & ADC_SC1A_DIFF) {                          // differential mode
-            if (usStandardValue & 0x0800) {
+        usStandardValue >>= 4;                                           // right aligned
+        if ((ptrADC->ADC_SC1A & ADC_SC1A_DIFF) != 0) {                   // differential mode
+            if ((usStandardValue & 0x0800) != 0) {
                 usStandardValue |= 0xf000;                               // sign extend
             }
         }
         break;
     case ADC_CFG1_MODE_10:                                               // conversion mode - single-ended 10 bit or differential 11 bit
-        usStandardValue >>= 6;
-        if (ptrADC->ADC_SC1A & ADC_SC1A_DIFF) {                          // differential mode
-            if (usStandardValue & 0x0200) {
+        usStandardValue >>= 6;                                           // right aligned
+        if ((ptrADC->ADC_SC1A & ADC_SC1A_DIFF) != 0) {                   // differential mode
+            if ((usStandardValue & 0x0200) != 0) {
                 usStandardValue |= 0xfc00;                               // sign extend
             }
         }
         break;
     case ADC_CFG1_MODE_8:                                                // conversion mode - single-ended 8 bit or differential 9 bit
-        usStandardValue >>= 8;
-        if (ptrADC->ADC_SC1A & ADC_SC1A_DIFF) {                          // differential mode
-            if (usStandardValue & 0x0080) {
+        usStandardValue >>= 8;                                           // right aligned
+        if ((ptrADC->ADC_SC1A & ADC_SC1A_DIFF) != 0) {                   // differential mode
+            if ((usStandardValue & 0x0080) != 0) {
                 usStandardValue |= 0xff00;                               // sign extend
             }
         }
@@ -1905,26 +2484,23 @@ static void fnSimADC(int iChannel)
     #if ADC_CONTROLLERS > 1
     else if (iChannel == 1) {
         ptrADC = (KINETIS_ADC_REGS *)ADC1_BLOCK;
-        iValue = ADC_CHANNELS;
     }
     #endif
     #if ADC_CONTROLLERS > 2
     else if (iChannel == 2) {
         ptrADC = (KINETIS_ADC_REGS *)ADC2_BLOCK;
-        iValue = (ADC_CHANNELS * 2);
     }
     #endif
     #if ADC_CONTROLLERS > 3
     else if (iChannel == 3) {
         ptrADC = (KINETIS_ADC_REGS *)ADC3_BLOCK;
-        iValue = (ADC_CHANNELS * 3);
     }
     #endif
     else {
         return;
     }
     iValue += (ptrADC->ADC_SC1A & ADC_SC1A_ADCH_OFF);                    // the input being converted
-    usADCvalue = fnConvertSimADCvalue(ptrADC, usADC_values[iValue]);     // convert the standard value to the format used by the present mode
+    usADCvalue = fnConvertSimADCvalue(ptrADC, usADC_values[iChannel][iValue]); // convert the standard value to the format used by the present mode
     if ((ptrADC->ADC_SC2 & ADC_SC2_ACFE) != 0) {                         // {40} if the compare function is enabled
     #if !defined KINETIS_KE
         if ((ptrADC->ADC_SC2 & ADC_SC2_ACREN) != 0) {                    // range enabled (uses CV1 and CV2)
@@ -2115,15 +2691,484 @@ static void fnWakeupInterrupt(int iPortReference, unsigned long ulPortState, uns
 }
 #endif
 
+#if !defined DEVICE_WITHOUT_DMA
+static int fnGetChannelFromSource(unsigned char ucTriggerSource)
+{
+    int channel;
+    for (channel = 0; channel < DMA_CHANNEL_COUNT; channel++) {
+        unsigned char *ptrDMUX = (DMAMUX0_CHCFG_ADD + channel);
+        if ((*ptrDMUX & ~(DMAMUX_CHCFG_TRIG | DMAMUX_CHCFG_ENBL)) == ucTriggerSource) {
+            return channel;                                              // this DMA channel is connected to the trigger source
+        }
+    }
+    _EXCEPTION("No DMA trigger source found!!");
+    return -1;
+}
+#endif
+
+extern int fnSimulateDMA(int channel, unsigned char ucTriggerSource)     // {3}
+{
+#if !defined DEVICE_WITHOUT_DMA
+#if (defined KINETIS_KL || defined KINETIS_KM) && !defined DEVICE_WITH_eDMA // {32}
+    KINETIS_DMA *ptrDMA = (KINETIS_DMA *)DMA_BLOCK;
+    if (channel == -1) {
+        channel = fnGetChannelFromSource(ucTriggerSource);
+    }
+    ptrDMA += channel;
+    if ((ptrDMA->DMA_DCR & DMA_DCR_ERQ) != 0) {                          // peripheral trigger
+        if (ucTriggerSource != 0) {
+            unsigned char *ptrDMUX = (DMAMUX0_CHCFG_ADD + channel);
+            // Check that the trigger source is correctly connected to the DMA channel
+            //
+            if ((*ptrDMUX & ~(DMAMUX_CHCFG_TRIG | DMAMUX_CHCFG_ENBL)) != ucTriggerSource) {
+                _EXCEPTION("DMUX source is not connected!!!");
+            }
+        }
+    }
+    if (((ptrDMA->DMA_DCR & (DMA_DCR_START | DMA_DCR_ERQ)) != 0) && ((ptrDMA->DMA_DSR_BCR & DMA_DSR_BCR_BCR_MASK) != 0)) { // sw commanded start or source request (ignore if no count value remaining)
+        ptrDMA->DMA_DSR_BCR |= DMA_DSR_BCR_BSY;
+        while ((ptrDMA->DMA_DSR_BCR & DMA_DSR_BCR_BCR_MASK) != 0) {      // while bytes to be transferred
+            if ((ptrDMA->DMA_DCR & DMA_DCR_DSIZE_8) != 0) {              // 8 bit transfers
+                *(unsigned char *)ptrDMA->DMA_DAR = *(unsigned char *)ptrDMA->DMA_SAR; // byte transfer
+                ptrDMA->DMA_DSR_BCR = ((ptrDMA->DMA_DSR_BCR & DMA_DSR_BCR_BCR_MASK) - 1);
+            }
+            else if ((ptrDMA->DMA_DCR & DMA_DCR_DSIZE_16) != 0) {        // 16 bit transfers
+                *(unsigned short *)ptrDMA->DMA_DAR = *(unsigned short *)ptrDMA->DMA_SAR; // short word transfer
+                ptrDMA->DMA_DSR_BCR = ((ptrDMA->DMA_DSR_BCR & DMA_DSR_BCR_BCR_MASK) - 2);
+            }
+            else {                                                       // 32 bit transfers
+                *(unsigned long *)ptrDMA->DMA_DAR = *(unsigned long *)ptrDMA->DMA_SAR; // long word transfer
+                ptrDMA->DMA_DSR_BCR = ((ptrDMA->DMA_DSR_BCR & DMA_DSR_BCR_BCR_MASK) - 4);
+            }
+            if ((ptrDMA->DMA_DCR & DMA_DCR_DINC) != 0) {                 // destination increment enabled
+                if ((ptrDMA->DMA_DCR & DMA_DCR_DSIZE_8) != 0) {
+                    ptrDMA->DMA_DAR = (ptrDMA->DMA_DAR + 1);
+                }
+                else if ((ptrDMA->DMA_DCR & DMA_DCR_DSIZE_16) != 0) {
+                    ptrDMA->DMA_DAR = (ptrDMA->DMA_DAR + 2);
+                }
+                else {
+                    ptrDMA->DMA_DAR = (ptrDMA->DMA_DAR + 4);
+                }
+            }
+            if ((ptrDMA->DMA_DCR & DMA_DCR_SINC) != 0) {                 // source increment enabled
+                if ((ptrDMA->DMA_DCR & DMA_DCR_SSIZE_8) != 0) {
+                    ptrDMA->DMA_SAR  = (ptrDMA->DMA_SAR + 1);
+                }
+                else if ((ptrDMA->DMA_DCR & DMA_DCR_SSIZE_16) != 0) {
+                    ptrDMA->DMA_SAR  = (ptrDMA->DMA_SAR + 2);
+                }
+                else {
+                    ptrDMA->DMA_SAR  = (ptrDMA->DMA_SAR + 4);
+                }
+            }
+            if ((ptrDMA->DMA_DCR & DMA_DCR_CS) != 0) {                   // if in cycle-steal mode only one transfer is performed at a time
+                unsigned long ulLength = 0;
+                switch (ptrDMA->DMA_DCR & DMA_DCR_SMOD_256K) {           // handle automatic source modulo buffer operation
+                case DMA_DCR_SMOD_16:
+                    ulLength = 16;
+                    break;
+                case DMA_DCR_SMOD_32:
+                    ulLength = 32;
+                    break;
+                case DMA_DCR_SMOD_64:
+                    ulLength = 64;
+                    break;
+                case DMA_DCR_SMOD_128:
+                    ulLength = 128;
+                    break;
+                case DMA_DCR_SMOD_256:
+                    ulLength = 256;
+                    break;
+                case DMA_DCR_SMOD_512:
+                    ulLength = 512;
+                    break;
+                case DMA_DCR_SMOD_1K:
+                    ulLength = 1024;
+                    break;
+                case DMA_DCR_SMOD_2K:
+                    ulLength = (2 * 1024);
+                    break;
+                case DMA_DCR_SMOD_4K:
+                    ulLength = (4 * 1024);
+                    break;
+                case DMA_DCR_SMOD_8K:
+                    ulLength = (8 * 1024);
+                    break;
+                case DMA_DCR_SMOD_16K:
+                    ulLength = (16 * 1024);
+                    break;
+                case DMA_DCR_SMOD_32K:
+                    ulLength = (32 * 1024);
+                    break;
+                case DMA_DCR_SMOD_64K:
+                    ulLength = (64 * 1024);
+                    break;
+                case DMA_DCR_SMOD_128K:
+                    ulLength = (128 * 1024);
+                    break;
+                case DMA_DCR_SMOD_256K:
+                    ulLength = (256 * 1024);
+                    break;
+                default:
+                    break;
+                }
+                if (ulLength != 0) {
+                    if ((ptrDMA->DMA_SAR % ulLength) == 0) {
+                        ptrDMA->DMA_SAR -= ulLength;
+                    }
+                }
+                switch (ptrDMA->DMA_DCR & DMA_DCR_DMOD_256K) {           // handle automatic destination modulo buffer operation
+                case DMA_DCR_DMOD_16:
+                    ulLength = 16;
+                    break;
+                case DMA_DCR_DMOD_32:
+                    ulLength = 32;
+                    break;
+                case DMA_DCR_DMOD_64:
+                    ulLength = 64;
+                    break;
+                case DMA_DCR_DMOD_128:
+                    ulLength = 128;
+                    break;
+                case DMA_DCR_DMOD_256:
+                    ulLength = 256;
+                    break;
+                case DMA_DCR_DMOD_512:
+                    ulLength = 512;
+                    break;
+                case DMA_DCR_DMOD_1K:
+                    ulLength = 1024;
+                    break;
+                case DMA_DCR_DMOD_2K:
+                    ulLength = (2 * 1024);
+                    break;
+                case DMA_DCR_DMOD_4K:
+                    ulLength = (4 * 1024);
+                    break;
+                case DMA_DCR_DMOD_8K:
+                    ulLength = (8 * 1024);
+                    break;
+                case DMA_DCR_DMOD_16K:
+                    ulLength = (16 * 1024);
+                    break;
+                case DMA_DCR_DMOD_32K:
+                    ulLength = (32 * 1024);
+                    break;
+                case DMA_DCR_DMOD_64K:
+                    ulLength = (64 * 1024);
+                    break;
+                case DMA_DCR_DMOD_128K:
+                    ulLength = (128 * 1024);
+                    break;
+                case DMA_DCR_DMOD_256K:
+                    ulLength = (256 * 1024);
+                    break;
+                default:
+                    ulLength = 0;
+                    break;
+                }
+                if (ulLength != 0) {
+                    if ((ptrDMA->DMA_DAR % ulLength) == 0) {
+                        ptrDMA->DMA_DAR -= ulLength;
+                    }
+                }
+//                break;
+            }
+            if (ptrDMA->DMA_DSR_BCR != 0) {
+                return 1;                                                // still active
+            }
+        }
+        ptrDMA->DMA_DSR_BCR |= DMA_DSR_BCR_DONE;
+        if ((ptrDMA->DMA_DCR & DMA_DCR_EINT) != 0) {                     // if interrupt is enabled
+            if (fnGenInt(irq_DMA0_ID + channel) != 0) {                  // if DMA channel interrupt is not disabled
+                VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
+                switch (channel) {
+                case 0:
+                    ptrVect->processor_interrupts.irq_DMA0();            // call the interrupt handler for DMA channel 0
+                    break;
+                case 1:
+                    ptrVect->processor_interrupts.irq_DMA1();            // call the interrupt handler for DMA channel 1
+                    break;
+                case 2:
+                    ptrVect->processor_interrupts.irq_DMA2();            // call the interrupt handler for DMA channel 2
+                    break;
+                case 3:
+                    ptrVect->processor_interrupts.irq_DMA3();            // call the interrupt handler for DMA channel 3
+                    break;
+                }
+            }
+        }
+        return 0;
+    }
+#elif !defined KINETIS_KE || defined DEVICE_WITH_eDMA
+    KINETIS_DMA_TDC *ptrDMA_TCD = (KINETIS_DMA_TDC *)eDMA_DESCRIPTORS;
+    if ((ucTriggerSource != 0) &&  (IS_POWERED_UP(6, DMAMUX0) == 0)) {
+        return -1;                                                       // DMA MUX not powered - no operation
+    }
+    if (channel == -1) {                                                 // if the DMA channel is not specified
+        channel = fnGetChannelFromSource(ucTriggerSource);               // get the channel from the trigger source
+    }
+    ptrDMA_TCD += channel;
+
+    if (channel >= DMA_CHANNEL_COUNT) {
+        _EXCEPTION("Warning - invalid DMA channel being used!!");
+    }
+    if (ucTriggerSource != 0) {
+        ptrDMA_TCD->DMA_TCD_CSR |= DMA_TCD_CSR_ACTIVE;
+    }
+    if ((ptrDMA_TCD->DMA_TCD_CSR & DMA_TCD_CSR_ACTIVE) != 0) {           // peripheral trigger
+      //if (ucTriggerSource != 0) {
+            unsigned char *ptrDMUX = (DMAMUX0_CHCFG_ADD + channel);
+            // Check that the trigger source is correctly connected to the DMA channel
+            //
+            if ((*ptrDMUX & ~(DMAMUX_CHCFG_TRIG | DMAMUX_CHCFG_ENBL)) != ucTriggerSource) {
+                _EXCEPTION("DMUX source is not connected!!!");
+            }
+      //}
+    }
+    if ((ptrDMA_TCD->DMA_TCD_CSR & (DMA_TCD_CSR_START | DMA_TCD_CSR_ACTIVE)) != 0) { // sw commanded start or active
+        int interrupt = 0;
+        ptrDMA_TCD->DMA_TCD_CSR |= DMA_TCD_CSR_ACTIVE;                   // mark active 
+        ptrDMA_TCD->DMA_TCD_CSR &= ~DMA_TCD_CSR_START;                   // clear the start bit
+        if (ptrDMA_TCD->DMA_TCD_CITER_ELINK != 0) {                      // main loop iterations
+            unsigned long ulMinorLoop = ptrDMA_TCD->DMA_TCD_NBYTES_ML;   // the number of bytes to transfer
+            if ((ptrDMA_TCD->DMA_TCD_ATTR & DMA_TCD_ATTR_DSIZE_32) != 0) { // {36} handle long word transfers
+                if ((ptrDMA_TCD->DMA_TCD_DOFF & 0x3) != 0) {
+                    _EXCEPTION("DMA destination offset error!!");
+                }
+                if ((ptrDMA_TCD->DMA_TCD_SOFF & 0x3) != 0) {
+                    _EXCEPTION("DMA source offset error!!");
+                }
+                if ((ulMinorLoop & 0x3) != 0) {
+                    _EXCEPTION("DMA copy size error!!");
+                }
+                while (ulMinorLoop != 0) {
+                    *(unsigned long *)ptrDMA_TCD->DMA_TCD_DADDR = *(unsigned long *)ptrDMA_TCD->DMA_TCD_SADDR; // long word transfer
+                    ptrDMA_TCD->DMA_TCD_DADDR = ptrDMA_TCD->DMA_TCD_DADDR + ptrDMA_TCD->DMA_TCD_DOFF;
+                    ptrDMA_TCD->DMA_TCD_SADDR = ptrDMA_TCD->DMA_TCD_SADDR + ptrDMA_TCD->DMA_TCD_SOFF;
+                    ulMinorLoop -= sizeof(unsigned long);
+                }
+            }
+            else if ((ptrDMA_TCD->DMA_TCD_ATTR & DMA_TCD_ATTR_DSIZE_16) != 0) { // {36} handle short word transfers
+                if ((ptrDMA_TCD->DMA_TCD_DOFF & 0x1) != 0) {
+                    _EXCEPTION("DMA destination offset error!!");
+                }
+                if ((ptrDMA_TCD->DMA_TCD_SOFF & 0x1) != 0) {
+                    _EXCEPTION("DMA source offset error!!");
+                }
+                if ((ulMinorLoop & 0x1) != 0) {
+                    _EXCEPTION("DMA copy size error!!");
+                }
+                while (ulMinorLoop != 0) {
+                    *(unsigned short *)ptrDMA_TCD->DMA_TCD_DADDR = *(unsigned short *)ptrDMA_TCD->DMA_TCD_SADDR; // short word transfer
+                    ptrDMA_TCD->DMA_TCD_DADDR = (ptrDMA_TCD->DMA_TCD_DADDR + ptrDMA_TCD->DMA_TCD_DOFF);
+                    ptrDMA_TCD->DMA_TCD_SADDR = (ptrDMA_TCD->DMA_TCD_SADDR + ptrDMA_TCD->DMA_TCD_SOFF);
+                    if (ulMinorLoop <= sizeof(unsigned short)) {
+                        ulMinorLoop = 0;
+                    }
+                    else {
+                        ulMinorLoop -= sizeof(unsigned short);
+                    }
+                }
+            }
+            else {
+                while (ulMinorLoop-- != 0) {                             // minor loop count
+                    *(unsigned char *)ptrDMA_TCD->DMA_TCD_DADDR = *(unsigned char *)ptrDMA_TCD->DMA_TCD_SADDR; // byte transfer
+                    ptrDMA_TCD->DMA_TCD_DADDR = ptrDMA_TCD->DMA_TCD_DADDR + ptrDMA_TCD->DMA_TCD_DOFF;
+                    ptrDMA_TCD->DMA_TCD_SADDR = ptrDMA_TCD->DMA_TCD_SADDR + ptrDMA_TCD->DMA_TCD_SOFF;
+                }
+            }
+            (ptrDMA_TCD->DMA_TCD_CITER_ELINK)--;
+            if (ptrDMA_TCD->DMA_TCD_CITER_ELINK == 0) {                  // major loop completed
+                if ((ptrDMA_TCD->DMA_TCD_CSR & DMA_TCD_CSR_INTMAJOR) != 0) { // {18}
+                    interrupt = 1;                                       // possible interrupt
+                }
+                if ((ptrDMA_TCD->DMA_TCD_CSR & DMA_TCD_CSR_DREQ) != 0) { // disable on completion of major loop
+                    DMA_ERQ &= ~(DMA_ERQ_ERQ0 << channel);
+                    ptrDMA_TCD->DMA_TCD_CSR &= ~DMA_TCD_CSR_ACTIVE;      // completed
+                }
+                else {                                                   // continuous operation
+                    ptrDMA_TCD->DMA_TCD_CITER_ELINK = ptrDMA_TCD->DMA_TCD_BITER_ELINK; // set back the main loop count value
+                }
+                ptrDMA_TCD->DMA_TCD_CSR |= DMA_TCD_CSR_DONE;
+                ptrDMA_TCD->DMA_TCD_DADDR += ptrDMA_TCD->DMA_TCD_DLASTSGA;
+                ptrDMA_TCD->DMA_TCD_SADDR += ptrDMA_TCD->DMA_TCD_SLAST;
+            }
+            else if (ptrDMA_TCD->DMA_TCD_CITER_ELINK == (ptrDMA_TCD->DMA_TCD_BITER_ELINK/2)) { // half complete
+                if ((ptrDMA_TCD->DMA_TCD_CSR & DMA_TCD_CSR_INTHALF) != 0) { // check whether half-buffer interrupt has been configured
+                    interrupt = 1;
+                }
+            }
+
+            if (interrupt != 0) {                                        // if possible interrupt to generate
+                DMA_INT |= (DMA_INT_INT0 << channel);
+    #if defined eDMA_SHARES_INTERRUPTS
+                if (fnGenInt(irq_DMA0_ID + (channel%(DMA_CHANNEL_COUNT/2))) != 0)
+    #else
+                if (fnGenInt(irq_DMA0_ID + channel) != 0)
+    #endif
+                {                                                        // if DMA channel interrupt is not disabled
+                    VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
+                    switch (channel) {
+                    case 0:
+    #if defined eDMA_SHARES_INTERRUPTS
+                    case (0 + (DMA_CHANNEL_COUNT / 2)):
+    #endif
+                        ptrVect->processor_interrupts.irq_DMA0();    // call the interrupt handler for DMA channel 0 (and possibly shared channel)
+                        break;
+                    case 1:
+    #if defined eDMA_SHARES_INTERRUPTS
+                    case (1 + (DMA_CHANNEL_COUNT / 2)):
+    #endif
+                        ptrVect->processor_interrupts.irq_DMA1();        // call the interrupt handler for DMA channel 1 (and possibly shared channel)
+                        break;
+                    case 2:
+    #if defined eDMA_SHARES_INTERRUPTS
+                    case (2 + (DMA_CHANNEL_COUNT / 2)):
+    #endif
+                        ptrVect->processor_interrupts.irq_DMA2();        // call the interrupt handler for DMA channel 2 (and possibly shared channel)
+                        break;
+                    case 3:
+    #if defined eDMA_SHARES_INTERRUPTS
+                    case (3 + (DMA_CHANNEL_COUNT / 2)):
+    #endif
+                        ptrVect->processor_interrupts.irq_DMA3();        // call the interrupt handler for DMA channel 3 (and possibly shared channel)
+                        break;
+    #if (DMA_CHANNEL_COUNT > 4) && defined irq_DMA4_ID
+                    case 4:
+        #if defined eDMA_SHARES_INTERRUPTS
+                    case (4 + (DMA_CHANNEL_COUNT / 2)):
+        #endif
+                        ptrVect->processor_interrupts.irq_DMA4();        // call the interrupt handler for DMA channel 4 (and possibly shared channel)
+                        break;
+                    case 5:
+        #if defined eDMA_SHARES_INTERRUPTS
+                    case (5 + (DMA_CHANNEL_COUNT / 2)):
+        #endif
+                        ptrVect->processor_interrupts.irq_DMA5();        // call the interrupt handler for DMA channel 5 (and possibly shared channel)
+                        break;
+                    case 6:
+        #if defined eDMA_SHARES_INTERRUPTS
+                    case (6 + (DMA_CHANNEL_COUNT / 2)):
+        #endif
+                        ptrVect->processor_interrupts.irq_DMA6();        // call the interrupt handler for DMA channel 6 (and possibly shared channel)
+                        break;
+                    case 7:
+        #if defined eDMA_SHARES_INTERRUPTS
+                    case (7 + (DMA_CHANNEL_COUNT / 2)):
+        #endif
+                        ptrVect->processor_interrupts.irq_DMA7();        // call the interrupt handler for DMA channel 7 (and possibly shared channel)
+                        break;
+    #endif
+    #if (DMA_CHANNEL_COUNT > 8) && defined irq_DMA8_ID
+                    case 8:
+        #if defined eDMA_SHARES_INTERRUPTS
+                    case (8 + (DMA_CHANNEL_COUNT / 2)):
+        #endif
+                        ptrVect->processor_interrupts.irq_DMA8();        // call the interrupt handler for DMA channel 8 (and possibly shared channel)
+                        break;
+                    case 9:
+        #if defined eDMA_SHARES_INTERRUPTS
+                    case (9 + (DMA_CHANNEL_COUNT / 2)):
+        #endif
+                        ptrVect->processor_interrupts.irq_DMA9();        // call the interrupt handler for DMA channel 9 (and possibly shared channel)
+                        break;
+                    case 10:
+        #if defined eDMA_SHARES_INTERRUPTS
+                    case (10 + (DMA_CHANNEL_COUNT / 2)):
+        #endif
+                        ptrVect->processor_interrupts.irq_DMA10();       // call the interrupt handler for DMA channel 10 (and possibly shared channel)
+                        break;
+                    case 11:
+        #if defined eDMA_SHARES_INTERRUPTS
+                    case (11 + (DMA_CHANNEL_COUNT / 2)):
+        #endif
+                        ptrVect->processor_interrupts.irq_DMA11();       // call the interrupt handler for DMA channel 11 (and possibly shared channel)
+                        break;
+                    case 12:
+        #if defined eDMA_SHARES_INTERRUPTS
+                    case (12 + (DMA_CHANNEL_COUNT / 2)):
+        #endif
+                        ptrVect->processor_interrupts.irq_DMA12();       // call the interrupt handler for DMA channel 12 (and possibly shared channel)
+                        break;
+                    case 13:
+        #if defined eDMA_SHARES_INTERRUPTS
+                    case (13 + (DMA_CHANNEL_COUNT / 2)):
+        #endif
+                        ptrVect->processor_interrupts.irq_DMA13();       // call the interrupt handler for DMA channel 13 (and possibly shared channel)
+                        break;
+                    case 14:
+        #if defined eDMA_SHARES_INTERRUPTS
+                    case (14 + (DMA_CHANNEL_COUNT / 2)):
+        #endif
+                        ptrVect->processor_interrupts.irq_DMA14();       // call the interrupt handler for DMA channel 14 (and possibly shared channel)
+                        break;
+                    case 15:
+        #if defined eDMA_SHARES_INTERRUPTS
+                    case (15 + (DMA_CHANNEL_COUNT / 2)):
+        #endif
+                        ptrVect->processor_interrupts.irq_DMA15();       // call the interrupt handler for DMA channel 15 (and possibly shared channel)
+                        break;
+    #endif
+                    }
+                }
+            }
+            if (ptrDMA_TCD->DMA_TCD_CITER_ELINK == 0) {
+                return 0;                                                // completed
+            }
+        }
+        return 1;                                                        // not completed
+    }
+#endif
+#endif
+    return -1;                                                           // no operation
+}
+
+
 #if defined SUPPORT_ADC
 extern int fnGetADC_sim_channel(int iPort, int iBit);
 static int fnHandleADCchange(int iChange, int iPort, unsigned char ucPortBit)
 {
-    if ((iChange & (TOGGLE_INPUT | TOGGLE_INPUT_NEG | TOGGLE_INPUT_POS)) != 0) {
+#if 1
+    int iADC = 0;
+    unsigned short usStepSize;
+    signed int iAdcChannel = fnGetADC_sim_channel(iPort, (/*31 - */ucPortBit)); // {9}
+    if (iAdcChannel < 0) {                                               // {9} ignore if not valid ADC port
+        return -1;                                                       // not analoge input so ignore
+    }
+    while (iAdcChannel >= 32) {
+        iADC++;
+        iAdcChannel -= 32;
+    }
+    if ((TOGGLE_INPUT_ANALOG & iChange) != 0) {
+        usStepSize = (0xffff/3);
+    }
+    else {
+        usStepSize = ((ADC_SIM_STEP_SIZE * 0xffff)/ADC_REFERENCE_VOLTAGE);
+    }
+    if ((TOGGLE_INPUT_NEG & iChange) != 0) {                             // force a smaller voltage
+        if (usADC_values[iADC][iAdcChannel] >= usStepSize) {
+            usADC_values[iADC][iAdcChannel] -= usStepSize;               // decrease the voltage on the pin
+        }
+    }
+    else {                                                               // increase the voltage
+        if ((usADC_values[iADC][iAdcChannel] + usStepSize) <= 0xffff) {
+            usADC_values[iADC][iAdcChannel] += usStepSize;               // increase the voltage on the pin
+        }
+    }
+    return 0;                                                            // analog input handled
+#else
+    if ((iChange & (TOGGLE_INPUT | TOGGLE_INPUT_NEG | TOGGLE_INPUT_POS | SET_INPUT)) != 0) {
+        int iADC = 0;
         unsigned short usStepSize;
-        signed int iAdc = fnGetADC_sim_channel(iPort, (/*31 - */ucPortBit)); // {9}
-        if (iAdc < 0) {                                                  // {9} ignore if not valid ADC port
+        signed int iAdcChannel = fnGetADC_sim_channel(iPort, (/*31 - */ucPortBit)); // {9}
+        if (iAdcChannel < 0) {                                           // {9} ignore if not valid ADC port
             return -1;                                                   // not analoge input so ignore
+        }
+        while (iAdcChannel >= 32) {
+            iADC++;
+            iAdcChannel -= 32;
         }
         if ((TOGGLE_INPUT_ANALOG & iChange) != 0) {
             usStepSize = (0xffff/3);
@@ -2132,17 +3177,487 @@ static int fnHandleADCchange(int iChange, int iPort, unsigned char ucPortBit)
             usStepSize = ((ADC_SIM_STEP_SIZE * 0xffff) / ADC_REFERENCE_VOLTAGE);
         }
         if ((TOGGLE_INPUT_NEG & iChange) != 0) {                         // force a smaller voltage
-            if (usADC_values[iAdc] >= usStepSize) {
-                usADC_values[iAdc] -= usStepSize;                        // decrease the voltage on the pin
+            if (usADC_values[iADC][iAdcChannel] >= usStepSize) {
+                usADC_values[iADC][iAdcChannel] -= usStepSize;           // decrease the voltage on the pin
             }
         }
-        else {
-            if ((usADC_values[iAdc] + usStepSize) <= 0xffff) {
-                usADC_values[iAdc] += usStepSize;                        // increase the voltage on the pin
+        else {                                                           // increase the voltage
+            if ((usADC_values[iADC][iAdcChannel] + usStepSize) <= 0xffff) {
+                usADC_values[iADC][iAdcChannel] += usStepSize;           // increase the voltage on the pin
             }
         }
     }
     return 0;
+#endif
+}
+#endif
+
+#if defined SUPPORT_TIMER && (FLEX_TIMERS_AVAILABLE > 0)
+static int fnFlexTimerPowered(int iTimer)
+{
+    switch (iTimer) {
+    case 0:
+        return (IS_POWERED_UP(6, FTM0));
+    #if FLEX_TIMERS_AVAILABLE > 1
+    case 1:
+        return (IS_POWERED_UP(6, FTM1));
+    #endif
+    #if FLEX_TIMERS_AVAILABLE > 2
+    case 2:
+        #if defined KINETIS_KL || defined KINETIS_K22_SF7 || defined KINETIS_K64 || defined KINETIS_K65 || defined KINETIS_K66 || defined KINETIS_KV50
+        return (IS_POWERED_UP(6, FTM2));
+        #else
+        return (IS_POWERED_UP(3, FTM2));
+        #endif
+    #endif
+    #if FLEX_TIMERS_AVAILABLE > 3
+    case 3:
+        #if defined KINETIS_K22_SF7
+        return (IS_POWERED_UP(6, FTM3));
+        #else
+        return (IS_POWERED_UP(3, FTM3));
+        #endif
+    #endif
+    #if FLEX_TIMERS_AVAILABLE > 4 && defined TPMS_AVAILABLE_TOO          // TPM1
+    case 4:
+        return (IS_POWERED_UP(2, TPM1));
+    #endif
+    #if FLEX_TIMERS_AVAILABLE > 5 && defined TPMS_AVAILABLE_TOO          // TPM2
+    case 5:
+        return (IS_POWERED_UP(2, TPM2));
+    #endif
+    default:
+        return 0;
+    }
+}
+
+static FLEX_TIMER_MODULE *fnGetFlexTimerReg(int iChannel)
+{
+    switch (iChannel) {
+    case 0:
+        return (FLEX_TIMER_MODULE *)FTM_BLOCK_0;
+    #if defined FTM_BLOCK_1
+    case 1:
+        return (FLEX_TIMER_MODULE *)FTM_BLOCK_1;
+    #endif
+    #if defined FTM_BLOCK_2
+    case 2:
+        return (FLEX_TIMER_MODULE *)FTM_BLOCK_2;
+    #endif
+    #if defined FTM_BLOCK_3
+    case 3:
+        return (FLEX_TIMER_MODULE *)FTM_BLOCK_3;
+    #endif
+    #if defined FTM_BLOCK_4
+    case 4:
+        return (FLEX_TIMER_MODULE *)FTM_BLOCK_4;
+    #endif
+    #if defined FTM_BLOCK_5
+    case 5:
+        return (FLEX_TIMER_MODULE *)FTM_BLOCK_5;
+    #endif
+    default:
+        return 0;
+    }
+}
+
+unsigned long fnGetFlexTimer_clock(int iChannel)
+{
+    unsigned long ulClockSpeed = 0;
+    FLEX_TIMER_MODULE *ptrTimer = fnGetFlexTimerReg(iChannel);
+    #if (FLEX_TIMERS_AVAILABLE == 6) && (TPMS_AVAILABLE_TOO == 2)        // devices with 4 FTMs and 2 TPMs
+    if ((iChannel == 4) || (iChannel == 5)) {                            // TPM
+        ulClockSpeed = TPM_PWM_CLOCK;
+    }
+    else {
+        switch (ptrTimer->FTM_SC & (FTM_SC_CLKS_MASK)) {                 // switch on the clock source selected for the flextimer
+        case FTM_SC_CLKS_EXT:                                            // external clock source
+            switch (iChannel) {
+        #if defined FLEX_TIMER_0_CLOCK_SPEED
+            case 0:
+                return FLEX_TIMER_CH0_CLOCK_SPEED;
+        #endif
+        #if defined FLEX_TIMER_CH1_CLOCK_SPEED && (FLEX_TIMERS_AVAILABLE > 1)
+            case 1:
+                return FLEX_TIMER_1_CLOCK_SPEED;
+        #endif
+        #if defined FLEX_TIMER_CH2_CLOCK_SPEED && (FLEX_TIMERS_AVAILABLE > 2)
+            case 2:
+                return FLEX_TIMER_2_CLOCK_SPEED;
+        #endif
+        #if defined FLEX_TIMER_CH3_CLOCK_SPEED && (FLEX_TIMERS_AVAILABLE > 3)
+            case 3:
+                return FLEX_TIMER_3_CLOCK_SPEED;
+        #endif
+            default:
+                _EXCEPTION("External clock speed unknown!");
+                break;
+            }
+            break;
+        case FTM_SC_CLKS_FIX:                                            // internal fixed clock source
+            if ((MCG_C1 & MCG_C1_IREFS) != 0) {                          // 32kHz IRC is being used as MCGFFCLK
+                if ((MCG_C1 & MCG_C1_IRCLKEN) != 0) {                    // check that the IRC 32kHz is enabled
+                    ulClockSpeed = SLOW_ICR;
+                }
+                else {
+                    _EXCEPTION("FTM is using MCGFFCLK derived from 32kHz IRC but the source is disabled!");
+                    ulClockSpeed = 0;
+                }
+            }
+            else {                                                       // external path is selected
+                switch (MCG_C7 & MCG_C7_OSCSEL_MASK) {
+                case MCG_C7_OSCSEL_OSCCLK:
+                    ulClockSpeed =_EXTERNAL_CLOCK;                       // crystal or external oscillator speed
+                    break;
+        #if defined MCG_C7_OSCSEL_32K
+                case MCG_C7_OSCSEL_32K:
+                    ulClockSpeed = 32768;
+                    break;
+        #endif
+        #if defined MCG_C7_OSCSEL_IRC48MCLK
+                case MCG_C7_OSCSEL_IRC48MCLK:
+                    ulClockSpeed = 48000000;
+                    break;
+        #endif
+                }
+        #if defined MCGFFLCLK_FRDIV
+                ulClockSpeed /= (MCGFFLCLK_FRDIV);                       // divide the input by FRDIV
+        #else
+                _EXCEPTION("MCGFFLCLK_FRDIV is not specified!!");        // the FRDIV divide value used needs to be specified
+        #endif
+            }
+            break;
+        case FTM_SC_CLKS_SYS:                                            // system clock
+            ulClockSpeed = BUS_CLOCK;                                    // bus clock
+            break;
+        }
+    }
+    #elif defined KINETIS_KE15 || defined KINETIS_KE18
+    switch (ptrTimer->FTM_SC & (FTM_SC_CLKS_EXT | FTM_SC_CLKS_SYS)) {
+    case FTM_SC_CLKS_EXT:
+        _EXCEPTION("Not supported");
+        break;
+    case FTM_SC_CLKS_FIX:
+        if ((SCG_SOSCCSR & SCG_SOSCCSR_SOSCERCLKEN) != 0) {
+            _EXCEPTION("Not supported");
+        }
+        else {
+            _EXCEPTION("SOSC_CLK needs to be enable for this use!");
+        }
+        break;
+    case FTM_SC_CLKS_SYS:
+        ulClockSpeed = DIVCORE_CLK;                                      // system clock
+        break;
+    }
+    #elif defined KINETIS_WITH_PCC
+    ulClockSpeed = fnGetPCC_clock((KINETIS_PERIPHERAL_FTM0 + iChannel)); // get the speed of the clock used by this module
+    #elif defined KINETIS_KL
+    switch (SIM_SOPT2 & SIM_SOPT2_TPMSRC_MCGIRCLK) {                     // {38}
+    case SIM_SOPT2_TPMSRC_MCGIRCLK:
+        ulClockSpeed = MCGIRCLK;
+      //ulCountIncrease = (unsigned long)(((unsigned long long)TICK_RESOLUTION * (unsigned long long)MCGIRCLK) / 1000000); // bus clocks in a period
+        if ((MCG_C2 & MCG_C2_IRCS) != 0) {                               // if fast clock
+            int prescaler = ((MCG_SC >> 1) & 0x7);                       // FCRDIV value
+            while (prescaler-- != 0) {
+                ulClockSpeed /= 2;                                       // FCRDIV prescale
+            }
+        }
+        break;
+    case SIM_SOPT2_TPMSRC_OSCERCLK:
+        #if defined OSCERCLK
+        ulClockSpeed = OSCERCLK;
+        #else
+        _EXCEPTION("No OSCERCLK available");
+        #endif
+        break;
+    case SIM_SOPT2_TPMSRC_MCG:
+        #if defined FLL_FACTOR || defined KINETIS_WITH_MCG_LITE
+        ulClockSpeed = MCGFLLCLK;
+        #else
+        ulClockSpeed = (MCGFLLCLK/2);
+        #endif
+        break;
+    }
+    #else
+    ulClockSpeed = PWM_CLOCK;
+    #endif
+    ulClockSpeed /= (1 << (ptrTimer->FTM_SC & FTM_SC_PS_128));           // apply pre-scaler
+    return ulClockSpeed;
+}
+
+static int fnHandleFlexTimer(int iTimerRef, FLEX_TIMER_MODULE *ptrTimer, int iFlexTimerChannels, int iTPM_type) // {49}
+{
+    static int iChannelFired[FLEX_TIMERS_AVAILABLE][8] = {{0}};
+    unsigned long ulCountIncrease = (unsigned long)(((unsigned long long)TICK_RESOLUTION * (unsigned long long)fnGetFlexTimer_clock(iTimerRef))/1000000);
+    int iTimerInterrupt = 0;
+    int iChannel = 0;
+    ulCountIncrease += ptrTimer->FTM_CNT;                                // new counter value (assume up counting)
+    // Check for channel matches
+    //
+    while (iChannel < iFlexTimerChannels) {                              // for each channel
+        if (((ptrTimer->FTM_channel[iChannel].FTM_CSC & (FTM_CSC_MSB | FTM_CSC_MSA)) != 0) || ((ptrTimer->FTM_SC & FTM_SC_CPWMS) != 0)) { // {50} not in input capture mode
+            if ((iChannelFired[iTimerRef][iChannel] == 0) && (ulCountIncrease >= ptrTimer->FTM_channel[iChannel].FTM_CV)) { // channel match
+                ptrTimer->FTM_channel[iChannel].FTM_CSC |= FTM_CSC_CHF;  // set the channel event flag
+                ptrTimer->FTM_STATUS |= (FTM_STATUS_CH0F << iChannel);   // set the event flag in the global status register
+                iChannelFired[iTimerRef][iChannel] = 1;                  // block this channel from firing again before a new period starts
+                if ((ptrTimer->FTM_channel[iChannel].FTM_CSC & FTM_CSC_CHIE) != 0) { // if channel interrupt is enabled
+                    if ((ptrTimer->FTM_channel[iChannel].FTM_CSC & FTM_CSC_DMA) != 0) { // if DMA is enabled
+                        unsigned char ucDMA_channel = 0;
+                        switch (iTimerRef) {
+    #if defined DMAMUX0_CHCFG_SOURCE_FTM0_C0
+                        case 0:
+                            ucDMA_channel = DMAMUX0_CHCFG_SOURCE_FTM0_C0;
+                            break;
+    #endif
+    #if defined DMAMUX0_CHCFG_SOURCE_FTM1_C0
+                        case 1:
+                            ucDMA_channel = DMAMUX0_CHCFG_SOURCE_FTM1_C0;
+                            break;
+    #endif
+    #if defined DMAMUX0_CHCFG_SOURCE_FTM2_C0
+                        case 2:
+                            ucDMA_channel = DMAMUX0_CHCFG_SOURCE_FTM2_C0;
+                            break;
+    #endif
+    #if defined DMAMUX0_CHCFG_SOURCE_FTM3_C0
+                        case 3:
+                            ucDMA_channel = DMAMUX0_CHCFG_SOURCE_FTM3_C0;
+                            break;
+    #endif
+                        default:
+                            _EXCEPTION("To do!!");
+                            break;
+                        }
+                        fnSimulateDMA(-1, (ucDMA_channel + iChannel));   // {52} simulate DMA trigger
+                    }
+                    else {
+                        iTimerInterrupt = 1;                             // mark that an interrupt is pending
+                    }
+                }
+            }
+        }
+        iChannel++;
+    }
+    if (ulCountIncrease >= ptrTimer->FTM_MOD) {                          // period match
+        memset(iChannelFired[iTimerRef], 0, sizeof(iChannelFired[iTimerRef])); // reset individual channel fired flags
+        ptrTimer->FTM_SC |= FTM_SC_TOF;                                  // set overflow flag
+        if (iTPM_type != 0) {
+            ulCountIncrease -= ptrTimer->FTM_MOD;
+        }
+        else {
+    #if defined FTM0_CNTIN
+            ptrTimer->FTM_CNT = ptrTimer->FTM_CNTIN;                     // respect the counter initial value
+            if (ulCountIncrease > (0xffff + (ptrTimer->FTM_MOD - ptrTimer->FTM_CNTIN))) {
+                ulCountIncrease = (0xffff + (ptrTimer->FTM_MOD - ptrTimer->FTM_CNTIN));
+            }
+            while (ulCountIncrease >= ptrTimer->FTM_MOD) {
+                ulCountIncrease -= (ptrTimer->FTM_MOD - ptrTimer->FTM_CNTIN);
+            }
+    #else
+            ulCountIncrease -= ptrTimer->FTM_MOD;
+    #endif
+        }
+    }
+    ptrTimer->FTM_CNT = ulCountIncrease;                                 // new counter value
+    if (((ptrTimer->FTM_SC & FTM_SC_TOIE) != 0) && ((ptrTimer->FTM_SC & FTM_SC_TOF) != 0)) { // if overflow occurred and interrupt enabled
+        iTimerInterrupt = 1;
+    }
+    #if defined TPMS_AVAILABLE || defined TPMS_AVAILABLE_TOO
+    else if (iTPM_type != 0) {                                           // only TPM types have DMA capability on overflow
+        if (((ptrTimer->FTM_SC & FTM_SC_DMA) != 0) && ((ptrTimer->FTM_SC & FTM_SC_TOF) != 0)) { // if DMA is enabled
+            unsigned char ucDMA_channel = 0;
+            switch (iTimerRef) {
+        #if defined DMAMUX0_CHCFG_SOURCE_TPM0_OVERFLOW
+            case 0:
+                ucDMA_channel = DMAMUX0_CHCFG_SOURCE_TPM0_OVERFLOW;
+                break;
+        #endif
+        #if defined DMAMUX0_CHCFG_SOURCE_TPM1_OVERFLOW
+            case 1:
+                ucDMA_channel = DMAMUX0_CHCFG_SOURCE_TPM1_OVERFLOW;
+                break;
+        #endif
+        #if defined DMAMUX0_CHCFG_SOURCE_TPM2_OVERFLOW
+            case 2:
+                ucDMA_channel = DMAMUX0_CHCFG_SOURCE_TPM2_OVERFLOW;
+                break;
+        #endif
+            default:
+                _EXCEPTION("To do!!");
+                break;
+            }
+            fnSimulateDMA(-1, (ucDMA_channel));                  // simulate DMA trigger
+        }
+    }
+    #endif
+    return iTimerInterrupt;
+}
+
+static void fnExecuteTimerInterrupt(int iTimerRef)
+{
+    switch (iTimerRef) {
+    case 0:
+    #if defined KINETIS_KL
+        if (fnGenInt(irq_TPM0_ID) != 0) {                                // if timer/PWM module 0 interrupt is not disabled
+            VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
+            ptrVect->processor_interrupts.irq_TPM0();                    // call the interrupt handler
+        }
+    #else
+        if (fnGenInt(irq_FTM0_ID) != 0) {                                // if FlexTimer 0 interrupt is not disabled
+            VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
+            ptrVect->processor_interrupts.irq_FTM0();                    // call the interrupt handler
+        }
+    #endif
+        break;
+    #if FLEX_TIMERS_AVAILABLE > 1
+    case 1:
+        #if defined KINETIS_KL
+        if (fnGenInt(irq_TPM1_ID) != 0) {                                // if timer/PWM module 1 interrupt is not disabled
+            VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
+            ptrVect->processor_interrupts.irq_TPM1();                    // call the interrupt handler
+        }
+        #else
+        if (fnGenInt(irq_FTM1_ID) != 0) {                                // if FlexTimer 1 interrupt is not disabled
+            VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
+            ptrVect->processor_interrupts.irq_FTM1();                    // call the interrupt handler
+        }
+        #endif
+        break;
+    #endif
+    #if FLEX_TIMERS_AVAILABLE > 2
+    case 2:
+        #if defined KINETIS_KL
+        if (fnGenInt(irq_TPM2_ID) != 0) {                                // if timer/PWM module 2 interrupt is not disabled
+            VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
+            ptrVect->processor_interrupts.irq_TPM2();                    // call the interrupt handler
+        }
+        #else
+        if (fnGenInt(irq_FTM2_ID) != 0) {                                // if FlexTimer 2 interrupt is not disabled
+            VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
+            ptrVect->processor_interrupts.irq_FTM2();                    // call the interrupt handler
+        }
+        #endif
+        break;
+    #endif
+    #if FLEX_TIMERS_AVAILABLE > 3
+    case 3:
+        if (fnGenInt(irq_FTM3_ID) != 0) {                                // if FlexTimer 3 interrupt is not disabled
+            VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
+            ptrVect->processor_interrupts.irq_FTM3();                    // call the interrupt handler
+        }
+        break;
+    #endif
+    #if FLEX_TIMERS_AVAILABLE > 4 && defined TPMS_AVAILABLE_TOO          // TPM1
+    case 4:
+        if (fnGenInt(irq_TPM1_ID) != 0) {                                // if FlexTimer 4 (TPM1) interrupt is not disabled
+            VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
+            ptrVect->processor_interrupts.irq_TPM1();                    // call the interrupt handler
+        }
+        break;
+    #endif
+    #if FLEX_TIMERS_AVAILABLE > 5 && defined TPMS_AVAILABLE_TOO          // TPM2
+    case 5:
+        if (fnGenInt(irq_TPM2_ID) != 0) {                                // if FlexTimer 5 (TPM2) interrupt is not disabled
+            VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
+            ptrVect->processor_interrupts.irq_TPM2();                    // call the interrupt handler
+        }
+        break;
+    #endif
+    }
+}
+
+static unsigned long ulTimerPinEnabled[PORTS_AVAILABLE] = {0};
+static unsigned char ucPinTimerDetails[PORTS_AVAILABLE][PORT_WIDTH] = {0};
+
+extern void fnEnterTimer(int iPortRef, int iPinRef, int iTimer, int iChannel, int iOnOff)
+{
+    if (iOnOff != 0) {
+        ulTimerPinEnabled[iPortRef] |= (1 << iPinRef);                   // mark that this pin has been programmed for timer operation
+        ucPinTimerDetails[iPortRef][iPinRef] = (unsigned char)((iTimer << 4) | iChannel);
+    }
+    else {
+        ulTimerPinEnabled[iPortRef] &= ~(1 << iPinRef);                  // mark that this pin has not been programmed for timer operation
+    }
+}
+
+extern int fnGetPWM_sim_channel(int iPort, int iPin, unsigned long *ptr_ulFrequency, unsigned char *ptr_ucMSR)
+{
+    if ((ulTimerPinEnabled[iPort] & (1 << iPin)) != 0) {                 // if this pin has been programmed as a timer function
+        int iTimer = (ucPinTimerDetails[iPort][iPin] >> 4);
+        int iChannel = (ucPinTimerDetails[iPort][iPin] & 0x0f);
+        if (fnFlexTimerPowered(iTimer) != 0) {                           // the timer must be powered
+            FLEX_TIMER_MODULE *ptrTimer = fnGetFlexTimerReg(iTimer);
+            unsigned long ulMOD_value;
+            unsigned long ulMatchValue;
+            if ((ptrTimer->FTM_SC & FTM_SC_CPWMS) != 0) {                // if center-aligned
+                ulMOD_value = (ptrTimer->FTM_MOD * 2);
+                ulMatchValue = (ptrTimer->FTM_channel[iChannel].FTM_CV * 2);
+            }
+            else {
+                ulMOD_value = (ptrTimer->FTM_MOD + 1);
+                ulMatchValue = ptrTimer->FTM_channel[iChannel].FTM_CV;
+            }
+            if (ulMOD_value == 0) {
+                ulMOD_value = 1;
+            }
+            *ptr_ulFrequency = (fnGetFlexTimer_clock(iTimer)/ulMOD_value);
+            *ptr_ucMSR = (unsigned char)((float)((float)(ulMatchValue * 100) / (float)ulMOD_value) + (float)0.5); // MSR in percent
+            if ((ptrTimer->FTM_channel[iChannel].FTM_CSC & (FTM_CSC_ELSA | FTM_CSC_ELSB | FTM_CSC_MSA | FTM_CSC_MSB)) == FTM_CSC_MS_ELS_PWM_LOW_TRUE_PULSES) { // polarity inverted
+                *ptr_ucMSR = (100 - *ptr_ucMSR);
+            }
+            return 0;
+        }
+    }
+    return -1;
+}
+
+
+// Handle timer capture inputs {50}
+//
+static void fnHandleTimerInput(int iPort, unsigned long ulNewState, unsigned long ulChangedBit, unsigned long *ptrPortConfig)
+{
+    if ((ulTimerPinEnabled[iPort] & ulChangedBit) != 0) {                // handle input changes only when the pin is configured as a timer inputs
+        int iChannel;
+        int iTimer;
+        int iPinBit = 0;
+        while ((ulChangedBit & 1) == 0) {
+            ulChangedBit >>= 1;
+            iPinBit++;
+        }
+        ulChangedBit <<= iPinBit;
+        iTimer = (ucPinTimerDetails[iPort][iPinBit] >> 4);
+        iChannel = (ucPinTimerDetails[iPort][iPinBit] & 0x0f);
+        // If the timer is powered up
+        //
+        if (fnFlexTimerPowered(iTimer) != 0) {
+            FLEX_TIMER_MODULE *ptrTimer = fnGetFlexTimerReg(iTimer);
+            // The input is attached to a timer so we capture its present input value if the sense matches
+            //
+            switch (ptrTimer->FTM_channel[iChannel].FTM_CSC & (FTM_CSC_ELSA | FTM_CSC_ELSB)) {
+            case 0:                                                      // not in input capture mode
+                return;
+            case FTM_CSC_ELSA:                                           // rising edge capture
+                if ((ulNewState & ulChangedBit) == 0) {
+                    return;                                              // ignore a falling edge
+                }
+                break;
+            case FTM_CSC_ELSB:                                           // falling edge capture
+                if ((ulNewState & ulChangedBit) != 0) {
+                    return;                                              // ignore a rising edge
+                }
+                break;
+            case (FTM_CSC_ELSA | FTM_CSC_ELSB):
+                break;                                                   // accept any edge
+            }
+            // Capture event has take place
+            //
+            ptrTimer->FTM_channel[iChannel].FTM_CV = ptrTimer->FTM_CNT;  // capture the present timer count vlue
+            ptrTimer->FTM_channel[iChannel].FTM_CSC |= FTM_CSC_CHF;      // set the channel event flag
+            if ((ptrTimer->FTM_channel[iChannel].FTM_CSC & FTM_CSC_CHIE) != 0) { // if the channel's interrupt is enabled
+                fnExecuteTimerInterrupt(iTimer);
+            }
+        }
+    }
 }
 #endif
 
@@ -2153,7 +3668,7 @@ extern void fnSimulateInputChange(unsigned char ucPort, unsigned char ucPortBit,
 #if defined KINETIS_KL
     static unsigned long ulTSI[61] = {0};
 #endif
-#if defined KINETIS_KE
+#if defined KINETIS_KE && !defined KINETIS_KE15 && !defined KINETIS_KE18
     unsigned long ulBit;
 #else
     unsigned long ulBit = (0x80000000 >> ucPortBit);
@@ -2161,29 +3676,50 @@ extern void fnSimulateInputChange(unsigned char ucPort, unsigned char ucPortBit,
     ptrPCR += (ucPort * sizeof(KINETIS_PORT)/sizeof(unsigned long));
 #endif
     iFlagRefresh = PORT_CHANGE;
-#if defined SUPPORT_ADC
-    if (fnHandleADCchange(iChange, ucPort, ucPortBit) == 0) {            // handle possible ADC function on pin
-        return;                                                          // if ADC we do not handle digital functions
+#if !(defined KINETIS_KE && !defined KINETIS_KE15 && !defined KINETIS_KE18)
+    if (ucPort < _GPIO_ADC) {
+        ptrPCR += (31 - ucPortBit);
     }
 #endif
-#if defined KINETIS_KE                                                   // KE uses byte terminology but physically hve long word ports
-    ulBit = (0x80000000 >> (ucPortBit + ((3 - (ucPort % 4)) * 8))); // convert to long word port representation
+#if defined SUPPORT_ADC
+    #if (defined KINETIS_KE && !defined KINETIS_KE15 && !defined KINETIS_KE18)
+    if (fnHandleADCchange(iChange, ucPort, ucPortBit) == 0) {    // handle possible ADC function on pin
+        return;                                                  // if ADC we do not handle digital functions
+    }
+    #else
+    if (ucPort < _GPIO_ADC) {
+        if ((*ptrPCR & PORT_MUX_MASK) == 0) {                        // if the port has been changed from its analogue function
+            if (fnHandleADCchange(iChange, ucPort, ucPortBit) == 0) {// handle possible ADC function on pin
+                return;                                              // if ADC we do not handle digital functions
+            }
+        }
+    }
+    else {
+        if (fnHandleADCchange(iChange, ucPort, ucPortBit) == 0) {    // handle possible ADC function on pin
+            return;                                                  // if ADC we do not handle digital functions
+        }
+    }
+    #endif
+#endif
+#if defined PORTS_AVAILABLE_8_BIT                                        // KE uses byte terminology but physically have long word ports
+    ulBit = (0x80000000 >> (ucPortBit + ((3 - (ucPort % 4)) * 8)));      // convert to long word port representation
     ucPort /= 4;
 #endif
     switch (ucPort) {
     case _PORTA:
         if ((~GPIOA_PDDR & ulBit) != 0) {                                // if configured as input
             unsigned long ulOriginal_port_state = ulPort_in_A;
-#if !defined KINETIS_KE
-            if ((SIM_SCGC5 & SIM_SCGC5_PORTA) == 0) {                    // ignore if port is not clocked
+#if defined KINETIS_WITH_PCC
+            if ((PCC_PORTA & PCC_CGC) == 0) {                            // ignore if port is not clocked
+                return;
+            }
+#elif !defined KINETIS_KE
+            if (IS_POWERED_UP(5, PORTA) == 0) {                          // ignore if port is not clocked
                 return;
             }
 #endif
             if (iChange == TOGGLE_INPUT) {
                 ulPort_in_A ^= ulBit;                                    // set new pin state
-#if !defined KINETIS_KE
-                ptrPCR += (31 - ucPortBit);
-#endif
               //if ((*ptrPCR & PORT_MUX_ALT7) != PORT_MUX_GPIO) {        // {19} ignore register state if not connected
               //    return;
               //}
@@ -2192,8 +3728,8 @@ extern void fnSimulateInputChange(unsigned char ucPort, unsigned char ucPortBit,
             }
             else if (iChange == SET_INPUT) {
                 ulPort_in_A |= ulBit;
-#if !defined KINETIS_KE
-                ptrPCR += (31 - ucPortBit);
+#if !(defined KINETIS_KE && !defined KINETIS_KE15 && !defined KINETIS_KE18)
+              //ptrPCR += (31 - ucPortBit);
 #endif
               //if ((*ptrPCR & PORT_MUX_ALT7) != PORT_MUX_GPIO) {        // {19} ignore register state if not connected
               //    return;
@@ -2202,8 +3738,8 @@ extern void fnSimulateInputChange(unsigned char ucPort, unsigned char ucPortBit,
             }
             else {
                 ulPort_in_A &= ~ulBit;
-#if !defined KINETIS_KE
-                ptrPCR += (31 - ucPortBit);
+#if !(defined KINETIS_KE && !defined KINETIS_KE15 && !defined KINETIS_KE18)
+              //ptrPCR += (31 - ucPortBit);
 #endif
               //if ((*ptrPCR & PORT_MUX_ALT7) != PORT_MUX_GPIO) {        // {19} ignore register state if not connected
               //    return;
@@ -2214,10 +3750,13 @@ extern void fnSimulateInputChange(unsigned char ucPort, unsigned char ucPortBit,
 #if defined SUPPORT_LLWU && defined LLWU_AVAILABLE
                 fnWakeupInterrupt(_PORTA, ulPort_in_A, ulBit, ucPortBit);// handle wakeup events on the pin
 #endif
-#if defined KINETIS_KE
+#if defined KINETIS_KE && !defined KINETIS_KE15 && !defined KINETIS_KE18
                 fnPortInterrupt(_PORTA, ulPort_in_A, ulBit, 0);          // handle interrupts on the pin
 #else
                 fnPortInterrupt(_PORTA, ulPort_in_A, ulBit, ptrPCR);     // handle interrupts and DMA on the pin
+        #if defined SUPPORT_TIMER && (FLEX_TIMERS_AVAILABLE > 0)
+                fnHandleTimerInput(_PORTA, ulPort_in_A, ulBit, ptrPCR);  // {50}
+        #endif
 #endif
             }
         }
@@ -2226,15 +3765,19 @@ extern void fnSimulateInputChange(unsigned char ucPort, unsigned char ucPortBit,
     case _PORTB:
         if ((~GPIOB_PDDR & ulBit) != 0) {                                // if configured as input
             unsigned long ulOriginal_port_state = ulPort_in_B;
-    #if !defined KINETIS_KE
-            if ((SIM_SCGC5 & SIM_SCGC5_PORTB) == 0) {                    // ignore if port is not clocked
+    #if defined KINETIS_WITH_PCC
+            if ((PCC_PORTB & PCC_CGC) == 0) {                            // ignore if port is not clocked
+                return;
+            }
+    #elif !defined KINETIS_KE
+            if (IS_POWERED_UP(5, PORTB) == 0) {                          // ignore if port is not clocked
                 return;
             }
     #endif
             if (iChange == TOGGLE_INPUT) {
                 ulPort_in_B ^= ulBit;                                    // set new pin state
-    #if !defined KINETIS_KE
-                ptrPCR += (31 - ucPortBit);
+    #if !(defined KINETIS_KE && !defined KINETIS_KE15 && !defined KINETIS_KE18)
+              //ptrPCR += (31 - ucPortBit);
     #endif
               //if ((*ptrPCR & PORT_MUX_ALT7) != PORT_MUX_GPIO) {        // {19} ignore register state if not connected
               //    return;
@@ -2244,8 +3787,8 @@ extern void fnSimulateInputChange(unsigned char ucPort, unsigned char ucPortBit,
             }
             else if (iChange == SET_INPUT) {
                 ulPort_in_B |= ulBit;
-    #if !defined KINETIS_KE
-                ptrPCR += (31 - ucPortBit);
+    #if !(defined KINETIS_KE && !defined KINETIS_KE15 && !defined KINETIS_KE18)
+              //ptrPCR += (31 - ucPortBit);
     #endif
               //if ((*ptrPCR & PORT_MUX_ALT7) != PORT_MUX_GPIO) {        // {19} ignore register state if not connected
               //    return;
@@ -2254,8 +3797,8 @@ extern void fnSimulateInputChange(unsigned char ucPort, unsigned char ucPortBit,
             }
             else {
                 ulPort_in_B &= ~ulBit;
-    #if !defined KINETIS_KE
-                ptrPCR += (31 - ucPortBit);
+    #if !(defined KINETIS_KE && !defined KINETIS_KE15 && !defined KINETIS_KE18)
+              //ptrPCR += (31 - ucPortBit);
     #endif
               //if ((*ptrPCR & PORT_MUX_ALT7) != PORT_MUX_GPIO) {        // {19} ignore register state if not connected
               //    return;
@@ -2266,10 +3809,13 @@ extern void fnSimulateInputChange(unsigned char ucPort, unsigned char ucPortBit,
     #if defined SUPPORT_LLWU && defined LLWU_AVAILABLE
                 fnWakeupInterrupt(_PORTB, ulPort_in_B, ulBit, ucPortBit);// handle wakeup events on the pin
     #endif
-    #if defined KINETIS_KE
+    #if defined KINETIS_KE && !defined KINETIS_KE15 && !defined KINETIS_KE18
                 fnPortInterrupt(_PORTB, ulPort_in_B, ulBit, 0);          // handle interrupts on the pin
     #else
                 fnPortInterrupt(_PORTB, ulPort_in_B, ulBit, ptrPCR);     // handle interrupts and DMA on the pin
+        #if defined SUPPORT_TIMER && (FLEX_TIMERS_AVAILABLE > 0)
+                fnHandleTimerInput(_PORTB, ulPort_in_B, ulBit, ptrPCR);  // {50}
+        #endif
     #endif
             }
         }
@@ -2279,15 +3825,19 @@ extern void fnSimulateInputChange(unsigned char ucPort, unsigned char ucPortBit,
     case _PORTC:
         if (~GPIOC_PDDR & ulBit) {                                       // if configured as input
             unsigned long ulOriginal_port_state = ulPort_in_C;
-    #if !defined KINETIS_KE
-            if ((SIM_SCGC5 & SIM_SCGC5_PORTC) == 0) {                    // ignore if port is not clocked
+    #if defined KINETIS_WITH_PCC
+            if ((PCC_PORTC & PCC_CGC) == 0) {                            // ignore if port is not clocked
+                return;
+            }
+    #elif !defined KINETIS_KE
+            if (IS_POWERED_UP(5, PORTC) == 0) {                          // ignore if port is not clocked
                 return;
             }
     #endif
             if (iChange == TOGGLE_INPUT) {
                 ulPort_in_C ^= ulBit;                                    // set new pin state
-    #if !defined KINETIS_KE
-                ptrPCR += (31 - ucPortBit);
+    #if !(defined KINETIS_KE && !defined KINETIS_KE15 && !defined KINETIS_KE18)
+              //ptrPCR += (31 - ucPortBit);
     #endif
               //if ((*ptrPCR & PORT_MUX_ALT7) != PORT_MUX_GPIO) {        // {19} ignore register state if not connected
               //    return;
@@ -2297,8 +3847,8 @@ extern void fnSimulateInputChange(unsigned char ucPort, unsigned char ucPortBit,
             }
             else if (iChange == SET_INPUT) {
                 ulPort_in_C |= ulBit;
-    #if !defined KINETIS_KE
-                ptrPCR += (31 - ucPortBit);
+    #if !(defined KINETIS_KE && !defined KINETIS_KE15 && !defined KINETIS_KE18)
+              //ptrPCR += (31 - ucPortBit);
     #endif
               //if ((*ptrPCR & PORT_MUX_ALT7) != PORT_MUX_GPIO) {        // {19} ignore register state if not connected
               //    return;
@@ -2307,8 +3857,8 @@ extern void fnSimulateInputChange(unsigned char ucPort, unsigned char ucPortBit,
             }
             else {
                 ulPort_in_C &= ~ulBit;
-    #if !defined KINETIS_KE
-                ptrPCR += (31 - ucPortBit);
+    #if !(defined KINETIS_KE && !defined KINETIS_KE15 && !defined KINETIS_KE18)
+              //ptrPCR += (31 - ucPortBit);
     #endif
               //if ((*ptrPCR & PORT_MUX_ALT7) != PORT_MUX_GPIO) {        // {19} ignore register state if not connected
               //    return;
@@ -2319,10 +3869,13 @@ extern void fnSimulateInputChange(unsigned char ucPort, unsigned char ucPortBit,
     #if defined LLWU_AVAILABLE && defined SUPPORT_LLWU
                 fnWakeupInterrupt(_PORTC, ulPort_in_C, ulBit, ucPortBit);// handle wakeup events on the pin
     #endif
-    #if defined KINETIS_KE
+    #if defined KINETIS_KE && !defined KINETIS_KE15 && !defined KINETIS_KE18
                 fnPortInterrupt(_PORTC, ulPort_in_C, ulBit, 0);          // handle interrupts on the pin
     #else
                 fnPortInterrupt(_PORTC, ulPort_in_C, ulBit, ptrPCR);     // handle interrupts and DMA on the pin
+        #if defined SUPPORT_TIMER && (FLEX_TIMERS_AVAILABLE > 0)
+                fnHandleTimerInput(_PORTC, ulPort_in_C, ulBit, ptrPCR);  // {50}
+        #endif
     #endif
             }
         }
@@ -2332,12 +3885,20 @@ extern void fnSimulateInputChange(unsigned char ucPort, unsigned char ucPortBit,
     case _PORTD:
         if (~GPIOD_PDDR & ulBit) {                                       // if configured as input
             unsigned long ulOriginal_port_state = ulPort_in_D;
-            if (!(SIM_SCGC5 & SIM_SCGC5_PORTD)) {                        // ignore if port is not clocked
+    #if defined KINETIS_WITH_PCC
+            if ((PCC_PORTD & PCC_CGC) == 0) {                            // ignore if port is not clocked
                 return;
             }
+    #elif !defined KINETIS_KE
+            if (IS_POWERED_UP(5, PORTD) == 0) {                          // ignore if port is not clocked
+                return;
+            }
+    #endif
             if (iChange == TOGGLE_INPUT) {
                 ulPort_in_D ^= ulBit;                                    // set new pin state
-                ptrPCR += (31 - ucPortBit);
+    #if !(defined KINETIS_KE && !defined KINETIS_KE15 && !defined KINETIS_KE18)
+              //ptrPCR += (31 - ucPortBit);
+    #endif
               //if ((*ptrPCR & PORT_MUX_ALT7) != PORT_MUX_GPIO) {        // {19} ignore register state if not connected
               //    return;
               //}
@@ -2346,7 +3907,9 @@ extern void fnSimulateInputChange(unsigned char ucPort, unsigned char ucPortBit,
             }
             else if (iChange == SET_INPUT) {
                 ulPort_in_D |= ulBit;
-                ptrPCR += (31 - ucPortBit);
+    #if !(defined KINETIS_KE && !defined KINETIS_KE15 && !defined KINETIS_KE18)
+              //ptrPCR += (31 - ucPortBit);
+    #endif
               //if ((*ptrPCR & PORT_MUX_ALT7) != PORT_MUX_GPIO) {        // {19} ignore register state if not connected
               //    return;
               //}
@@ -2354,7 +3917,9 @@ extern void fnSimulateInputChange(unsigned char ucPort, unsigned char ucPortBit,
             }
             else {
                 ulPort_in_D &= ~ulBit;
-                ptrPCR += (31 - ucPortBit);
+    #if !(defined KINETIS_KE && !defined KINETIS_KE15 && !defined KINETIS_KE18)
+              //ptrPCR += (31 - ucPortBit);
+    #endif
               //if ((*ptrPCR & PORT_MUX_ALT7) != PORT_MUX_GPIO) {        // {19} ignore register state if not connected
               //    return;
               //}
@@ -2365,18 +3930,29 @@ extern void fnSimulateInputChange(unsigned char ucPort, unsigned char ucPortBit,
                 fnWakeupInterrupt(_PORTD, ulPort_in_D, ulBit, ucPortBit);// handle wakeup events on the pin
     #endif
                 fnPortInterrupt(_PORTD, ulPort_in_D, ulBit, ptrPCR);     // handle interrupts and DMA on the pin
+    #if defined SUPPORT_TIMER && (FLEX_TIMERS_AVAILABLE > 0)
+                fnHandleTimerInput(_PORTD, ulPort_in_D, ulBit, ptrPCR);  // {50}
+    #endif
             }
         }
         break;
     case _PORTE:
         if ((~GPIOE_PDDR & ulBit) != 0) {                                // if configured as input
             unsigned long ulOriginal_port_state = ulPort_in_E;
-            if ((SIM_SCGC5 & SIM_SCGC5_PORTE) == 0) {                    // ignore if port is not clocked
+    #if defined KINETIS_WITH_PCC
+            if ((PCC_PORTE & PCC_CGC) == 0) {                            // ignore if port is not clocked
                 return;
             }
+    #elif !defined KINETIS_KE
+            if (IS_POWERED_UP(5, PORTE) == 0) {                          // ignore if port is not clocked
+                return;
+            }
+    #endif
             if (iChange == TOGGLE_INPUT) {
                 ulPort_in_E ^= ulBit;                                    // set new pin state
-                ptrPCR += (31 - ucPortBit);
+    #if !(defined KINETIS_KE && !defined KINETIS_KE15 && !defined KINETIS_KE18)
+              //ptrPCR += (31 - ucPortBit);
+    #endif
               //if ((*ptrPCR & PORT_MUX_ALT7) != PORT_MUX_GPIO) {        // {19} ignore register state if not connected
               //    return;
               //}
@@ -2385,7 +3961,9 @@ extern void fnSimulateInputChange(unsigned char ucPort, unsigned char ucPortBit,
             }
             else if (iChange == SET_INPUT) {
                 ulPort_in_E |= ulBit;
-                ptrPCR += (31 - ucPortBit);
+    #if !(defined KINETIS_KE && !defined KINETIS_KE15 && !defined KINETIS_KE18)
+              //ptrPCR += (31 - ucPortBit);
+    #endif
               //if ((*ptrPCR & PORT_MUX_ALT7) != PORT_MUX_GPIO) {        // {19} ignore register state if not connected
               //    return;
               //}
@@ -2393,7 +3971,9 @@ extern void fnSimulateInputChange(unsigned char ucPort, unsigned char ucPortBit,
             }
             else {
                 ulPort_in_E &= ~ulBit;
-                ptrPCR += (31 - ucPortBit);
+    #if !(defined KINETIS_KE && !defined KINETIS_KE15 && !defined KINETIS_KE18)
+              //ptrPCR += (31 - ucPortBit);
+    #endif
               //if ((*ptrPCR & PORT_MUX_ALT7) != PORT_MUX_GPIO) {        // {19} ignore register state if not connected
               //    return;
               //}
@@ -2404,6 +3984,9 @@ extern void fnSimulateInputChange(unsigned char ucPort, unsigned char ucPortBit,
                 fnWakeupInterrupt(_PORTE, ulPort_in_E, ulBit, ucPortBit);// handle wakeup events on the pin
     #endif
                 fnPortInterrupt(_PORTE, ulPort_in_E, ulBit, ptrPCR);     // handle interrupts and DMA on the pin
+    #if defined SUPPORT_TIMER && (FLEX_TIMERS_AVAILABLE > 0)
+                fnHandleTimerInput(_PORTE, ulPort_in_E, ulBit, ptrPCR);  // {50}
+    #endif
             }
         }
         break;
@@ -2412,12 +3995,20 @@ extern void fnSimulateInputChange(unsigned char ucPort, unsigned char ucPortBit,
     case _PORTF:
         if ((~GPIOF_PDDR & ulBit) != 0) {                                // if configured as input
             unsigned long ulOriginal_port_state = ulPort_in_F;
-            if ((SIM_SCGC5 & SIM_SCGC5_PORTF) == 0) {                    // ignore if port is not clocked
+    #if defined KINETIS_WITH_PCC
+            if ((PCC_PORTF & PCC_CGC) == 0) {                            // ignore if port is not clocked
                 return;
             }
+    #elif !defined KINETIS_KE
+            if (IS_POWERED_UP(5, PORTF) == 0) {                          // ignore if port is not clocked
+                return;
+            }
+    #endif
             if (iChange == TOGGLE_INPUT) {
                 ulPort_in_F ^= ulBit;                                    // set new pin state
-                ptrPCR += (31 - ucPortBit);
+    #if !(defined KINETIS_KE && !defined KINETIS_KE15 && !defined KINETIS_KE18)
+              //ptrPCR += (31 - ucPortBit);
+    #endif
               //if ((*ptrPCR & PORT_MUX_ALT7) != PORT_MUX_GPIO) {        // {19} ignore register state if not connected
               //    return;
               //}
@@ -2426,7 +4017,9 @@ extern void fnSimulateInputChange(unsigned char ucPort, unsigned char ucPortBit,
             }
             else if (iChange == SET_INPUT) {
                 ulPort_in_F |= ulBit;
-                ptrPCR += (31 - ucPortBit);
+    #if !(defined KINETIS_KE && !defined KINETIS_KE15 && !defined KINETIS_KE18)
+              //ptrPCR += (31 - ucPortBit);
+    #endif
               //if ((*ptrPCR & PORT_MUX_ALT7) != PORT_MUX_GPIO) {        // {19} ignore register state if not connected
               //    return;
               //}
@@ -2434,7 +4027,7 @@ extern void fnSimulateInputChange(unsigned char ucPort, unsigned char ucPortBit,
             }
             else {
                 ulPort_in_F &= ~ulBit;
-                ptrPCR += (31 - ucPortBit);
+              //ptrPCR += (31 - ucPortBit);
               //if ((*ptrPCR & PORT_MUX_ALT7) != PORT_MUX_GPIO) {        // {19} ignore register state if not connected
               //    return;
               //}
@@ -2445,10 +4038,14 @@ extern void fnSimulateInputChange(unsigned char ucPort, unsigned char ucPortBit,
                 fnWakeupInterrupt(_PORTF, ulPort_in_F, ulBit, ucPortBit);// handle wakeup events on the pin
     #endif
                 fnPortInterrupt(_PORTF, ulPort_in_F, ulBit, ptrPCR);     // handle interrupts and DMA on the pin
+    #if defined SUPPORT_TIMER && (FLEX_TIMERS_AVAILABLE > 0)
+                fnHandleTimerInput(_PORTF, ulPort_in_F, ulBit, ptrPCR);  // {50}
+    #endif
             }
         }
         break;
 #endif
+#if TSI_AVAILABLE > 0
 #if defined KINETIS_KL
     case _TOUCH_PORTB:
         if (ulBit == PORTB_BIT16) {                                       // channel 9 on PTB16
@@ -2687,14 +4284,15 @@ extern void fnSimulateInputChange(unsigned char ucPort, unsigned char ucPortBit,
         break;
 #endif
 #endif
-    case _PORT_EXP_0:                                                    // {8} external ports extensions
-    case _PORT_EXP_1:
-    case _PORT_EXP_2:
-    case _PORT_EXP_3:
-    case _PORT_EXP_4:
-    case _PORT_EXP_5:
-    case _PORT_EXP_6:
-    case _PORT_EXP_7:
+#endif
+    case _PORT_EXT_0:                                                    // {8} external ports extensions
+    case _PORT_EXT_1:
+    case _PORT_EXT_2:
+    case _PORT_EXT_3:
+    case _PORT_EXT_4:
+    case _PORT_EXT_5:
+    case _PORT_EXT_6:
+    case _PORT_EXT_7:
 #if defined HANDLE_EXT_PORT
         HANDLE_EXT_PORT(ucPort, iChange, ulBit);
 #endif
@@ -2707,16 +4305,16 @@ extern void fnSimulateInputChange(unsigned char ucPort, unsigned char ucPortBit,
 static void fnSetPinCharacteristics(int iPortRef, unsigned long ulHigh, unsigned long ulLow)
 {
     unsigned long ulBit = 0x00010000;
-#if !defined KINETIS_KE
+#if !(defined KINETIS_KE && !defined KINETIS_KE15 && !defined KINETIS_KE18)
     unsigned long *ptrPCR = (unsigned long *)(PORT0_BLOCK + (iPortRef * 0x1000));
 #endif
     while (ulBit != 0) {
         if ((ulLow & ulBit) != 0) {
-#if !defined KINETIS_KE
+#if !(defined KINETIS_KE && !defined KINETIS_KE15 && !defined KINETIS_KE18)
             *ptrPCR = (ulLow & 0x0000ffff);
 #endif
         }
-#if !defined KINETIS_KE
+#if !(defined KINETIS_KE && !defined KINETIS_KE15 && !defined KINETIS_KE18)
         ptrPCR++;
 #endif
         ulBit <<= 1;
@@ -2724,16 +4322,16 @@ static void fnSetPinCharacteristics(int iPortRef, unsigned long ulHigh, unsigned
     ulBit = 0x00010000;
     while (ulBit != 0) {
         if ((ulHigh & ulBit) != 0) {
-#if !defined KINETIS_KE
+#if !(defined KINETIS_KE && !defined KINETIS_KE15 && !defined KINETIS_KE18)
             *ptrPCR = (ulHigh & 0x0000ffff);
 #endif
         }
-#if !defined KINETIS_KE
+#if !(defined KINETIS_KE && !defined KINETIS_KE15 && !defined KINETIS_KE18)
         ptrPCR++;
 #endif
         ulBit <<= 1;
     }
-#if !defined KINETIS_KE
+#if !(defined KINETIS_KE && !defined KINETIS_KE15 && !defined KINETIS_KE18)
     *ptrPCR++ = 0;                                                       // clear the PORTx_GPCLR and PORTx_GPCHR registers, which read always 0
     *ptrPCR = 0;
 #endif
@@ -2741,67 +4339,396 @@ static void fnSetPinCharacteristics(int iPortRef, unsigned long ulHigh, unsigned
 
 // Update ports based on present register settings
 //
-extern void fnSimPorts(void)
+extern void fnSimPorts(int iThisPort)
 {
+#if !defined KINETIS_KM
     unsigned long ulNewState;
-#if !defined KINETIS_KE
-    if ((SIM_SCGC5 & SIM_SCGC5_PORTA) != 0) {                            // if port is clocked
 #endif
+    switch (iThisPort) {
+    case PORTA:
+    #if defined KINETIS_WITH_PCC
+        if ((PCC_PORTA & PCC_CGC) != 0)                                  // if port is clocked
+    #elif defined SIM_SCGC5
+        if ((SIM_SCGC5 & SIM_SCGC5_PORTA) != 0)                          // if port is clocked
+    #endif
+        {
+    #if defined KINETIS_KM
+            GPIOA_PDIR = ((unsigned char)(ulPort_in_A & ~GPIOA_PDDR) | (GPIOA_PDOR & GPIOA_PDDR)); // input state
+    #else
+            ulNewState = (GPIOA_PDOR | GPIOA_PSOR);                      // set bits from set register
+            ulNewState &= ~(GPIOA_PCOR);                                 // clear bits from clear register
+            ulNewState ^= GPIOA_PTOR;                                    // toggle bits from toggle register
+            GPIOA_PDOR = ulNewState;
+            GPIOA_PDIR = ((ulPort_in_A & ~GPIOA_PDDR) | (GPIOA_PDOR & GPIOA_PDDR)); // input state
+        #if !defined KINETIS_KE || defined KINETIS_KE15 || defined KINETIS_KE18
+            if ((PORTA_GPCLR != 0) || (PORTA_GPCHR != 0)) {
+                fnSetPinCharacteristics(_PORTA, PORTA_GPCHR, PORTA_GPCLR);
+            }
+        #endif
+    #endif
+        }
+    #if defined KINETIS_WITH_PCC || defined SIM_SCGC5
+        else {
+            _EXCEPTION("Port A access without port A powered up!!!!");
+        }
+    #endif
+    #if !defined KINETIS_KM
+        GPIOA_PTOR = GPIOA_PSOR = GPIOA_PCOR = 0;                        // registers always read 0
+    #endif
+        return;
+#if PORTS_AVAILABLE > 1
+    case PORTB:
+    #if defined KINETIS_WITH_PCC
+        if ((PCC_PORTB & PCC_CGC) != 0)                                  // if port is clocked
+    #elif defined SIM_SCGC5
+        if ((SIM_SCGC5 & SIM_SCGC5_PORTB) != 0)                          // if port is clocked
+    #endif
+        {
+    #if defined KINETIS_KM
+            GPIOB_PDIR = ((unsigned char)(ulPort_in_B & ~GPIOB_PDDR) | (GPIOB_PDOR & GPIOB_PDDR)); // input state
+    #else
+            ulNewState = (GPIOB_PDOR | GPIOB_PSOR);                      // set bits from set register
+            ulNewState &= ~(GPIOB_PCOR);                                 // clear bits from clear register
+            ulNewState ^= GPIOB_PTOR;                                    // toggle bits from toggle register
+            GPIOB_PDOR = ulNewState;
+            GPIOB_PDIR = ((ulPort_in_B & ~GPIOB_PDDR) | (GPIOB_PDOR & GPIOB_PDDR)); // input state
+        #if !defined KINETIS_KE || defined KINETIS_KE15 || defined KINETIS_KE18
+            if ((PORTB_GPCLR != 0) || (PORTB_GPCHR != 0)) {
+                fnSetPinCharacteristics(_PORTB, PORTB_GPCHR, PORTB_GPCLR);
+            }
+        #endif
+    #endif
+        }
+    #if defined KINETIS_WITH_PCC || defined SIM_SCGC5
+        else {
+            _EXCEPTION("Port B access without port B powered up!!!!");
+        }
+    #endif
+    #if !defined KINETIS_KM
+        GPIOB_PTOR = GPIOB_PSOR = GPIOB_PCOR = 0;                        // registers always read 0
+    #endif
+        return;
+#endif
+#if PORTS_AVAILABLE > 2
+    case PORTC:
+    #if defined KINETIS_WITH_PCC
+        if ((PCC_PORTC & PCC_CGC) != 0)                                  // if port is clocked
+    #elif defined SIM_SCGC5
+        if ((SIM_SCGC5 & SIM_SCGC5_PORTC) != 0)                          // if port is clocked
+    #endif
+        {
+    #if defined KINETIS_KM
+            GPIOC_PDIR = ((unsigned char)(ulPort_in_C & ~GPIOC_PDDR) | (GPIOC_PDOR & GPIOC_PDDR)); // input state
+    #else
+            ulNewState = (GPIOC_PDOR | GPIOC_PSOR);                      // set bits from set register
+            ulNewState &= ~(GPIOC_PCOR);                                 // clear bits from clear register
+            ulNewState ^= GPIOC_PTOR;                                    // toggle bits from toggle register
+            GPIOC_PDOR = ulNewState;
+            GPIOC_PDIR = ((ulPort_in_C & ~GPIOC_PDDR) | (GPIOC_PDOR & GPIOC_PDDR)); // input state
+        #if !defined KINETIS_KE || defined KINETIS_KE15 || defined KINETIS_KE18
+            if ((PORTC_GPCLR != 0) || (PORTC_GPCHR != 0)) {
+                fnSetPinCharacteristics(_PORTC, PORTC_GPCHR, PORTC_GPCLR);
+            }
+        #endif
+    #endif
+        }
+    #if defined KINETIS_WITH_PCC || defined SIM_SCGC5
+        else {
+            _EXCEPTION("Port C access without port C powered up!!!!");
+        }
+    #endif
+    #if !defined KINETIS_KM
+        GPIOC_PTOR = GPIOC_PSOR = GPIOC_PCOR = 0;                        // registers always read 0
+    #endif
+        return;
+#endif
+#if PORTS_AVAILABLE > 3
+    case PORTD:
+    #if defined KINETIS_WITH_PCC
+        if ((PCC_PORTD & PCC_CGC) != 0)                                  // if port is clocked
+    #elif defined SIM_SCGC5
+        if ((SIM_SCGC5 & SIM_SCGC5_PORTD) != 0)                          // if port is clocked
+    #endif
+        {
+    #if defined KINETIS_KM
+            GPIOD_PDIR = ((unsigned char)(ulPort_in_D & ~GPIOD_PDDR) | (GPIOD_PDOR & GPIOD_PDDR)); // input state
+    #else
+            ulNewState = (GPIOD_PDOR | GPIOD_PSOR);                      // set bits from set register
+            ulNewState &= ~(GPIOD_PCOR);                                 // clear bits from clear register
+            ulNewState ^= GPIOD_PTOR;                                    // toggle bits from toggle register
+            GPIOD_PDOR = ulNewState;
+            GPIOD_PDIR = ((ulPort_in_D & ~GPIOD_PDDR) | (GPIOD_PDOR & GPIOD_PDDR)); // input state
+        #if !defined KINETIS_KE || defined KINETIS_KE15 || defined KINETIS_KE18
+            if ((PORTD_GPCLR != 0) || (PORTD_GPCHR != 0)) {
+                fnSetPinCharacteristics(_PORTD, PORTD_GPCHR, PORTD_GPCLR);
+            }
+        #endif
+    #endif
+        }
+    #if defined KINETIS_WITH_PCC || defined SIM_SCGC5
+        else {
+            _EXCEPTION("Port D access without port D powered up!!!!");
+        }
+    #endif
+    #if !defined KINETIS_KM
+        GPIOD_PTOR = GPIOD_PSOR = GPIOD_PCOR = 0;                        // registers always read 0
+    #endif
+        return;
+#endif
+#if PORTS_AVAILABLE > 4
+    case PORTE:
+    #if defined KINETIS_WITH_PCC
+        if ((PCC_PORTE & PCC_CGC) != 0)                                  // if port is clocked
+    #elif defined SIM_SCGC5
+        if ((SIM_SCGC5 & SIM_SCGC5_PORTE) != 0)                          // if port is clocked
+    #endif
+        {
+    #if defined KINETIS_KM
+            GPIOE_PDIR = ((unsigned char)(ulPort_in_E & ~GPIOE_PDDR) | (GPIOE_PDOR & GPIOE_PDDR)); // input state
+    #else
+            ulNewState = (GPIOE_PDOR | GPIOE_PSOR);                      // set bits from set register
+            ulNewState &= ~(GPIOE_PCOR);                                 // clear bits from clear register
+            ulNewState ^= GPIOE_PTOR;                                    // toggle bits from toggle register
+            GPIOE_PDOR = ulNewState;
+            GPIOE_PDIR = ((ulPort_in_E & ~GPIOE_PDDR) | (GPIOE_PDOR & GPIOE_PDDR)); // input state
+        #if !defined KINETIS_KE || defined KINETIS_KE15 || defined KINETIS_KE18
+            if ((PORTE_GPCLR != 0) || (PORTE_GPCHR != 0)) {
+                fnSetPinCharacteristics(_PORTE, PORTE_GPCHR, PORTE_GPCLR);
+            }
+        #endif
+    #endif
+        }
+    #if defined KINETIS_WITH_PCC || defined SIM_SCGC5
+        else {
+            _EXCEPTION("Port E access without port E powered up!!!!");
+        }
+    #endif
+    #if !defined KINETIS_KM
+        GPIOE_PTOR = GPIOE_PSOR = GPIOE_PCOR = 0;                        // registers always read 0
+    #endif
+        return;
+#endif
+#if PORTS_AVAILABLE > 5
+    case PORTF:
+    #if defined KINETIS_WITH_PCC
+        if ((PCC_PORTF & PCC_CGC) != 0)                                  // if port is clocked
+    #elif defined SIM_SCGC5
+        if ((SIM_SCGC5 & SIM_SCGC5_PORTF) != 0)                          // if port is clocked
+    #endif
+        {
+    #if defined KINETIS_KM
+            GPIOF_PDIR = ((unsigned char)(ulPort_in_F & ~GPIOF_PDDR) | (GPIOF_PDOR & GPIOF_PDDR)); // input state
+    #else
+            ulNewState = (GPIOF_PDOR | GPIOF_PSOR);                      // set bits from set register
+            ulNewState &= ~(GPIOF_PCOR);                                 // clear bits from clear register
+            ulNewState ^= GPIOF_PTOR;                                    // toggle bits from toggle register
+            GPIOF_PDOR = ulNewState;
+            GPIOF_PDIR = ((ulPort_in_F & ~GPIOF_PDDR) | (GPIOF_PDOR & GPIOF_PDDR)); // input state
+        #if !defined KINETIS_KE || defined KINETIS_KE15 || defined KINETIS_KE18
+            if ((PORTF_GPCLR != 0) || (PORTF_GPCHR != 0)) {
+                fnSetPinCharacteristics(_PORTF, PORTF_GPCHR, PORTF_GPCLR);
+            }
+        #endif
+    #endif
+        }
+    #if defined KINETIS_WITH_PCC || defined SIM_SCGC5
+        else {
+            _EXCEPTION("Port F access without port F powered up!!!!");
+        }
+    #endif
+    #if !defined KINETIS_KM
+        GPIOF_PTOR = GPIOF_PSOR = GPIOF_PCOR = 0;                        // registers always read 0
+    #endif
+        return;
+#endif
+#if PORTS_AVAILABLE > 6
+    case PORTG:
+    #if defined KINETIS_WITH_PCC
+        if ((PCC_PORTG & PCC_CGC) != 0)                                  // if port is clocked
+    #elif defined SIM_SCGC5
+        if ((SIM_SCGC5 & SIM_SCGC5_PORTG) != 0)                          // if port is clocked
+    #endif
+        {
+    #if defined KINETIS_KM
+            GPIOG_PDIR = ((unsigned char)(ulPort_in_G & ~GPIOG_PDDR) | (GPIOG_PDOR & GPIOG_PDDR)); // input state
+    #else
+            ulNewState = (GPIOG_PDOR | GPIOG_PSOR);                      // set bits from set register
+            ulNewState &= ~(GPIOG_PCOR);                                 // clear bits from clear register
+            ulNewState ^= GPIOG_PTOR;                                    // toggle bits from toggle register
+            GPIOG_PDOR = ulNewState;
+            GPIOG_PDIR = ((ulPort_in_G & ~GPIOG_PDDR) | (GPIOG_PDOR & GPIOG_PDDR)); // input state
+        #if !defined KINETIS_KE || defined KINETIS_KE15 || defined KINETIS_KE18
+            if ((PORTG_GPCLR != 0) || (PORTG_GPCHR != 0)) {
+                fnSetPinCharacteristics(_PORTG, PORTG_GPCHR, PORTG_GPCLR);
+            }
+        #endif
+    #endif
+        }
+    #if defined KINETIS_WITH_PCC || defined SIM_SCGC5
+        else {
+            _EXCEPTION("Port G access without port G powered up!!!!");
+        }
+    #endif
+    #if !defined KINETIS_KM
+        GPIOG_PTOR = GPIOG_PSOR = GPIOG_PCOR = 0;                        // registers always read 0
+    #endif
+        return;
+#endif
+#if PORTS_AVAILABLE > 7
+    case PORTH:
+    #if defined KINETIS_WITH_PCC
+        if ((PCC_PORTH & PCC_CGC) != 0)                                  // if port is clocked
+    #elif defined SIM_SCGC5
+        if ((SIM_SCGC5 & SIM_SCGC5_PORTH) != 0)                          // if port is clocked
+    #endif
+        {
+    #if defined KINETIS_KM
+            GPIOH_PDIR = ((unsigned char)(ulPort_in_H & ~GPIOH_PDDR) | (GPIOH_PDOR & GPIOH_PDDR)); // input state
+    #else
+            ulNewState = (GPIOH_PDOR | GPIOH_PSOR);                      // set bits from set register
+            ulNewState &= ~(GPIOH_PCOR);                                 // clear bits from clear register
+            ulNewState ^= GPIOH_PTOR;                                    // toggle bits from toggle register
+            GPIOH_PDOR = ulNewState;
+            GPIOH_PDIR = ((ulPort_in_H & ~GPIOH_PDDR) | (GPIOH_PDOR & GPIOH_PDDR)); // input state
+        #if !defined KINETIS_KE || defined KINETIS_KE15 || defined KINETIS_KE18
+            if ((PORTH_GPCLR != 0) || (PORTH_GPCHR != 0)) {
+                fnSetPinCharacteristics(_PORTH, PORTH_GPCHR, PORTH_GPCLR);
+            }
+        #endif
+    #endif
+        }
+    #if defined KINETIS_WITH_PCC || defined SIM_SCGC5
+        else {
+            _EXCEPTION("Port H access without port H powered up!!!!");
+        }
+    #endif
+    #if !defined KINETIS_KM
+        GPIOH_PTOR = GPIOH_PSOR = GPIOH_PCOR = 0;                        // registers always read 0
+    #endif
+        return;
+#endif
+#if PORTS_AVAILABLE > 8
+    case PORTI:
+    #if defined KINETIS_WITH_PCC
+        if ((PCC_PORTI & PCC_CGC) != 0)                                  // if port is clocked
+    #elif defined SIM_SCGC5
+        if ((SIM_SCGC5 & SIM_SCGC5_PORTI) != 0)                          // if port is clocked
+    #endif
+        {
+    #if defined KINETIS_KM
+            GPIOI_PDIR = ((unsigned char)(ulPort_in_I & ~GPIOI_PDDR) | (GPIOI_PDOR & GPIOI_PDDR)); // input state
+    #else
+            ulNewState = (GPIOI_PDOR | GPIOI_PSOR);                      // set bits from set register
+            ulNewState &= ~(GPIOI_PCOR);                                 // clear bits from clear register
+            ulNewState ^= GPIOI_PTOR;                                    // toggle bits from toggle register
+            GPIOI_PDOR = ulNewState;
+            GPIOI_PDIR = ((ulPort_in_I & ~GPIOI_PDDR) | (GPIOI_PDOR & GPIOI_PDDR)); // input state
+        #if !defined KINETIS_KE || defined KINETIS_KE15 || defined KINETIS_KE18
+            if ((PORTI_GPCLR != 0) || (PORTI_GPCHR != 0)) {
+                fnSetPinCharacteristics(_PORTI, PORTI_GPCHR, PORTI_GPCLR);
+            }
+        #endif
+    #endif
+        }
+    #if defined KINETIS_WITH_PCC || defined SIM_SCGC5
+        else {
+            _EXCEPTION("Port I access without port I powered up!!!!");
+        }
+    #endif
+    #if !defined KINETIS_KM
+        GPIOI_PTOR = GPIOI_PSOR = GPIOI_PCOR = 0;                        // registers always read 0
+    #endif
+        return;
+#endif
+    default:
+        break;
+    }
+#if defined KINETIS_WITH_PCC
+    if ((PCC_PORTA & PCC_CGC) != 0)                                      // if port is clocked
+#elif defined SIM_SCGC5
+    if ((SIM_SCGC5 & SIM_SCGC5_PORTA) != 0)                              // if port is clocked
+#endif
+    {
+#if defined KINETIS_KM
+        GPIOA_PDIR = ((unsigned char)(ulPort_in_A & ~GPIOA_PDDR) | (GPIOA_PDOR & GPIOA_PDDR)); // input state
+#else
         ulNewState = (GPIOA_PDOR | GPIOA_PSOR);                          // set bits from set register
         ulNewState &= ~(GPIOA_PCOR);                                     // clear bits from clear register
         ulNewState ^= GPIOA_PTOR;                                        // toggle bits from toggle register
         GPIOA_PDOR = ulNewState;
         GPIOA_PDIR = ((ulPort_in_A & ~GPIOA_PDDR) | (GPIOA_PDOR & GPIOA_PDDR)); // input state {10}
-#if !defined KINETIS_KE
+    #if !defined KINETIS_KE || defined KINETIS_KE15 || defined KINETIS_KE18
         if ((PORTA_GPCLR != 0) || (PORTA_GPCHR != 0)) {
             fnSetPinCharacteristics(_PORTA, PORTA_GPCHR, PORTA_GPCLR);
         }
-#endif
-#if !defined KINETIS_KE
-    }
-#endif
-    GPIOA_PTOR = GPIOA_PSOR = GPIOA_PCOR = 0;                            // registers always read 0
-
-#if PORTS_AVAILABLE > 1
-    #if !defined KINETIS_KE
-    if ((SIM_SCGC5 & SIM_SCGC5_PORTB) != 0) {                            // if port is clocked
     #endif
+#endif
+    }
+#if !defined KINETIS_KM
+    GPIOA_PTOR = GPIOA_PSOR = GPIOA_PCOR = 0;                            // registers always read 0
+#endif
+#if PORTS_AVAILABLE > 1
+    #if defined KINETIS_WITH_PCC
+    if ((PCC_PORTB & PCC_CGC) != 0)                                      // if port is clocked
+    #elif !defined KINETIS_KE
+    if ((SIM_SCGC5 & SIM_SCGC5_PORTB) != 0)                              // if port is clocked
+    #endif
+    {
+    #if defined KINETIS_KM
+        GPIOB_PDIR = ((unsigned char)(ulPort_in_B & ~GPIOB_PDDR) | (GPIOB_PDOR & GPIOB_PDDR)); // input state
+    #else
         ulNewState = (GPIOB_PDOR | GPIOB_PSOR);                          // set bits from set register
         ulNewState &= ~(GPIOB_PCOR);                                     // clear bits from clear register
         ulNewState ^= GPIOB_PTOR;                                        // toggle bits from toggle register
         GPIOB_PDOR = ulNewState;
         GPIOB_PDIR = ((ulPort_in_B & ~GPIOB_PDDR) | (GPIOB_PDOR & GPIOB_PDDR)); // input state {10}
-    #if !defined KINETIS_KE
+        #if !defined KINETIS_KE || defined KINETIS_KE15 || defined KINETIS_KE18
         if ((PORTB_GPCLR != 0) || (PORTB_GPCHR != 0)) {
             fnSetPinCharacteristics(_PORTB, PORTB_GPCHR, PORTB_GPCLR);
         }
+        #endif
     #endif
-    #if !defined KINETIS_KE
     }
-    #endif
+    #if !defined KINETIS_KM
     GPIOB_PTOR = GPIOB_PSOR = GPIOB_PCOR = 0;                            // registers always read 0
+    #endif
 #endif
 #if PORTS_AVAILABLE > 2
-    #if !defined KINETIS_KE
-    if ((SIM_SCGC5 & SIM_SCGC5_PORTC) != 0) {                            // if port is clocked
+    #if defined KINETIS_WITH_PCC
+    if ((PCC_PORTC & PCC_CGC) != 0)                                      // if port is clocked
+    #elif !defined KINETIS_KE
+    if ((SIM_SCGC5 & SIM_SCGC5_PORTC) != 0)                              // if port is clocked
     #endif
+    {
+    #if defined KINETIS_KM
+        GPIOC_PDIR = ((unsigned char)(ulPort_in_C & ~GPIOC_PDDR) | (GPIOC_PDOR & GPIOC_PDDR)); // input state
+    #else
         ulNewState = (GPIOC_PDOR | GPIOC_PSOR);                          // set bits from set register
         ulNewState &= ~(GPIOC_PCOR);                                     // clear bits from clear register
         ulNewState ^= GPIOC_PTOR;                                        // toggle bits from toggle register
         GPIOC_PDOR = ulNewState;
         GPIOC_PDIR = ((ulPort_in_C & ~GPIOC_PDDR) | (GPIOC_PDOR & GPIOC_PDDR)); // input state {10}
-    #if !defined KINETIS_KE
+        #if !defined KINETIS_KE || defined KINETIS_KE15 || defined KINETIS_KE18
         if ((PORTC_GPCLR != 0) || (PORTC_GPCHR != 0)) {
             fnSetPinCharacteristics(_PORTC, PORTC_GPCHR, PORTC_GPCLR);
         }
+        #endif
     #endif
-    #if !defined KINETIS_KE
     }
-    #endif
+    #if !defined KINETIS_KM
     GPIOC_PTOR = GPIOC_PSOR = GPIOC_PCOR = 0;                            // registers always read 0
+    #endif
 #endif
 #if PORTS_AVAILABLE > 3
-    if ((SIM_SCGC5 & SIM_SCGC5_PORTD) != 0) {                            // if port is clocked
+    #if defined KINETIS_WITH_PCC
+    if ((PCC_PORTD & PCC_CGC) != 0)                                      // if port is clocked
+    #else
+    if ((SIM_SCGC5 & SIM_SCGC5_PORTD) != 0)                              // if port is clocked
+    #endif
+    {
+    #if defined KINETIS_KM
+        GPIOD_PDIR = ((unsigned char)(ulPort_in_D & ~GPIOD_PDDR) | (GPIOD_PDOR & GPIOD_PDDR)); // input state
+    #else
         ulNewState = (GPIOD_PDOR | GPIOD_PSOR);                          // set bits from set register
         ulNewState &= ~(GPIOD_PCOR);                                     // clear bits from clear register
         ulNewState ^= GPIOD_PTOR;                                        // toggle bits from toggle register
@@ -2810,10 +4737,20 @@ extern void fnSimPorts(void)
         if ((PORTD_GPCLR != 0) || (PORTD_GPCHR != 0)) {
             fnSetPinCharacteristics(_PORTD, PORTD_GPCHR, PORTD_GPCLR);
         }
+    #endif
     }
+    #if !defined KINETIS_KM
     GPIOD_PTOR = GPIOD_PSOR = GPIOD_PCOR = 0;                            // registers always read 0
-
-    if ((SIM_SCGC5 & SIM_SCGC5_PORTE) != 0) {                            // if port is clocked
+    #endif
+    #if defined KINETIS_WITH_PCC
+    if ((PCC_PORTE & PCC_CGC) != 0)                                      // if port is clocked
+    #else
+    if ((SIM_SCGC5 & SIM_SCGC5_PORTE) != 0)                              // if port is clocked
+    #endif
+    {
+    #if defined KINETIS_KM
+        GPIOE_PDIR = ((unsigned char)(ulPort_in_E & ~GPIOE_PDDR) | (GPIOE_PDOR & GPIOE_PDDR)); // input state
+    #else
         ulNewState = (GPIOE_PDOR | GPIOE_PSOR);                          // set bits from set register
         ulNewState &= ~(GPIOE_PCOR);                                     // clear bits from clear register
         ulNewState ^= GPIOE_PTOR;                                        // toggle bits from toggle register
@@ -2822,11 +4759,17 @@ extern void fnSimPorts(void)
         if ((PORTE_GPCLR != 0) || (PORTE_GPCHR != 0)) {
             fnSetPinCharacteristics(_PORTE, PORTE_GPCHR, PORTE_GPCLR);
         }
+    #endif
     }
+    #if !defined KINETIS_KM
     GPIOE_PTOR = GPIOE_PSOR = GPIOE_PCOR = 0;                            // registers always read 0
+    #endif
 #endif
 #if PORTS_AVAILABLE > 5
     if ((SIM_SCGC5 & SIM_SCGC5_PORTF) != 0) {                            // if port is clocked
+    #if defined KINETIS_KM
+        GPIOF_PDIR = ((unsigned char)(ulPort_in_F & ~GPIOF_PDDR) | (GPIOF_PDOR & GPIOF_PDDR)); // input state
+    #else
         ulNewState = (GPIOF_PDOR | GPIOF_PSOR);                          // set bits from set register
         ulNewState &= ~(GPIOF_PCOR);                                     // clear bits from clear register
         ulNewState ^= GPIOF_PTOR;                                        // toggle bits from toggle register
@@ -2835,8 +4778,68 @@ extern void fnSimPorts(void)
         if ((PORTF_GPCLR != 0) || (PORTF_GPCHR != 0)) {
             fnSetPinCharacteristics(_PORTF, PORTF_GPCHR, PORTF_GPCLR);
         }
+    #endif
     }
+    #if !defined KINETIS_KM
     GPIOF_PTOR = GPIOF_PSOR = GPIOF_PCOR = 0;                            // registers always read 0
+    #endif
+#endif
+#if PORTS_AVAILABLE > 6
+    if ((SIM_SCGC5 & SIM_SCGC5_PORTG) != 0) {                            // if port is clocked
+    #if defined KINETIS_KM
+        GPIOG_PDIR = ((unsigned char)(ulPort_in_G & ~GPIOG_PDDR) | (GPIOG_PDOR & GPIOG_PDDR)); // input state
+    #else
+        ulNewState = (GPIOG_PDOR | GPIOG_PSOR);                          // set bits from set register
+        ulNewState &= ~(GPIOG_PCOR);                                     // clear bits from clear register
+        ulNewState ^= GPIOG_PTOR;                                        // toggle bits from toggle register
+        GPIOG_PDOR = ulNewState;
+        GPIOG_PDIR = ((ulPort_in_G & ~GPIOG_PDDR) | (GPIOG_PDOR & GPIOG_PDDR)); // input state {10}
+        if ((PORTG_GPCLR != 0) || (PORTG_GPCHR != 0)) {
+            fnSetPinCharacteristics(_PORTG, PORTG_GPCHR, PORTG_GPCLR);
+        }
+    #endif
+    }
+    #if !defined KINETIS_KM
+    GPIOG_PTOR = GPIOG_PSOR = GPIOG_PCOR = 0;                            // registers always read 0
+    #endif
+#endif
+#if PORTS_AVAILABLE > 7
+    if ((SIM_SCGC5 & SIM_SCGC5_PORTH) != 0) {                            // if port is clocked
+    #if defined KINETIS_KM
+        GPIOH_PDIR = ((unsigned char)(ulPort_in_H & ~GPIOH_PDDR) | (GPIOH_PDOR & GPIOH_PDDR)); // input state
+    #else
+        ulNewState = (GPIOH_PDOR | GPIOH_PSOR);                          // set bits from set register
+        ulNewState &= ~(GPIOH_PCOR);                                     // clear bits from clear register
+        ulNewState ^= GPIOH_PTOR;                                        // toggle bits from toggle register
+        GPIOH_PDOR = ulNewState;
+        GPIOH_PDIR = ((ulPort_in_H & ~GPIOH_PDDR) | (GPIOH_PDOR & GPIOH_PDDR)); // input state {10}
+        if ((PORTH_GPCLR != 0) || (PORTH_GPCHR != 0)) {
+            fnSetPinCharacteristics(_PORTH, PORTH_GPCHR, PORTH_GPCLR);
+        }
+    #endif
+    }
+    #if !defined KINETIS_KM
+    GPIOH_PTOR = GPIOH_PSOR = GPIOH_PCOR = 0;                            // registers always read 0
+    #endif
+#endif
+#if PORTS_AVAILABLE > 8
+    if ((SIM_SCGC5 & SIM_SCGC5_PORTI) != 0) {                            // if port is clocked
+    #if defined KINETIS_KM
+        GPIOI_PDIR = ((unsigned char)(ulPort_in_I & ~GPIOI_PDDR) | (GPIOI_PDOR & GPIOI_PDDR)); // input state
+    #else
+        ulNewState = (GPIOI_PDOR | GPIOI_PSOR);                          // set bits from set register
+        ulNewState &= ~(GPIOI_PCOR);                                     // clear bits from clear register
+        ulNewState ^= GPIOI_PTOR;                                        // toggle bits from toggle register
+        GPIOI_PDOR = ulNewState;
+        GPIOI_PDIR = ((ulPort_in_I & ~GPIOI_PDDR) | (GPIOI_PDOR & GPIOI_PDDR)); // input state {10}
+        if ((PORTI_GPCLR != 0) || (PORTI_GPCHR != 0)) {
+            fnSetPinCharacteristics(_PORTI, PORTI_GPCHR, PORTI_GPCLR);
+        }
+    #endif
+    }
+    #if !defined KINETIS_KM
+    GPIOI_PTOR = GPIOI_PSOR = GPIOI_PCOR = 0;                            // registers always read 0
+    #endif
 #endif
 }
 
@@ -2847,18 +4850,18 @@ extern void fnSimPers(void)
 {
     int iPort = 0;
     int iPin = 0;
-#if !defined KINETIS_KE || defined KINETIS_KE15
+#if !defined KINETIS_KE || defined KINETIS_KE15 || defined KINETIS_KE18
     unsigned long *ptrPortPin;
 #endif
     unsigned long ulBit;
     for (iPort = 0; iPort < PORTS_AVAILABLE; iPort++) {
-#if !defined KINETIS_KE || defined KINETIS_KE15
+#if !defined KINETIS_KE || defined KINETIS_KE15 || defined KINETIS_KE18
         ptrPortPin = (unsigned long *)(PORT0_BLOCK + (iPort * sizeof(KINETIS_PORT)));
 #endif
         ulPeripherals[iPort] = 0;
         ulBit = 0x00000001;
         for (iPin = 0; iPin < 32; iPin++) {
-#if defined KINETIS_KE && !defined KINETIS_KE15
+#if defined KINETIS_KE && !defined KINETIS_KE15 && !defined KINETIS_KE18
             // KE devices' peripheral functions are selected by the various peripherals that can use the pins. Each peripheral pin function has a priority and so the the one with highest is valid in case of multiple enabled peripherals on a pin
             // Peripheral can also have pin multiplexing options
             //
@@ -2876,14 +4879,14 @@ extern void fnSimPers(void)
                     if ((SIM_SOPT0 & SIM_SOPT_SWDE) != 0) {
                         ulPeripherals[iPort] |= ulBit;
                         ucPortFunctions[_PORTA][iPin] = PA_0_SWD_CLK;
+                        break;
                     }
-                    else
     #endif
-                    if ((FTM0_C0SC & (FTM_CSC_ELSA | FTM_CSC_ELSB)) && ((SIM_PINSEL0 & SIM_PINSEL_FTM0PS0) == 0)) {
+                    if (((FTM0_C0SC & (FTM_CSC_ELSA | FTM_CSC_ELSB)) != 0) && ((SIM_PINSEL0 & SIM_PINSEL_FTM0PS0) == 0)) {
                         ulPeripherals[iPort] |= ulBit;
                         ucPortFunctions[_PORTA][iPin] = PA_0_FTM0_CH0;
                     }
-                    else if (KBI0_PE & 0x01) {                           // pin is enabled as keyboard interrupt
+                    else if ((KBI0_PE & 0x01) != 0) {                    // pin is enabled as keyboard interrupt
                         ulPeripherals[iPort] |= ulBit;
                         ucPortFunctions[_PORTA][iPin] = PA_0_KBI0_P0;
                     }
@@ -2944,7 +4947,7 @@ extern void fnSimPers(void)
                         ulPeripherals[iPort] |= ulBit;
                         ucPortFunctions[_PORTA][iPin] = PA_4_SWD_DIO;
                     }
-    #if defined KINETIS_KE04 || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
+    #if (defined KINETIS_KE04 && !(SIZE_OF_FLASH <= (8 * 1024))) || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
                     else if ((KBI0_PE & 0x10) != 0) {                    // pin is enabled as keyboard interrupt
                         ulPeripherals[iPort] |= ulBit;
                         ucPortFunctions[_PORTA][iPin] = PA_4_KBI0_P4;
@@ -2952,7 +4955,7 @@ extern void fnSimPers(void)
     #endif
                     break;
                 case KE_PORTA_BIT5:
-                    if ((SIM_SOPT0 & SIM_SOPT_RSTPE) != 0) {
+                    if ((SIM_SOPT0 & SIM_SOPT_RSTPE) != 0) {             // default pin function as reset
                         ulPeripherals[iPort] |= ulBit;
                         ucPortFunctions[_PORTA][iPin] = PA_5_RESET;
                     }
@@ -2967,7 +4970,7 @@ extern void fnSimPers(void)
                         ucPortFunctions[iPort][iPin] = PA_5_IRQ;
     #endif
                     }
-    #if defined KINETIS_KE04 || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
+    #if (defined KINETIS_KE04 && !(SIZE_OF_FLASH <= (8 * 1024))) || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
                     else if ((KBI0_PE & 0x20) != 0) {                    // pin is enabled as keyboard interrupt
                         ulPeripherals[iPort] |= ulBit;
                         ucPortFunctions[_PORTA][iPin] = PA_5_KBI0_P5;
@@ -2982,17 +4985,16 @@ extern void fnSimPers(void)
                         break;
                     }
     #endif
-    #if defined KINETIS_KE04 || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
+    #if (defined KINETIS_KE04 && !(SIZE_OF_FLASH <= (8 * 1024))) || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
                     if ((KBI0_PE & 0x40) != 0) {                         // pin is enabled as keyboard interrupt
                         ulPeripherals[iPort] |= ulBit;
                         ucPortFunctions[_PORTA][iPin] = PA_6_KBI0_P6;
+                        break;
                     }
     #endif
     #if defined PA_6_DEFAULT
-                    else {
-                        ulPeripherals[iPort] |= ulBit;
-                        ucPortFunctions[_PORTA][iPin] = PA_6_DEFAULT;
-                    }
+                    ulPeripherals[iPort] |= ulBit;
+                    ucPortFunctions[_PORTA][iPin] = PA_6_DEFAULT;
     #endif
                     break;
                 case KE_PORTA_BIT7:
@@ -3003,17 +5005,16 @@ extern void fnSimPers(void)
                         break;
                     }
     #endif
-    #if defined KINETIS_KE04 || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
+    #if (defined KINETIS_KE04 && !(SIZE_OF_FLASH <= (8 * 1024))) || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
                     if ((KBI0_PE & 0x80) != 0) {                         // pin is enabled as keyboard interrupt
                         ulPeripherals[iPort] |= ulBit;
                         ucPortFunctions[_PORTA][iPin] = PA_7_KBI0_P7;
+                        break;
                     }
     #endif
     #if defined PA_7_DEFAULT
-                    else {
-                        ulPeripherals[iPort] |= ulBit;
-                        ucPortFunctions[_PORTA][iPin] = PA_7_DEFAULT;
-                    }
+                    ulPeripherals[iPort] |= ulBit;
+                    ucPortFunctions[_PORTA][iPin] = PA_7_DEFAULT;
     #endif
                     break;
                 case KE_PORTB_BIT0:
@@ -3028,7 +5029,7 @@ extern void fnSimPers(void)
                         ulPeripherals[iPort] |= ulBit;
                         ucPortFunctions[_PORTB][iPin - 8] = PB_0_UART0_RX;
                     }
-    #if defined KINETIS_KE04 || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
+    #if (defined KINETIS_KE04 && !(SIZE_OF_FLASH <= (8 * 1024))) || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
                     else if ((KBI0_PE & 0x100) != 0) {                   // pin is enabled as keyboard interrupt
                         ulPeripherals[iPort] |= ulBit;
                         ucPortFunctions[_PORTB][iPin - 8] = PB_0_KBI0_P8;
@@ -3052,7 +5053,7 @@ extern void fnSimPers(void)
                         ulPeripherals[iPort] |= ulBit;
                         ucPortFunctions[_PORTB][iPin - 8] = PB_1_UART0_TX;
                     }
-    #if defined KINETIS_KE04 || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
+    #if (defined KINETIS_KE04 && !(SIZE_OF_FLASH <= (8 * 1024))) || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
                     else if ((KBI0_PE & 0x200) != 0) {                   // pin is enabled as keyboard interrupt
                         ulPeripherals[iPort] |= ulBit;
                         ucPortFunctions[_PORTB][iPin - 8] = PB_1_KBI0_P9;
@@ -3080,7 +5081,7 @@ extern void fnSimPers(void)
                         ulPeripherals[iPort] |= ulBit;
                         ucPortFunctions[_PORTB][iPin - 8] = PB_2_SPI0_SCK;
                     }
-    #if defined KINETIS_KE04 || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
+    #if (defined KINETIS_KE04 && !(SIZE_OF_FLASH <= (8 * 1024))) || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
                     else if (KBI0_PE & 0x400) {                          // pin is enabled as keyboard interrupt
                         ulPeripherals[iPort] |= ulBit;
                         ucPortFunctions[_PORTB][iPin - 8] = PB_2_KBI0_P10;
@@ -3114,7 +5115,7 @@ extern void fnSimPers(void)
                         ulPeripherals[iPort] |= ulBit;
                         ucPortFunctions[_PORTB][iPin - 8] = PB_3_SPI0_MOSI;
                     }
-    #if defined KINETIS_KE04 || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
+    #if (defined KINETIS_KE04 && !(SIZE_OF_FLASH <= (8 * 1024))) || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
                     else if (KBI0_PE & 0x800) {                          // pin is enabled as keyboard interrupt
                         ulPeripherals[iPort] |= ulBit;
                         ucPortFunctions[_PORTB][iPin - 8] = PB_3_KBI0_P11;
@@ -3145,7 +5146,7 @@ extern void fnSimPers(void)
                         ulPeripherals[iPort] |= ulBit;
                         ucPortFunctions[_PORTB][iPin - 8] = PB_4_FTM2_CH4;
                     }
-    #if defined KINETIS_KE04 || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
+    #if (defined KINETIS_KE04 && !(SIZE_OF_FLASH <= (8 * 1024))) || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
                     else if (KBI0_PE & 0x1000) {                         // pin is enabled as keyboard interrupt
                         ulPeripherals[iPort] |= ulBit;
                         ucPortFunctions[_PORTB][iPin - 8] = PB_4_KBI0_P12;
@@ -3159,7 +5160,7 @@ extern void fnSimPers(void)
     #endif
                     break;
                 case KE_PORTB_BIT5:
-                    if ((SPI0_C1 & SPI_C1_MSTR) && (!(SIM_PINSEL0 & SIM_PINSEL_SPI0PS)) &&(SPI0_C1 & SPI_C1_SSOE)) {
+                    if (((SPI0_C1 & SPI_C1_MSTR) != 0) && ((SIM_PINSEL0 & SIM_PINSEL_SPI0PS) == 0) && ((SPI0_C1 & SPI_C1_SSOE) != 0)) {
                         ulPeripherals[iPort] |= ulBit;
                         ucPortFunctions[_PORTB][iPin - 8] = PB_5_SPI0_PCS0;
                     }
@@ -3167,7 +5168,7 @@ extern void fnSimPers(void)
                         ulPeripherals[iPort] |= ulBit;
                         ucPortFunctions[_PORTB][iPin - 8] = PB_5_FTM2_CH5;
                     }
-    #if defined KINETIS_KE04 || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
+    #if (defined KINETIS_KE04 && !(SIZE_OF_FLASH <= (8 * 1024))) || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
                     else if (KBI0_PE & 0x2000) {                         // pin is enabled as keyboard interrupt
                         ulPeripherals[iPort] |= ulBit;
                         ucPortFunctions[_PORTB][iPin - 8] = PB_5_KBI0_P13;
@@ -3185,19 +5186,19 @@ extern void fnSimPers(void)
                         ulPeripherals[iPort] |= ulBit;
                         ucPortFunctions[_PORTB][iPin - 8] = PB_6_I2C0_SDA;
                     }
-                    else if (OSC0_CR & OSC_CR_OSCEN) {                   // crystal oscillator enabled
+                    else if ((OSC0_CR & OSC_CR_OSCEN) != 0) {            // crystal oscillator enabled
                         ulPeripherals[iPort] |= ulBit;
                         ucPortFunctions[_PORTB][iPin - 8] = PB_6_XTAL;
                     }
-    #if defined KINETIS_KE04 || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
-                    else if (KBI0_PE & 0x4000) {                         // pin is enabled as keyboard interrupt
+    #if (defined KINETIS_KE04 && !(SIZE_OF_FLASH <= (8 * 1024))) || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
+                    else if ((KBI0_PE & 0x4000) != 0) {                  // pin is enabled as keyboard interrupt
                         ulPeripherals[iPort] |= ulBit;
                         ucPortFunctions[_PORTB][iPin - 8] = PB_6_KBI0_P14;
                     }
     #endif
                     break;
                 case KE_PORTB_BIT7:
-                    if ((I2C0_C1 & I2C_IEN) && (SIM_PINSEL0 & SIM_PINSEL_I2C0PS)) { // if I2C is enabled and I2C0 is mapped to PTB7 and PTB6 rather than PTA3 and PTA2
+                    if (((I2C0_C1 & I2C_IEN) != 0) && ((SIM_PINSEL0 & SIM_PINSEL_I2C0PS) != 0)) { // if I2C is enabled and I2C0 is mapped to PTB7 and PTB6 rather than PTA3 and PTA2
                         ulPeripherals[iPort] |= ulBit;
                         ucPortFunctions[_PORTB][iPin - 8] = PB_7_I2C0_SCL;
                     }
@@ -3205,8 +5206,8 @@ extern void fnSimPers(void)
                         ulPeripherals[iPort] |= ulBit;
                         ucPortFunctions[_PORTB][iPin - 8] = PB_7_EXTAL;
                     }
-    #if defined KINETIS_KE04 || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
-                    else if (KBI0_PE & 0x8000) {                         // pin is enabled as keyboard interrupt
+    #if (defined KINETIS_KE04 && !(SIZE_OF_FLASH <= (8 * 1024))) || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
+                    else if ((KBI0_PE & 0x8000) != 0) {                  // pin is enabled as keyboard interrupt
                         ulPeripherals[iPort] |= ulBit;
                         ucPortFunctions[_PORTB][iPin - 8] = PB_7_KBI0_P15;
                     }
@@ -3214,17 +5215,23 @@ extern void fnSimPers(void)
                     break;
                 case KE_PORTC_BIT0:
     #if defined KINETIS_KE02 || defined KINETIS_KE06
-                    if ((ADC0_APCTL1 & ADC_APCTL1_AD8) != 0) {           // if the ADC function is enabled
+                    if ((ADC0_APCTL1 & ADC_APCTL1_AD8) != 0) {           // if the ADC function is enabled it has priority
                         ulPeripherals[iPort] |= ulBit;
                         ucPortFunctions[_PORTF][iPin - 16] = PC_0_ADC0_SE8;
                         break;
                     }
     #endif
-                    if ((FTM2_C0SC & (FTM_CSC_ELSA | FTM_CSC_ELSB)) && ((SIM_PINSEL0 & SIM_PINSEL_FTM1PS1) == 0)) {
+                    if (((FTM2_C0SC & (FTM_CSC_ELSA | FTM_CSC_ELSB)) != 0) &&
+    #if defined KINETIS_KE06 || defined KINETIS_KEA128 || (defined KINETIS_KEA64 && !defined KINETIS_KEAN64)
+                    ((SIM_PINSEL1 & SIM_PINSEL1_FTM2PS0_MASK) == SIM_PINSEL1_FTM2PS0_PTC0)
+    #else
+                        ((SIM_PINSEL0 & SIM_PINSEL_FTM2PS0) == 0)
+    #endif
+                    ) {
                         ulPeripherals[iPort] |= ulBit;
                         ucPortFunctions[_PORTC][iPin - 16] = PC_0_FTM2_CH0;                    
                     }
-    #if defined KINETIS_KE04 || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
+    #if (defined KINETIS_KE04 && !(SIZE_OF_FLASH <= (8 * 1024))) || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
                     else if (KBI0_PE & 0x10000) {                        // pin is enabled as keyboard interrupt
                         ulPeripherals[iPort] |= ulBit;
                         ucPortFunctions[_PORTC][iPin - 16] = PC_0_KBI0_P16;
@@ -3245,11 +5252,11 @@ extern void fnSimPers(void)
                         break;
                     }
     #endif
-                    if ((FTM2_C1SC & (FTM_CSC_ELSA | FTM_CSC_ELSB)) && (!(SIM_PINSEL0 & SIM_PINSEL_FTM1PS1))) {
+                    if (((FTM2_C1SC & (FTM_CSC_ELSA | FTM_CSC_ELSB)) != 0) && (0 == (SIM_PINSEL0 & SIM_PINSEL_FTM1PS1))) {
                         ulPeripherals[iPort] |= ulBit;
                         ucPortFunctions[_PORTC][iPin - 16] = PC_1_FTM2_CH1;                    
                     }
-    #if defined KINETIS_KE04 || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
+    #if (defined KINETIS_KE04 && !(SIZE_OF_FLASH <= (8 * 1024))) || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
                     else if (KBI0_PE & 0x20000) {                        // pin is enabled as keyboard interrupt
                         ulPeripherals[iPort] |= ulBit;
                         ucPortFunctions[_PORTC][iPin - 16] = PC_1_KBI0_P17;
@@ -3281,7 +5288,7 @@ extern void fnSimPers(void)
                         ucPortFunctions[iPort + 2][iPin - 16] = PC_2_FTM2_CH2;                    
                     }
     #endif
-    #if defined KINETIS_KE04 || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
+    #if (defined KINETIS_KE04 && !(SIZE_OF_FLASH <= (8 * 1024))) || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
                     else if (KBI0_PE & 0x40000) {                        // pin is enabled as keyboard interrupt
                         ulPeripherals[iPort] |= ulBit;
                         ucPortFunctions[_PORTC][iPin - 16] = PC_2_KBI0_P18;
@@ -3313,7 +5320,7 @@ extern void fnSimPers(void)
                         ucPortFunctions[_PORTC][iPin - 16] = PC_3_FTM2_CH3;                    
                     }
     #endif
-    #if defined KINETIS_KE04 || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
+    #if (defined KINETIS_KE04 && !(SIZE_OF_FLASH <= (8 * 1024))) || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
                     else if (KBI0_PE & 0x80000) {                        // pin is enabled as keyboard interrupt
                         ulPeripherals[iPort] |= ulBit;
                         ucPortFunctions[_PORTC][iPin - 16] = PC_3_KBI0_P19;
@@ -3337,7 +5344,7 @@ extern void fnSimPers(void)
                         ucPortFunctions[_PORTC][iPin - 16] = PC_4_SWD_CLK;
                     }
     #endif
-    #if defined KINETIS_KE04 || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
+    #if (defined KINETIS_KE04 && !(SIZE_OF_FLASH <= (8 * 1024))) || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
                     else if (KBI0_PE & 0x100000) {                       // pin is enabled as keyboard interrupt
                         ulPeripherals[iPort] |= ulBit;
                         ucPortFunctions[_PORTC][iPin - 16] = PC_4_KBI0_P20;
@@ -3350,11 +5357,11 @@ extern void fnSimPers(void)
     #endif
                     break;
                 case KE_PORTC_BIT5:
-                    if ((FTM1_C1SC & (FTM_CSC_ELSA | FTM_CSC_ELSB)) && (!(SIM_PINSEL0 & SIM_PINSEL_FTM1PS1))) {
+                    if (((FTM1_C1SC & (FTM_CSC_ELSA | FTM_CSC_ELSB)) != 0) && (0 == (SIM_PINSEL0 & SIM_PINSEL_FTM1PS1))) {
                         ulPeripherals[iPort] |= ulBit;
                         ucPortFunctions[_PORTC][iPin - 16] = PC_5_FTM1_CH1;                    
                     }
-    #if defined KINETIS_KE04 || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
+    #if (defined KINETIS_KE04 && !(SIZE_OF_FLASH <= (8 * 1024))) || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
                     else if (KBI0_PE & 0x200000) {                       // pin is enabled as keyboard interrupt
                         ulPeripherals[iPort] |= ulBit;
                         ucPortFunctions[_PORTC][iPin - 16] = PC_5_KBI0_P21;
@@ -3380,7 +5387,7 @@ extern void fnSimPers(void)
                         ucPortFunctions[_PORTC][iPin - 16] = PC_6_UART1_RX; 
                     }
     #endif
-    #if defined KINETIS_KE04 || defined KINETIS_KE06 || defined KINETIS_KEA128
+    #if (defined KINETIS_KE04 && !(SIZE_OF_FLASH <= (8 * 1024))) || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
                     else if (KBI0_PE & 0x400000) {                       // pin is enabled as keyboard interrupt
                         ulPeripherals[iPort] |= ulBit;
                         ucPortFunctions[_PORTC][iPin - 16] = PC_6_KBI0_P22;
@@ -3401,7 +5408,7 @@ extern void fnSimPers(void)
                         ucPortFunctions[_PORTC][iPin - 16] = PC_7_UART1_TX; 
                     }
     #endif
-    #if defined KINETIS_KE04 || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
+    #if (defined KINETIS_KE04 && !(SIZE_OF_FLASH <= (8 * 1024))) || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
                     else if (KBI0_PE & 0x800000) {                       // pin is enabled as keyboard interrupt
                         ulPeripherals[iPort] |= ulBit;
                         ucPortFunctions[_PORTC][iPin - 16] = PC_7_KBI0_P23;
@@ -3424,7 +5431,7 @@ extern void fnSimPers(void)
                         ucPortFunctions[_PORTD][iPin - 24] = PD_0_FTM2_CH2;                    
                     }
     #endif
-    #if defined KINETIS_KE04 || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
+    #if (defined KINETIS_KE04 && !(SIZE_OF_FLASH <= (8 * 1024))) || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
                     else if (KBI0_PE & 0x1000000) {                      // pin is enabled as keyboard interrupt
                         ulPeripherals[iPort] |= ulBit;
                         ucPortFunctions[_PORTD][iPin - 24] = PD_0_KBI0_P24;
@@ -3452,7 +5459,7 @@ extern void fnSimPers(void)
                         ucPortFunctions[_PORTD][iPin - 24] = PD_1_FTM2_CH3;                    
                     }
     #endif
-    #if defined KINETIS_KE04 || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
+    #if (defined KINETIS_KE04 && !(SIZE_OF_FLASH <= (8 * 1024))) || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
                     else if (KBI0_PE & 0x2000000) {                      // pin is enabled as keyboard interrupt
                         ulPeripherals[iPort] |= ulBit;
                         ucPortFunctions[_PORTD][iPin - 24] = PD_1_KBI0_P25;
@@ -3465,29 +5472,29 @@ extern void fnSimPers(void)
     #endif
                     break;
                 case KE_PORTD_BIT2:
-                    if (SPI1_C1 & SPI_C1_MSTR) {
+                    if ((SPI1_C1 & SPI_C1_MSTR) != 0) {
                         ulPeripherals[iPort] |= ulBit;
                         ucPortFunctions[_PORTD][iPin - 24] = PD_2_SPI1_MISO;
                     }
-    #if defined KINETIS_KE04 || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
-                    else if (KBI0_PE & 0x4000000) {                      // pin is enabled as keyboard interrupt
+    #if (defined KINETIS_KE04 && !(SIZE_OF_FLASH <= (8 * 1024))) || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
+                    else if ((KBI0_PE & 0x4000000) != 0) {               // pin is enabled as keyboard interrupt
                         ulPeripherals[iPort] |= ulBit;
                         ucPortFunctions[_PORTD][iPin - 24] = PD_2_KBI0_P26;
                     }
     #else
-                    else if (KBI1_PE & 0x04) {                           // pin is enabled as keyboard interrupt
+                    else if ((KBI1_PE & 0x04) != 0) {                    // pin is enabled as keyboard interrupt
                         ulPeripherals[iPort] |= ulBit;
                         ucPortFunctions[_PORTD][iPin - 24] = PD_2_KBI1_P2;
                     }
     #endif
                     break;
                 case KE_PORTD_BIT3:
-                    if (SPI1_C1 & SPI_C1_MSTR) {
+                    if ((SPI1_C1 & SPI_C1_MSTR) != 0) {
                         ulPeripherals[iPort] |= ulBit;
                         ucPortFunctions[_PORTD][iPin - 24] = PD_3_SPI1_PCS0;
                     }
-    #if defined KINETIS_KE04 || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
-                    else if (KBI0_PE & 0x8000000) {                      // pin is enabled as keyboard interrupt
+    #if (defined KINETIS_KE04 && !(SIZE_OF_FLASH <= (8 * 1024))) || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
+                    else if ((KBI0_PE & 0x8000000) != 0) {               // pin is enabled as keyboard interrupt
                         ulPeripherals[iPort] |= ulBit;
                         ucPortFunctions[_PORTD][iPin - 24] = PD_3_KBI0_P27;
                     }
@@ -3499,7 +5506,7 @@ extern void fnSimPers(void)
     #endif
                     break;
                 case KE_PORTD_BIT4:
-    #if defined KINETIS_KE04 || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
+    #if (defined KINETIS_KE04 && !(SIZE_OF_FLASH <= (8 * 1024))) || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
                     if (KBI0_PE & 0x10000000) {                          // pin is enabled as keyboard interrupt
                         ulPeripherals[iPort] |= ulBit;
                         ucPortFunctions[_PORTD][iPin - 24] = PD_4_KBI0_P28;
@@ -3512,7 +5519,7 @@ extern void fnSimPers(void)
     #endif
                     break;
                 case KE_PORTD_BIT5:
-    #if defined KINETIS_KE04 || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
+    #if (defined KINETIS_KE04 && !(SIZE_OF_FLASH <= (8 * 1024))) || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
                     if (KBI0_PE & 0x20000000) {                          // pin is enabled as keyboard interrupt
                         ulPeripherals[iPort] |= ulBit;
                         ucPortFunctions[_PORTD][iPin - 24] = PD_5_KBI0_P29;
@@ -3538,7 +5545,7 @@ extern void fnSimPers(void)
         #endif
                     }
     #endif
-    #if defined KINETIS_KE04 || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
+    #if (defined KINETIS_KE04 && !(SIZE_OF_FLASH <= (8 * 1024))) || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
                     if ((KBI0_PE & 0x40000000) != 0) {                   // pin is enabled as keyboard interrupt
                         ulPeripherals[iPort] |= ulBit;
                         ucPortFunctions[_PORTD][iPin - 24] = PD_6_KBI0_P30;
@@ -3565,14 +5572,14 @@ extern void fnSimPers(void)
         #endif
                     }
     #endif
-    #if defined KINETIS_KE04 || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
-                    if (KBI0_PE & 0x80000000) {                          // pin is enabled as keyboard interrupt
+    #if (defined KINETIS_KE04 && !(SIZE_OF_FLASH <= (8 * 1024))) || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
+                    if ((KBI0_PE & 0x80000000) != 0) {                   // pin is enabled as keyboard interrupt
                         ulPeripherals[iPort] |= ulBit;
                         ucPortFunctions[_PORTD][iPin - 24] = PD_7_KBI0_P31;
                         break;
                     }
     #else
-                    if (KBI1_PE & 0x80) {                                // pin is enabled as keyboard interrupt
+                    if ((KBI1_PE & 0x80) != 0) {                         // pin is enabled as keyboard interrupt
                         ulPeripherals[iPort] |= ulBit;
                         ucPortFunctions[_PORTD][iPin - 24] = PD_7_KBI1_P7;
                     }
@@ -3587,7 +5594,7 @@ extern void fnSimPers(void)
                         ulPeripherals[iPort] |= ulBit;
                         ucPortFunctions[_PORTE][iPin] = PE_0_SPI0_SCK;
                     }
-    #if defined KINETIS_KE04 || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
+    #if (defined KINETIS_KE04 && !(SIZE_OF_FLASH <= (8 * 1024))) || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
                     else if (KBI1_PE & 0x00000001) {                     // pin is enabled as keyboard interrupt
                         ulPeripherals[iPort] |= ulBit;
                         ucPortFunctions[_PORTE][iPin] = PE_0_KBI1_P0;
@@ -3599,7 +5606,7 @@ extern void fnSimPers(void)
                         ulPeripherals[iPort] |= ulBit;
                         ucPortFunctions[_PORTE][iPin] = PE_1_SPI0_MOSI;
                     }
-    #if defined KINETIS_KE04 || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
+    #if (defined KINETIS_KE04 && !(SIZE_OF_FLASH <= (8 * 1024))) || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
                     else if (KBI1_PE & 0x00000002) {                     // pin is enabled as keyboard interrupt
                         ulPeripherals[iPort] |= ulBit;
                         ucPortFunctions[_PORTE][iPin] = PE_1_KBI1_P1;
@@ -3611,7 +5618,7 @@ extern void fnSimPers(void)
                         ulPeripherals[iPort] |= ulBit;
                         ucPortFunctions[_PORTE][iPin] = PE_2_SPI0_MISO;
                     }
-    #if defined KINETIS_KE04 || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
+    #if (defined KINETIS_KE04 && !(SIZE_OF_FLASH <= (8 * 1024))) || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
                     else if (KBI1_PE & 0x00000004) {                     // pin is enabled as keyboard interrupt
                         ulPeripherals[iPort] |= ulBit;
                         ucPortFunctions[_PORTE][iPin] = PE_2_KBI1_P2;
@@ -3623,7 +5630,7 @@ extern void fnSimPers(void)
                         ulPeripherals[iPort] |= ulBit;
                         ucPortFunctions[_PORTE][iPin] = PE_3_SPI0_PCS0;
                     }
-    #if defined KINETIS_KE04 || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
+    #if (defined KINETIS_KE04 && !(SIZE_OF_FLASH <= (8 * 1024))) || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
                     else if (KBI1_PE & 0x00000008) {                     // pin is enabled as keyboard interrupt
                         ulPeripherals[iPort] |= ulBit;
                         ucPortFunctions[_PORTE][iPin] = PE_3_KBI1_P3;
@@ -3631,7 +5638,7 @@ extern void fnSimPers(void)
     #endif
                     break;
                 case KE_PORTE_BIT4:
-    #if defined KINETIS_KE04 || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
+    #if (defined KINETIS_KE04 && !(SIZE_OF_FLASH <= (8 * 1024))) || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
                     if (KBI1_PE & 0x00000010) {                          // pin is enabled as keyboard interrupt
                         ulPeripherals[iPort] |= ulBit;
                         ucPortFunctions[_PORTE][iPin] = PE_4_KBI1_P4;
@@ -3639,7 +5646,7 @@ extern void fnSimPers(void)
     #endif
                     break;
                 case KE_PORTE_BIT5:
-    #if defined KINETIS_KE04 || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
+    #if (defined KINETIS_KE04 && !(SIZE_OF_FLASH <= (8 * 1024))) || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
                     if ((KBI1_PE & 0x00000020) != 0) {                   // pin is enabled as keyboard interrupt
                         ulPeripherals[iPort] |= ulBit;
                         ucPortFunctions[_PORTE][iPin] = PE_5_KBI1_P5;
@@ -3647,7 +5654,7 @@ extern void fnSimPers(void)
     #endif
                     break;
                 case KE_PORTE_BIT6:
-    #if defined KINETIS_KE04 || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
+    #if (defined KINETIS_KE04 && !(SIZE_OF_FLASH <= (8 * 1024))) || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
                     if ((KBI1_PE & 0x00000040) != 0) {                   // pin is enabled as keyboard interrupt
                         ulPeripherals[iPort] |= ulBit;
                         ucPortFunctions[_PORTE][iPin] = PE_6_KBI1_P6;
@@ -3666,7 +5673,7 @@ extern void fnSimPers(void)
                         ulPeripherals[iPort] |= ulBit;
                         ucPortFunctions[_PORTE][iPin] = PE_7_FTM1_CH1;                    
                     }
-    #if defined KINETIS_KE04 || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
+    #if (defined KINETIS_KE04 && !(SIZE_OF_FLASH <= (8 * 1024))) || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
                     else if (KBI1_PE & 0x00000080) {                     // pin is enabled as keyboard interrupt
                         ulPeripherals[iPort] |= ulBit;
                         ucPortFunctions[_PORTE][iPin] = PE_7_KBI1_P7;
@@ -3674,7 +5681,7 @@ extern void fnSimPers(void)
     #endif
                     break;
                 case KE_PORTF_BIT0:
-    #if defined KINETIS_KE04 || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
+    #if (defined KINETIS_KE04 && !(SIZE_OF_FLASH <= (8 * 1024))) || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
                     if (KBI1_PE & 0x00000100) {                          // pin is enabled as keyboard interrupt
                         ulPeripherals[iPort] |= ulBit;
                         ucPortFunctions[_PORTF][iPin - 8] = PF_0_KBI1_P8;
@@ -3682,7 +5689,7 @@ extern void fnSimPers(void)
     #endif
                     break;
                 case KE_PORTF_BIT1:
-    #if defined KINETIS_KE04 || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
+    #if (defined KINETIS_KE04 && !(SIZE_OF_FLASH <= (8 * 1024))) || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
                     if (KBI1_PE & 0x00000200) {                          // pin is enabled as keyboard interrupt
                         ulPeripherals[iPort] |= ulBit;
                         ucPortFunctions[_PORTF][iPin - 8] = PF_1_KBI1_P9;
@@ -3690,7 +5697,7 @@ extern void fnSimPers(void)
     #endif
                     break;
                 case KE_PORTF_BIT2:
-    #if defined KINETIS_KE04 || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
+    #if (defined KINETIS_KE04 && !(SIZE_OF_FLASH <= (8 * 1024))) || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
                     if (KBI1_PE & 0x00000400) {                          // pin is enabled as keyboard interrupt
                         ulPeripherals[iPort] |= ulBit;
                         ucPortFunctions[_PORTF][iPin - 8] = PF_2_KBI1_P10;
@@ -3698,7 +5705,7 @@ extern void fnSimPers(void)
     #endif
                     break;
                 case KE_PORTF_BIT3:
-    #if defined KINETIS_KE04 || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
+    #if (defined KINETIS_KE04 && !(SIZE_OF_FLASH <= (8 * 1024))) || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
                     if ((KBI1_PE & 0x00000800) != 0) {                   // pin is enabled as keyboard interrupt
                         ulPeripherals[iPort] |= ulBit;
                         ucPortFunctions[_PORTF][iPin - 8] = PF_3_KBI1_P11;
@@ -3713,7 +5720,7 @@ extern void fnSimPers(void)
                         break;
                     }
     #endif
-    #if defined KINETIS_KE04 || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
+    #if (defined KINETIS_KE04 && !(SIZE_OF_FLASH <= (8 * 1024))) || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
                     if ((KBI1_PE & 0x00001000) != 0) {                   // pin is enabled as keyboard interrupt
                         ulPeripherals[iPort] |= ulBit;
                         ucPortFunctions[_PORTF][iPin - 8] = PF_4_KBI1_P12;
@@ -3728,7 +5735,7 @@ extern void fnSimPers(void)
                         break;
                     }
     #endif
-    #if defined KINETIS_KE04 || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
+    #if (defined KINETIS_KE04 && !(SIZE_OF_FLASH <= (8 * 1024))) || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
                     if (KBI1_PE & 0x00002000) {                          // pin is enabled as keyboard interrupt
                         ulPeripherals[iPort] |= ulBit;
                         ucPortFunctions[_PORTF][iPin - 8] = PF_5_KBI1_P13;
@@ -3743,7 +5750,7 @@ extern void fnSimPers(void)
                         break;
                     }
     #endif
-    #if defined KINETIS_KE04 || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
+    #if (defined KINETIS_KE04 && !(SIZE_OF_FLASH <= (8 * 1024))) || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
                     if (KBI1_PE & 0x00004000) {                          // pin is enabled as keyboard interrupt
                         ulPeripherals[iPort] |= ulBit;
                         ucPortFunctions[_PORTF][iPin - 8] = PF_6_KBI1_P14;
@@ -3758,7 +5765,7 @@ extern void fnSimPers(void)
                         break;
                     }
     #endif
-    #if defined KINETIS_KE04 || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
+    #if (defined KINETIS_KE04 && !(SIZE_OF_FLASH <= (8 * 1024))) || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
                     if (KBI1_PE & 0x00008000) {                          // pin is enabled as keyboard interrupt
                         ulPeripherals[iPort] |= ulBit;
                         ucPortFunctions[_PORTF][iPin - 8] = PF_7_KBI1_P15;
@@ -3766,7 +5773,7 @@ extern void fnSimPers(void)
     #endif
                     break;
                 case KE_PORTG_BIT0:
-    #if defined KINETIS_KE04 || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
+    #if (defined KINETIS_KE04 && !(SIZE_OF_FLASH <= (8 * 1024))) || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
                     if (KBI1_PE & 0x00010000) {                          // pin is enabled as keyboard interrupt
                         ulPeripherals[iPort] |= ulBit;
                         ucPortFunctions[_PORTG][iPin - 16] = PG_0_KBI1_P16;
@@ -3774,7 +5781,7 @@ extern void fnSimPers(void)
     #endif
                     break;
                 case KE_PORTG_BIT1:
-    #if defined KINETIS_KE04 || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
+    #if (defined KINETIS_KE04 && !(SIZE_OF_FLASH <= (8 * 1024))) || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
                     if (KBI1_PE & 0x00020000) {                          // pin is enabled as keyboard interrupt
                         ulPeripherals[iPort] |= ulBit;
                         ucPortFunctions[_PORTG][iPin - 16] = PG_1_KBI1_P17;
@@ -3782,7 +5789,7 @@ extern void fnSimPers(void)
     #endif
                     break;
                 case KE_PORTG_BIT2:
-    #if defined KINETIS_KE04 || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
+    #if (defined KINETIS_KE04 && !(SIZE_OF_FLASH <= (8 * 1024))) || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
                     if (KBI1_PE & 0x00040000) {                          // pin is enabled as keyboard interrupt
                         ulPeripherals[iPort] |= ulBit;
                         ucPortFunctions[_PORTG][iPin - 16] = PG_2_KBI1_P18;
@@ -3790,7 +5797,7 @@ extern void fnSimPers(void)
     #endif
                     break;
                 case KE_PORTG_BIT3:
-    #if defined KINETIS_KE04 || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
+    #if (defined KINETIS_KE04 && !(SIZE_OF_FLASH <= (8 * 1024))) || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
                     if (KBI1_PE & 0x00080000) {                          // pin is enabled as keyboard interrupt
                         ulPeripherals[iPort] |= ulBit;
                         ucPortFunctions[_PORTG][iPin - 16] = PG_3_KBI1_P19;
@@ -3798,7 +5805,7 @@ extern void fnSimPers(void)
     #endif
                     break;
                 case KE_PORTG_BIT4:
-    #if defined KINETIS_KE04 || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
+    #if (defined KINETIS_KE04 && !(SIZE_OF_FLASH <= (8 * 1024))) || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
                     if (KBI1_PE & 0x00100000) {                          // pin is enabled as keyboard interrupt
                         ulPeripherals[iPort] |= ulBit;
                         ucPortFunctions[_PORTG][iPin - 16] = PG_4_KBI1_P20;
@@ -3806,7 +5813,7 @@ extern void fnSimPers(void)
     #endif
                     break;
                 case KE_PORTG_BIT5:
-    #if defined KINETIS_KE04 || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
+    #if (defined KINETIS_KE04 && !(SIZE_OF_FLASH <= (8 * 1024))) || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
                     if (KBI1_PE & 0x00200000) {                          // pin is enabled as keyboard interrupt
                         ulPeripherals[iPort] |= ulBit;
                         ucPortFunctions[_PORTG][iPin - 16] = PG_5_KBI1_P21;
@@ -3814,7 +5821,7 @@ extern void fnSimPers(void)
     #endif
                     break;
                 case KE_PORTG_BIT6:
-    #if defined KINETIS_KE04 || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
+    #if (defined KINETIS_KE04 && !(SIZE_OF_FLASH <= (8 * 1024))) || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
                     if (KBI1_PE & 0x00400000) {                          // pin is enabled as keyboard interrupt
                         ulPeripherals[iPort] |= ulBit;
                         ucPortFunctions[_PORTG][iPin - 16] = PG_6_KBI1_P22;
@@ -3822,7 +5829,7 @@ extern void fnSimPers(void)
     #endif
                     break;
                 case KE_PORTG_BIT7:
-    #if defined KINETIS_KE04 || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
+    #if (defined KINETIS_KE04 && !(SIZE_OF_FLASH <= (8 * 1024))) || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
                     if (KBI1_PE & 0x00800000) {                          // pin is enabled as keyboard interrupt
                         ulPeripherals[iPort] |= ulBit;
                         ucPortFunctions[_PORTG][iPin - 16] = PG_7_KBI1_P23;
@@ -3830,24 +5837,30 @@ extern void fnSimPers(void)
     #endif
                     break;
                 case KE_PORTH_BIT0:
-                    if ((FTM2_C0SC & (FTM_CSC_ELSA | FTM_CSC_ELSB)) && (SIM_PINSEL0 & SIM_PINSEL_FTM1PS1)) {
+                    if (((FTM2_C0SC & (FTM_CSC_ELSA | FTM_CSC_ELSB)) != 0) &&
+    #if defined KINETIS_KE06 || defined KINETIS_KEA128 || (defined KINETIS_KEA64 && !defined KINETIS_KEAN64)
+                        ((SIM_PINSEL1 & SIM_PINSEL1_FTM2PS0_MASK) == SIM_PINSEL1_FTM2PS0_PTH0)
+    #else
+                        ((SIM_PINSEL0 & SIM_PINSEL_FTM2PS0) != 0)
+    #endif
+                        ) {
                         ulPeripherals[iPort] |= ulBit;
                         ucPortFunctions[_PORTH][iPin - 24] = PH_0_FTM2_CH0;                    
                     }
-    #if defined KINETIS_KE04 || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
-                    else if (KBI1_PE & 0x01000000) {                     // pin is enabled as keyboard interrupt
+    #if (defined KINETIS_KE04 && !(SIZE_OF_FLASH <= (8 * 1024))) || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
+                    else if ((KBI1_PE & 0x01000000) != 0) {              // pin is enabled as keyboard interrupt
                         ulPeripherals[iPort] |= ulBit;
                         ucPortFunctions[_PORTH][iPin - 24] = PH_0_KBI1_P24;
                     }
     #endif
                     break;
                 case KE_PORTH_BIT1:
-                    if ((FTM2_C1SC & (FTM_CSC_ELSA | FTM_CSC_ELSB)) && (SIM_PINSEL0 & SIM_PINSEL_FTM1PS1)) {
+                    if (((FTM2_C1SC & (FTM_CSC_ELSA | FTM_CSC_ELSB)) != 0) && ((SIM_PINSEL0 & SIM_PINSEL_FTM1PS1) != 0)) {
                         ulPeripherals[iPort] |= ulBit;
                         ucPortFunctions[_PORTH][iPin - 24] = PH_1_FTM2_CH1;                    
                     }
-    #if defined KINETIS_KE04 || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
-                    else if (KBI1_PE & 0x02000000) {                     // pin is enabled as keyboard interrupt
+    #if (defined KINETIS_KE04 && !(SIZE_OF_FLASH <= (8 * 1024))) || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
+                    else if ((KBI1_PE & 0x02000000) != 0) {              // pin is enabled as keyboard interrupt
                         ulPeripherals[iPort] |= ulBit;
                         ucPortFunctions[_PORTH][iPin - 24] = PH_1_KBI1_P25;
                     }
@@ -3865,23 +5878,23 @@ extern void fnSimPers(void)
                         ulPeripherals[iPort] |= ulBit;
                         ucPortFunctions[_PORTH][iPin - 24] = PH_2_FTM1_CH0;                    
                     }
-    #if defined KINETIS_KE04 || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
-                    else if (KBI1_PE & 0x04000000) {                     // pin is enabled as keyboard interrupt
+    #if (defined KINETIS_KE04 && !(SIZE_OF_FLASH <= (8 * 1024))) || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
+                    else if ((KBI1_PE & 0x04000000) != 0) {              // pin is enabled as keyboard interrupt
                         ulPeripherals[iPort] |= ulBit;
                         ucPortFunctions[_PORTH][iPin - 24] = PH_2_KBI1_P26;
                     }
     #endif
                     break;
                 case KE_PORTH_BIT3:
-    #if defined KINETIS_KE04 || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
-                    if (KBI1_PE & 0x08000000) {                          // pin is enabled as keyboard interrupt
+    #if (defined KINETIS_KE04 && !(SIZE_OF_FLASH <= (8 * 1024))) || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
+                    if ((KBI1_PE & 0x08000000) != 0) {                   // pin is enabled as keyboard interrupt
                         ulPeripherals[iPort] |= ulBit;
                         ucPortFunctions[_PORTH][iPin - 24] = PH_3_KBI1_P27;
                     }
     #endif
                     break;
                 case KE_PORTH_BIT4:
-    #if defined KINETIS_KE04 || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
+    #if (defined KINETIS_KE04 && !(SIZE_OF_FLASH <= (8 * 1024))) || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
                     if (KBI1_PE & 0x10000000) {                          // pin is enabled as keyboard interrupt
                         ulPeripherals[iPort] |= ulBit;
                         ucPortFunctions[_PORTH][iPin - 24] = PH_4_KBI1_P28;
@@ -3889,7 +5902,7 @@ extern void fnSimPers(void)
     #endif
                     break;
                 case KE_PORTH_BIT5:
-    #if defined KINETIS_KE04 || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
+    #if (defined KINETIS_KE04 && !(SIZE_OF_FLASH <= (8 * 1024))) || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
                     if (KBI1_PE & 0x20000000) {                          // pin is enabled as keyboard interrupt
                         ulPeripherals[iPort] |= ulBit;
                         ucPortFunctions[_PORTH][iPin - 24] = PH_5_KBI1_P29;
@@ -3897,7 +5910,7 @@ extern void fnSimPers(void)
     #endif
                     break;
                 case KE_PORTH_BIT6:
-    #if defined KINETIS_KE04 || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
+    #if (defined KINETIS_KE04 && !(SIZE_OF_FLASH <= (8 * 1024))) || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
                     if (KBI1_PE & 0x40000000) {                          // pin is enabled as keyboard interrupt
                         ulPeripherals[iPort] |= ulBit;
                         ucPortFunctions[_PORTH][iPin - 24] = PH_6_KBI1_P30;
@@ -3905,7 +5918,7 @@ extern void fnSimPers(void)
     #endif
                     break;
                 case KE_PORTH_BIT7:
-    #if defined KINETIS_KE04 || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
+    #if (defined KINETIS_KE04 && !(SIZE_OF_FLASH <= (8 * 1024))) || defined KINETIS_KE06 || defined KINETIS_KEA64 || defined KINETIS_KEA128
                     if (KBI1_PE & 0x80000000) {                          // pin is enabled as keyboard interrupt
                         ulPeripherals[iPort] |= ulBit;
                         ucPortFunctions[_PORTH][iPin - 24] = PH_7_KBI1_P31;
@@ -4009,365 +6022,75 @@ extern void fnSimPers(void)
 }
 
 
-extern int fnSimulateDMA(int channel)                                    // {3}
-{
-#if !defined DEVICE_WITHOUT_DMA && !defined KINETIS_KL82
-#if defined KINETIS_KL                                                   // {32}
-    KINETIS_DMA *ptrDMA = (KINETIS_DMA *)DMA_BLOCK;
-    ptrDMA += channel;
-    if (((ptrDMA->DMA_DCR & (DMA_DCR_START | DMA_DCR_ERQ)) != 0) && ((ptrDMA->DMA_DSR_BCR & DMA_DSR_BCR_BCR_MASK) != 0)) { // sw commanded start or source request (ignore is no count value remaining)
-        ptrDMA->DMA_DSR_BCR |= DMA_DSR_BCR_BSY;
-        while ((ptrDMA->DMA_DSR_BCR & DMA_DSR_BCR_BCR_MASK) != 0) {      // while bytes to be transferred
-            if ((ptrDMA->DMA_DCR & DMA_DCR_DSIZE_8) != 0) {              // 8 bit transfers
-                *(unsigned char *)ptrDMA->DMA_DAR = *(unsigned char *)ptrDMA->DMA_SAR; // byte transfer
-                ptrDMA->DMA_DSR_BCR = ((ptrDMA->DMA_DSR_BCR & DMA_DSR_BCR_BCR_MASK) - 1);
-            }
-            else if ((ptrDMA->DMA_DCR & DMA_DCR_DSIZE_16) != 0) {        // 16 bit transfers
-                *(unsigned short *)ptrDMA->DMA_DAR = *(unsigned short *)ptrDMA->DMA_SAR; // short word transfer
-                ptrDMA->DMA_DSR_BCR = ((ptrDMA->DMA_DSR_BCR & DMA_DSR_BCR_BCR_MASK) - 2);
-            }
-            else {                                                       // 32 bit transfers
-                *(unsigned long *)ptrDMA->DMA_DAR = *(unsigned long *)ptrDMA->DMA_SAR; // long word transfer
-                ptrDMA->DMA_DSR_BCR = ((ptrDMA->DMA_DSR_BCR & DMA_DSR_BCR_BCR_MASK) - 4);
-            }
-            if ((ptrDMA->DMA_DCR & DMA_DCR_DINC) != 0) {                 // destination increment enabled
-                if ((ptrDMA->DMA_DCR & DMA_DCR_DSIZE_8) != 0) {
-                    ptrDMA->DMA_DAR = (ptrDMA->DMA_DAR + 1);
-                }
-                else if ((ptrDMA->DMA_DCR & DMA_DCR_DSIZE_16) != 0) {
-                    ptrDMA->DMA_DAR = (ptrDMA->DMA_DAR + 2);
-                }
-                else {
-                    ptrDMA->DMA_DAR = (ptrDMA->DMA_DAR + 4);
-                }
-            }
-            if ((ptrDMA->DMA_DCR & DMA_DCR_SINC) != 0) {                 // source increment enabled
-                if ((ptrDMA->DMA_DCR & DMA_DCR_SSIZE_8) != 0) {
-                    ptrDMA->DMA_SAR  = (ptrDMA->DMA_SAR + 1);
-                }
-                else if ((ptrDMA->DMA_DCR & DMA_DCR_SSIZE_16) != 0) {
-                    ptrDMA->DMA_SAR  = (ptrDMA->DMA_SAR + 2);
-                }
-                else {
-                    ptrDMA->DMA_SAR  = (ptrDMA->DMA_SAR + 4);
-                }
-            }
-            if ((ptrDMA->DMA_DCR & DMA_DCR_CS) != 0) {                   // if in cycle-steal mode only one transfer is performed at a time
-                if (ptrDMA->DMA_DSR_BCR != 0) {
-                    return 1;                                            // still active
-                }
-                else {
-                    unsigned long ulLength = 0;
-                    switch (ptrDMA->DMA_DCR & DMA_DCR_SMOD_256K) {       // hande automatic source modulo buffer operation
-                    case DMA_DCR_SMOD_16:
-                        ulLength = 16;
-                        break;
-                    case DMA_DCR_SMOD_32:
-                        ulLength = 32;
-                        break;
-                    case DMA_DCR_SMOD_64:
-                        ulLength = 64;
-                        break;
-                    case DMA_DCR_SMOD_128:
-                        ulLength = 128;
-                        break;
-                    case DMA_DCR_SMOD_256:
-                        ulLength = 256;
-                        break;
-                    case DMA_DCR_SMOD_512:
-                        ulLength = 512;
-                        break;
-                    case DMA_DCR_SMOD_1K:
-                        ulLength = 1024;
-                        break;
-                    case DMA_DCR_SMOD_2K:
-                        ulLength = (2 * 1024);
-                        break;
-                    case DMA_DCR_SMOD_4K:
-                        ulLength = (4 * 1024);
-                        break;
-                    case DMA_DCR_SMOD_8K:
-                        ulLength = (8 * 1024);
-                        break;
-                    case DMA_DCR_SMOD_16K:
-                        ulLength = (16 * 1024);
-                        break;
-                    case DMA_DCR_SMOD_32K:
-                        ulLength = (32 * 1024);
-                        break;
-                    case DMA_DCR_SMOD_64K:
-                        ulLength = (64 * 1024);
-                        break;
-                    case DMA_DCR_SMOD_128K:
-                        ulLength = (128 * 1024);
-                        break;
-                    case DMA_DCR_SMOD_256K:
-                        ulLength = (256 * 1024);
-                        break;
-                    }
-                    ptrDMA->DMA_DSR_BCR = ulLength;
-                    ptrDMA->DMA_SAR -= ulLength;
-                    switch (ptrDMA->DMA_DCR & DMA_DCR_DMOD_256K) {       // hande automatic destination modulo buffer operation
-                    case DMA_DCR_DMOD_16:
-                        ulLength = 16;
-                        break;
-                    case DMA_DCR_DMOD_32:
-                        ulLength = 32;
-                        break;
-                    case DMA_DCR_DMOD_64:
-                        ulLength = 64;
-                        break;
-                    case DMA_DCR_DMOD_128:
-                        ulLength = 128;
-                        break;
-                    case DMA_DCR_DMOD_256:
-                        ulLength = 256;
-                        break;
-                    case DMA_DCR_DMOD_512:
-                        ulLength = 512;
-                        break;
-                    case DMA_DCR_DMOD_1K:
-                        ulLength = 1024;
-                        break;
-                    case DMA_DCR_DMOD_2K:
-                        ulLength = (2 * 1024);
-                        break;
-                    case DMA_DCR_DMOD_4K:
-                        ulLength = (4 * 1024);
-                        break;
-                    case DMA_DCR_DMOD_8K:
-                        ulLength = (8 * 1024);
-                        break;
-                    case DMA_DCR_DMOD_16K:
-                        ulLength = (16 * 1024);
-                        break;
-                    case DMA_DCR_DMOD_32K:
-                        ulLength = (32 * 1024);
-                        break;
-                    case DMA_DCR_DMOD_64K:
-                        ulLength = (64 * 1024);
-                        break;
-                    case DMA_DCR_DMOD_128K:
-                        ulLength = (128 * 1024);
-                        break;
-                    case DMA_DCR_DMOD_256K:
-                        ulLength = (256 * 1024);
-                        break;
-                    default:
-                        ulLength = 0;
-                        break;
-                    }
-                    ptrDMA->DMA_DAR -= ulLength;
-                    ptrDMA->DMA_DSR_BCR |= ulLength;
-                    break;
-                }
-            }
-        }
-        ptrDMA->DMA_DSR_BCR |= DMA_DSR_BCR_DONE;
-        if ((ptrDMA->DMA_DCR & DMA_DCR_EINT) != 0) {                     // if interrupt is enabled
-            if (fnGenInt(irq_DMA0_ID + channel) != 0) {                  // if DMA channel interrupt is not disabled
-                VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
-                switch (channel) {
-                case 0:
-                    ptrVect->processor_interrupts.irq_DMA0();            // call the interrupt handler for DMA channel 0
-                    break;
-                case 1:
-                    ptrVect->processor_interrupts.irq_DMA1();            // call the interrupt handler for DMA channel 1
-                    break;
-                case 2:
-                    ptrVect->processor_interrupts.irq_DMA2();            // call the interrupt handler for DMA channel 2
-                    break;
-                case 3:
-                    ptrVect->processor_interrupts.irq_DMA3();            // call the interrupt handler for DMA channel 3
-                    break;
-                }
-            }
-        }
-        return 0;
-    }
-#elif !defined KINETIS_KE
-    KINETIS_DMA_TDC *ptrDMA_TCD = (KINETIS_DMA_TDC *)eDMA_DESCRIPTORS;
-    ptrDMA_TCD += channel;
-
-    #if defined irq_DMA4_ID
-    if (channel > 15) {
-        _EXCEPTION("Warning - the simulator doesn't simulate DMA channels above 15 at the moment!!");
-    }
-    #else
-    if (channel > 3) {
-        _EXCEPTION("Warning - invalid DMA channel being used!!");
-    }
-    #endif
-
-    if ((ptrDMA_TCD->DMA_TCD_CSR & (DMA_TCD_CSR_START | DMA_TCD_CSR_ACTIVE)) != 0) { // sw commanded start or active
-        int interrupt = 0;
-        ptrDMA_TCD->DMA_TCD_CSR |= DMA_TCD_CSR_ACTIVE;                   // mark active 
-        ptrDMA_TCD->DMA_TCD_CSR &= ~DMA_TCD_CSR_START;                   // clear the start bit
-        if (ptrDMA_TCD->DMA_TCD_CITER_ELINK != 0) {                      // main loop iterations
-            unsigned long ulMinorLoop = ptrDMA_TCD->DMA_TCD_NBYTES_ML;   // the number of bytes to transfer
-            if ((ptrDMA_TCD->DMA_TCD_ATTR & DMA_TCD_ATTR_DSIZE_32) != 0) { // {36} handle long word transfers
-                if ((ptrDMA_TCD->DMA_TCD_DOFF & 0x3) != 0) {
-                    _EXCEPTION("DMA destination offset error!!");
-                }
-                if ((ptrDMA_TCD->DMA_TCD_SOFF & 0x3) != 0) {
-                    _EXCEPTION("DMA source offset error!!");
-                }
-                if ((ulMinorLoop & 0x3) != 0) {
-                    _EXCEPTION("DMA copy size error!!");
-                }
-                while (ulMinorLoop != 0) {
-                    *(unsigned long *)ptrDMA_TCD->DMA_TCD_DADDR = *(unsigned long *)ptrDMA_TCD->DMA_TCD_SADDR; // long word transfer
-                    ptrDMA_TCD->DMA_TCD_DADDR = ptrDMA_TCD->DMA_TCD_DADDR + ptrDMA_TCD->DMA_TCD_DOFF;
-                    ptrDMA_TCD->DMA_TCD_SADDR = ptrDMA_TCD->DMA_TCD_SADDR + ptrDMA_TCD->DMA_TCD_SOFF;
-                    ulMinorLoop -= sizeof(unsigned long);
-                }
-            }
-            else if ((ptrDMA_TCD->DMA_TCD_ATTR & DMA_TCD_ATTR_DSIZE_16) != 0) { // {36} handle short word transfers
-                if ((ptrDMA_TCD->DMA_TCD_DOFF & 0x1) != 0) {
-                    _EXCEPTION("DMA destination offset error!!");
-                }
-                if ((ptrDMA_TCD->DMA_TCD_SOFF & 0x1) != 0) {
-                    _EXCEPTION("DMA source offset error!!");
-                }
-                if ((ulMinorLoop & 0x1) != 0) {
-                    _EXCEPTION("DMA copy size error!!");
-                }
-                while (ulMinorLoop != 0) {
-                    *(unsigned short *)ptrDMA_TCD->DMA_TCD_DADDR = *(unsigned short *)ptrDMA_TCD->DMA_TCD_SADDR; // short word transfer
-                    ptrDMA_TCD->DMA_TCD_DADDR = (ptrDMA_TCD->DMA_TCD_DADDR + ptrDMA_TCD->DMA_TCD_DOFF);
-                    ptrDMA_TCD->DMA_TCD_SADDR = (ptrDMA_TCD->DMA_TCD_SADDR + ptrDMA_TCD->DMA_TCD_SOFF);
-                    if (ulMinorLoop <= sizeof(unsigned short)) {
-                        ulMinorLoop = 0;
-                    }
-                    else {
-                        ulMinorLoop -= sizeof(unsigned short);
-                    }
-                }
-            }
-            else {
-                while ((ulMinorLoop--) != 0) {
-                    *(unsigned char *)ptrDMA_TCD->DMA_TCD_DADDR = *(unsigned char *)ptrDMA_TCD->DMA_TCD_SADDR; // byte transfer
-                    ptrDMA_TCD->DMA_TCD_DADDR = ptrDMA_TCD->DMA_TCD_DADDR + ptrDMA_TCD->DMA_TCD_DOFF;
-                    ptrDMA_TCD->DMA_TCD_SADDR = ptrDMA_TCD->DMA_TCD_SADDR + ptrDMA_TCD->DMA_TCD_SOFF;
-                }
-            }
-            (ptrDMA_TCD->DMA_TCD_CITER_ELINK)--;
-            if (ptrDMA_TCD->DMA_TCD_CITER_ELINK == 0) {                  // major loop completed
-                if ((ptrDMA_TCD->DMA_TCD_CSR & DMA_TCD_CSR_INTMAJOR) != 0) { // {18}
-                    interrupt = 1;                                       // possible interrupt
-                }
-                if ((ptrDMA_TCD->DMA_TCD_CSR & DMA_TCD_CSR_DREQ) != 0) { // disable on completion of major loop
-                    DMA_ERQ &= ~(DMA_ERQ_ERQ0 << channel);
-                    ptrDMA_TCD->DMA_TCD_CSR &= ~DMA_TCD_CSR_ACTIVE;      // completed
-                }
-                else {
-                    ptrDMA_TCD->DMA_TCD_CITER_ELINK = ptrDMA_TCD->DMA_TCD_BITER_ELINK;
-                }
-                ptrDMA_TCD->DMA_TCD_CSR |= DMA_TCD_CSR_DONE;
-                ptrDMA_TCD->DMA_TCD_DADDR += ptrDMA_TCD->DMA_TCD_DLASTSGA;
-                ptrDMA_TCD->DMA_TCD_SADDR += ptrDMA_TCD->DMA_TCD_SLAST; // ???
-            }
-            else if (ptrDMA_TCD->DMA_TCD_CITER_ELINK == (ptrDMA_TCD->DMA_TCD_BITER_ELINK/2)) { // half complete
-                if ((ptrDMA_TCD->DMA_TCD_CSR & DMA_TCD_CSR_INTHALF) != 0) { // check whether half-buffer interrupt has been configured
-                    interrupt = 1;
-                }
-            }
-
-            if (interrupt != 0) {                                        // if possible interrupt to generate
-                DMA_INT |= (DMA_INT_INT0 << channel);
-                if (fnGenInt(irq_DMA0_ID + channel) != 0) {              // if DMA channel interrupt is not disabled
-                    VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
-                    switch (channel) {
-                    case 0:
-                        ptrVect->processor_interrupts.irq_DMA0();        // call the interrupt handler for DMA channel 0
-                        break;
-                    case 1:
-                        ptrVect->processor_interrupts.irq_DMA1();        // call the interrupt handler for DMA channel 1
-                        break;
-                    case 2:
-                        ptrVect->processor_interrupts.irq_DMA2();        // call the interrupt handler for DMA channel 2
-                        break;
-                    case 3:
-                        ptrVect->processor_interrupts.irq_DMA3();        // call the interrupt handler for DMA channel 3
-                        break;
-    #if defined irq_DMA4_ID
-                    case 4:
-                        ptrVect->processor_interrupts.irq_DMA4();        // call the interrupt handler for DMA channel 4
-                        break;
-                    case 5:
-                        ptrVect->processor_interrupts.irq_DMA5();        // call the interrupt handler for DMA channel 5
-                        break;
-                    case 6:
-                        ptrVect->processor_interrupts.irq_DMA6();        // call the interrupt handler for DMA channel 6
-                        break;
-                    case 7:
-                        ptrVect->processor_interrupts.irq_DMA7();        // call the interrupt handler for DMA channel 7
-                        break;
-                    case 8:
-                        ptrVect->processor_interrupts.irq_DMA8();        // call the interrupt handler for DMA channel 8
-                        break;
-                    case 9:
-                        ptrVect->processor_interrupts.irq_DMA9();        // call the interrupt handler for DMA channel 9
-                        break;
-                    case 10:
-                        ptrVect->processor_interrupts.irq_DMA10();       // call the interrupt handler for DMA channel 10
-                        break;
-                    case 11:
-                        ptrVect->processor_interrupts.irq_DMA11();       // call the interrupt handler for DMA channel 11
-                        break;
-                    case 12:
-                        ptrVect->processor_interrupts.irq_DMA12();       // call the interrupt handler for DMA channel 12
-                        break;
-                    case 13:
-                        ptrVect->processor_interrupts.irq_DMA13();       // call the interrupt handler for DMA channel 13
-                        break;
-                    case 14:
-                        ptrVect->processor_interrupts.irq_DMA14();       // call the interrupt handler for DMA channel 14
-                        break;
-                    case 15:
-                        ptrVect->processor_interrupts.irq_DMA15();       // call the interrupt handler for DMA channel 15
-                        break;
-    #endif
-                    }
-                }
-            }
-            if (ptrDMA_TCD->DMA_TCD_CITER_ELINK == 0) {
-                return 0;                                                // completed
-            }
-        }
-        return 1;                                                        // not completed
-    }
-#endif
-#endif
-    return -1;                                                           // no operation
-}
-
+#if !defined DEVICE_WITHOUT_DMA
+// Handler peripheral DMA triggers
+//
 static void fnHandleDMA_triggers(int iTriggerSource, int iDMAmux)
 {
-#if !defined DEVICE_WITHOUT_DMA
-    #if defined KINETIS_KL
-    #define MAX_DMA_MUX_CHANNELS 4
+    #if defined KINETIS_KM
+    int iMuxChannels = 1;                                                // KM DMA has one DMAMUX per channel
     #else
-    #define MAX_DMA_MUX_CHANNELS 16
+    int iMuxChannels = DMA_CHANNEL_COUNT;                                // DMAMUX has the same channel count as there are DMA channels
     #endif
-    unsigned char *ptrMux = DMAMUX0_CHCFG_ADD;                       // check the channel multiplexers to see whether it connects to the port
+    unsigned char *ptrMux;
     int iChannel = 0;
-    iTriggerSource &= ~(DMAMUX_CHCFG_TRIG);
-    if (iDMAmux == 1) {
-        #if defined DMAMUX1_CHCFG_ADD
+    switch (iDMAmux) {
+    case 0:
         ptrMux = DMAMUX0_CHCFG_ADD;
-        #else
+        break;
+    #if defined DMAMUX1_CHCFG_ADD
+    case 1:
+        ptrMux = DMAMUX1_CHCFG_ADD;
+        break;
+    #endif
+    #if defined DMAMUX2_CHCFG_ADD
+    case 2:
+        ptrMux = DMAMUX2_CHCFG_ADD;
+        break;
+    #endif
+    #if defined DMAMUX3_CHCFG_ADD
+    case 3:
+        ptrMux = DMAMUX3_CHCFG_ADD;
+        break;
+    #endif
+    default:
         return;
-        #endif
     }
-    while (iChannel < MAX_DMA_MUX_CHANNELS) {
+
+    #if defined TRGMUX_AVAILABLE
+    if ((iTriggerSource & DMAMUX_CHCFG_TRIG) != 0) {                     // periodic trigger (LPIT source)
+        iTriggerSource -= DMAMUX0_DMA0_CHCFG_SOURCE_PIT0;
+        iTriggerSource += TRGMUX_SEL_LPIT0_CHANNEL_0;
+        iMuxChannels = 4;                                                // period triggers are limited to the first 4 channels
+        if ((TRGMUX_DMAMUX0 & TRGMUX_SEL0) == (iTriggerSource)) {        // check that the LPIT trigger is connected to the DMAMUX
+            iTriggerSource = DMAMUX0_CHCFG_SOURCE_DMAMUX0;
+        }
+        #if defined DMAMUX0_CHCFG_SOURCE_DMAMUX1
+        else if ((TRGMUX_DMAMUX0 & TRGMUX_SEL1) == ((iTriggerSource) << 8)) { // check that the LPIT trigger is connected to the DMAMUX
+            iTriggerSource = DMAMUX0_CHCFG_SOURCE_DMAMUX1;
+        }
+        else if ((TRGMUX_DMAMUX0 & TRGMUX_SEL2) == ((iTriggerSource) << 16)) { // check that the LPIT trigger is connected to the DMAMUX
+            iTriggerSource = DMAMUX0_CHCFG_SOURCE_DMAMUX2;
+        }
+        else if ((TRGMUX_DMAMUX0 & TRGMUX_SEL3) == ((iTriggerSource) << 24)) { // check that the LPIT trigger is connected to the DMAMUX
+            iTriggerSource = DMAMUX0_CHCFG_SOURCE_DMAMUX3;
+        }
+        #endif
+        else {
+            return;                                                      // trigger is not connected so it can't trigger a DMA request
+        }
+    }
+    #endif
+    iTriggerSource &= ~(DMAMUX_CHCFG_TRIG);
+    while (iChannel < iMuxChannels) {
         if ((*ptrMux++ & ~(DMAMUX_CHCFG_TRIG)) == (DMAMUX_CHCFG_ENBL | (unsigned char)iTriggerSource)) { // matching enabled trigger
-                #if defined _WINDOWS
+    #if defined _WINDOWS && !defined TRGMUX_AVAILABLE && !defined KINETIS_KM
             if ((DMAMUX0_DMA0_CHCFG_SOURCE_PIT0 & ~(DMAMUX_CHCFG_TRIG)) == (unsigned char)iTriggerSource) {
                 if (iChannel != 0) {
                     _EXCEPTION("PIT0 trigger only operates on DMA channel 0!!");
                 }
             }
+        #if !defined KINETIS_KL82                                        // not yet supported
             else if ((DMAMUX0_DMA0_CHCFG_SOURCE_PIT1 & ~(DMAMUX_CHCFG_TRIG)) == (unsigned char)iTriggerSource) {
                 if (iChannel != 1) {
                     _EXCEPTION("PIT1 trigger only operates on DMA channel 1!!");
@@ -4383,28 +6106,30 @@ static void fnHandleDMA_triggers(int iTriggerSource, int iDMAmux)
                     _EXCEPTION("PIT3 trigger only operates on DMA channel 3!!");
                 }
             }
+        #endif
     #endif
-    #if !defined KINETIS_KL
+    #if (!defined KINETIS_KL && !defined KINETIS_KM) || defined DEVICE_WITH_eDMA
             if ((DMA_ERQ & (DMA_ERQ_ERQ0 << iChannel)) != 0) {           // if the DMA channel is enabled
                 KINETIS_DMA_TDC *ptrDMA_TCD = (KINETIS_DMA_TDC *)eDMA_DESCRIPTORS;
                 ptrDMA_TCD += iChannel;
-                ptrDMA_TCD->DMA_TCD_CSR |= (DMA_TCD_CSR_ACTIVE);             // trigger
-                fnSimulateDMA(iChannel);
+                ptrDMA_TCD->DMA_TCD_CSR |= (DMA_TCD_CSR_ACTIVE);         // trigger
+                fnSimulateDMA(iChannel, (unsigned char)iTriggerSource);
             }
     #else
-            fnSimulateDMA(iChannel);
+            fnSimulateDMA(iChannel, (unsigned char)iTriggerSource);
     #endif
         }
         iChannel++;
     }
-#endif
 }
+#endif
+
 
 // Handle port interrupts on input changes
 //
 static void fnPortInterrupt(int iPort, unsigned long ulNewState, unsigned long ulChangedBit, unsigned long *ptrPortConfig)
 {
-#if defined KINETIS_KE
+#if defined KINETIS_KE && !defined KINETIS_KE15 && !defined KINETIS_KE18
     if ((SIM_SCGC_IRQ & SIM_SCGC) != 0) {                                // if the IRQ module is enabled
         fnHandleIRQ(iPort, ulNewState, ulChangedBit, ptrPortConfig);
     }
@@ -4442,29 +6167,38 @@ static void fnPortInterrupt(int iPort, unsigned long ulNewState, unsigned long u
         }
         break;
     }
+    #if !defined DEVICE_WITHOUT_DMA
     if ((*ptrPortConfig & PORT_IRQC_LOW_LEVEL) == 0) {                   // DMA trigger and not interrupt
-    #if defined DMAMUX1_CHCFG_SOURCE_PORTF
+        #if defined DMAMUX1_CHCFG_SOURCE_PORTF
         if (iPort == _PORTF) {
             fnHandleDMA_triggers(DMAMUX1_CHCFG_SOURCE_PORTF, 1);         // port F is on second DMAMUX
         }
         else {
-    #endif
+        #endif
             fnHandleDMA_triggers((DMAMUX0_CHCFG_SOURCE_PORTA + iPort), 0);
-    #if defined DMAMUX1_CHCFG_SOURCE_PORTF
+        #if defined DMAMUX1_CHCFG_SOURCE_PORTF
         }
-    #endif
+        #endif
         return;
     }
+    #endif
     *ptrPortConfig |= PORT_ISF;
+    #if defined irq_PORTA_ID
     iPortInterruptSource = (irq_PORTA_ID + iPort);
+    #endif
     switch (iPort) {
     case _PORTA:
-        PORTA_ISFR |= ulChangedBit;         
+        PORTA_ISFR |= ulChangedBit;
+    #if defined irq_PORT_A_E_ID
+        iPortInterruptSource = irq_PORT_A_E_ID;
+    #endif
         break;
     #if PORTS_AVAILABLE > 1
     case _PORTB:
         PORTB_ISFR |= ulChangedBit;
-        #if defined irq_PORTBCD_E_ID                                     // shared port B/C/D/E
+        #if defined irq_PORT_B_C_D_ID                                    // shared port B/C/D
+        iPortInterruptSource = irq_PORT_B_C_D_ID;
+        #elif defined irq_PORTBCD_E_ID                                   // shared port B/C/D/E
         iPortInterruptSource = irq_PORTBCD_E_ID;
         #endif
         break;
@@ -4494,6 +6228,8 @@ static void fnPortInterrupt(int iPort, unsigned long ulNewState, unsigned long u
         PORTE_ISFR |= ulChangedBit;
         #if defined irq_PORTBCD_E_ID                                     // shared port B/C/D/E
         iPortInterruptSource = irq_PORTBCD_E_ID;
+        #elif defined irq_PORT_A_E_ID
+        iPortInterruptSource = irq_PORT_A_E_ID;
         #endif
         break;
     #endif
@@ -4502,15 +6238,43 @@ static void fnPortInterrupt(int iPort, unsigned long ulNewState, unsigned long u
         PORTF_ISFR |= ulChangedBit;
         break;
     #endif
+    #if PORTS_AVAILABLE > 6
+    case _PORTG:
+        PORTG_ISFR |= ulChangedBit;
+        break;
+    #endif
+    #if PORTS_AVAILABLE > 7
+    case _PORTH:
+        PORTH_ISFR |= ulChangedBit;
+        break;
+    #endif
+    #if PORTS_AVAILABLE > 8
+    case _PORTI:
+        PORTI_ISFR |= ulChangedBit;
+        break;
+    #endif
     }
+    #if defined irq_PT_ID
+    iPortInterruptSource = irq_PT_ID;
+    #endif
     if (fnGenInt(iPortInterruptSource) != 0) {                           // if port interrupt is not disabled
         VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
         switch (iPort) {
         case _PORTA:
+    #if defined irq_PT_ID
+            ptrVect->processor_interrupts.irq_PT();                      // call port interrupt handler
+    #elif defined irq_PORT_A_E_ID
+            ptrVect->processor_interrupts.irq_PORTA_E();                 // call port interrupt handler
+    #else
             ptrVect->processor_interrupts.irq_PORTA();                   // call port interrupt handler
+    #endif
             break;
         case _PORTB:
-    #if defined irq_PORTBCD_E_ID                                         // shared port B/C/D/E interrupt vector
+    #if defined irq_PT_ID
+            ptrVect->processor_interrupts.irq_PT();                      // call port interrupt handler
+    #elif defined irq_PORT_B_C_D_ID                                      // shared port B/C/D interrupt vector
+            ptrVect->processor_interrupts.irq_PORTB_C_D();               // call port interrupt handler
+    #elif defined irq_PORTBCD_E_ID                                       // shared port B/C/D/E interrupt vector
             ptrVect->processor_interrupts.irq_PORTBCD_E();               // call port interrupt handler
     #elif defined irq_PORTB_ID
             ptrVect->processor_interrupts.irq_PORTB();                   // call port interrupt handler
@@ -4518,7 +6282,9 @@ static void fnPortInterrupt(int iPort, unsigned long ulNewState, unsigned long u
             break;
     #if PORTS_AVAILABLE > 2
         case _PORTC:
-        #if defined irq_PORTC_ID
+        #if defined irq_PT_ID
+            ptrVect->processor_interrupts.irq_PT();                      // call port interrupt handler
+        #elif defined irq_PORTC_ID
             ptrVect->processor_interrupts.irq_PORTC();                   // call port interrupt handler
         #elif defined irq_PORTBCD_E_ID                                   // shared port B/C/D/E interrupt vector
             ptrVect->processor_interrupts.irq_PORTBCD_E();               // call port interrupt handler
@@ -4529,7 +6295,9 @@ static void fnPortInterrupt(int iPort, unsigned long ulNewState, unsigned long u
     #endif
     #if PORTS_AVAILABLE > 3
         case _PORTD:
-        #if defined irq_PORTC_ID
+        #if defined irq_PT_ID
+            ptrVect->processor_interrupts.irq_PT();                      // call port interrupt handler
+        #elif defined irq_PORTC_ID
             ptrVect->processor_interrupts.irq_PORTD();                   // call port interrupt handler
         #elif defined irq_PORTBCD_E_ID                                   // shared port B/C/D/E interrupt vector
             ptrVect->processor_interrupts.irq_PORTBCD_E();               // call port interrupt handler
@@ -4540,8 +6308,12 @@ static void fnPortInterrupt(int iPort, unsigned long ulNewState, unsigned long u
     #endif
     #if PORTS_AVAILABLE > 4
         case _PORTE:
-        #if defined irq_PORTE_ID
+        #if defined irq_PT_ID
+            ptrVect->processor_interrupts.irq_PT();                      // call port interrupt handler
+        #elif defined irq_PORTE_ID
             ptrVect->processor_interrupts.irq_PORTE();                   // call port interrupt handler
+        #elif defined irq_PORT_A_E_ID                                    // shared port A and E interrupt vector
+            ptrVect->processor_interrupts.irq_PORTA_E();                 // call port interrupt handler
         #elif defined irq_PORTBCD_E_ID                                   // shared port B/C/D/E interrupt vector
             ptrVect->processor_interrupts.irq_PORTBCD_E();               // call port interrupt handler
         #endif
@@ -4549,9 +6321,26 @@ static void fnPortInterrupt(int iPort, unsigned long ulNewState, unsigned long u
     #endif
     #if PORTS_AVAILABLE > 5
         case _PORTF:
-    #if defined irq_PORTF_ID
+        #if defined irq_PT_ID
+            ptrVect->processor_interrupts.irq_PT();                      // call port interrupt handler
+        #elif defined irq_PORTF_ID
             ptrVect->processor_interrupts.irq_PORTF();                   // call port interrupt handler
+        #endif
+            break;
     #endif
+    #if PORTS_AVAILABLE > 6
+        case _PORTG:
+            ptrVect->processor_interrupts.irq_PT();                      // call port interrupt handler
+            break;
+    #endif
+    #if PORTS_AVAILABLE > 7
+        case _PORTH:
+            ptrVect->processor_interrupts.irq_PT();                      // call port interrupt handler
+            break;
+    #endif
+    #if PORTS_AVAILABLE > 8
+        case _PORTI:
+            ptrVect->processor_interrupts.irq_PT();                      // call port interrupt handler
             break;
     #endif
         }
@@ -4563,21 +6352,42 @@ static void fnPortInterrupt(int iPort, unsigned long ulNewState, unsigned long u
 
 static void fnInterruptI2C(int irq_I2C_ID)
 {
-    if (fnGenInt(irq_I2C_ID) != 0) {                                     // if I2C interrupt is not disabled
+    if (fnGenInt(irq_I2C_ID) != 0){                                      // if I2C interrupt is not disabled
         VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
         switch (irq_I2C_ID) {
+    #if defined irq_LPI2C0_ID                                            // low power I2C
+        case irq_LPI2C0_ID:
+            ptrVect->processor_interrupts.irq_LPI2C0();                  // call the interrupt handler
+            break;
+    #else
         case irq_I2C0_ID:
             ptrVect->processor_interrupts.irq_I2C0();                    // call the interrupt handler
             break;
+    #endif
     #if I2C_AVAILABLE > 1
+        #if defined irq_LPI2C0_ID                                        // low power I2C
+        case irq_LPI2C1_ID:
+            ptrVect->processor_interrupts.irq_LPI2C1();                  // call the interrupt handler
+            break;
+        #elif defined irq_I2C1_EXTENDED_ID
+        case irq_I2C1_EXTENDED_ID:
+            ptrVect->processor_interrupts.irq_I2C1();                    // call the interrupt handler
+            break;
+        #else
         case irq_I2C1_ID:
             ptrVect->processor_interrupts.irq_I2C1();                    // call the interrupt handler
             break;
+        #endif
     #endif
     #if I2C_AVAILABLE > 2
+        #if !defined irq_I2C2_ID
+        case INTMUX0_PERIPHERAL_I2C2:
+            fnCallINTMUX(INTMUX_I2C2, INTMUX0_PERIPHERAL_I2C2, (unsigned char *)&ptrVect->processor_interrupts.irq_LPI2C2);
+        #else
         case irq_I2C2_ID:
             ptrVect->processor_interrupts.irq_I2C2();                    // call the interrupt handler
             break;
+        #endif
     #endif
     #if I2C_AVAILABLE > 3
         case irq_I2C3_ID:
@@ -4590,23 +6400,38 @@ static void fnInterruptI2C(int irq_I2C_ID)
 
 extern void fnSimulateI2C(int iPort, unsigned char *ptrDebugIn, unsigned short usLen, int iRepeatedStart)
 {
+#if I2C_AVAILABLE > 0
     KINETIS_I2C_CONTROL *ptrI2C = 0;
     int iI2C_irq = 0;
     switch (iPort) {
     case 0:
         ptrI2C = (KINETIS_I2C_CONTROL *)I2C0_BLOCK;
+    #if defined irq_LPI2C0_ID
+        iI2C_irq = irq_LPI2C0_ID;
+    #else
         iI2C_irq = irq_I2C0_ID;
+    #endif
         break;
     #if I2C_AVAILABLE > 1
     case 1:
         ptrI2C = (KINETIS_I2C_CONTROL *)I2C1_BLOCK;
+        #if defined irq_LPI2C1_ID
+        iI2C_irq = irq_LPI2C1_ID;
+        #elif !defined irq_I2C1_ID
+        iI2C_irq = irq_I2C1_EXTENDED_ID;
+        #else
         iI2C_irq = irq_I2C1_ID;
+        #endif
         break;
     #endif
     #if I2C_AVAILABLE > 2
     case 2:
         ptrI2C = (KINETIS_I2C_CONTROL *)I2C2_BLOCK;
+        #if defined irq_LPI2C2_EXTENDED_ID
+        iI2C_irq = irq_LPI2C2_EXTENDED_ID;
+        #else
         iI2C_irq = irq_I2C2_ID;
+        #endif
         break;
     #endif
     #if I2C_AVAILABLE > 3
@@ -4667,6 +6492,7 @@ extern void fnSimulateI2C(int iPort, unsigned char *ptrDebugIn, unsigned short u
             fnInterruptI2C(iI2C_irq);                                    // generate the I2C interrupt
         }
     }
+#endif
 }
 #endif
 
@@ -4674,18 +6500,218 @@ extern void fnSimulateI2C(int iPort, unsigned char *ptrDebugIn, unsigned short u
 #define UART_TYPE_LPUART 0
 #define UART_TYPE_UART   1
 static const unsigned char uart_type[LPUARTS_AVAILABLE + UARTS_AVAILABLE] = {
-        #if defined LPUARTS_PARALLEL                                     // K22
+    #if defined LPUARTS_PARALLEL
     UART_TYPE_UART,                                                      // UART0
     UART_TYPE_UART,                                                      // UART1
     UART_TYPE_UART,                                                      // UART2
+    #if ((LPUARTS_AVAILABLE + UARTS_AVAILABLE) > 3)
+            #if UARTS_AVAILABLE == 3
     UART_TYPE_LPUART,                                                    // LPUART0 (numbered 3)
-        #else                                                            // KL43
+            #else
+    UART_TYPE_UART,                                                      // UART3
+            #endif
+    #endif
+    #if ((LPUARTS_AVAILABLE + UARTS_AVAILABLE) > 4)
+            #if UARTS_AVAILABLE == 4
+    UART_TYPE_LPUART,                                                    // LPUART0 (numbered 4)
+            #else
+    UART_TYPE_UART,                                                      // UART4
+            #endif
+    #endif
+    #if ((LPUARTS_AVAILABLE + UARTS_AVAILABLE) > 5)
+            #if UARTS_AVAILABLE == 5
+    UART_TYPE_LPUART,                                                    // LPUART0 (numbered 5)
+            #else
+    UART_TYPE_UART,                                                      // UART5
+            #endif
+    #endif
+    #else                                                                // KL43
     UART_TYPE_LPUART,                                                    // LPUART0
     UART_TYPE_LPUART,                                                    // LPUART1
     UART_TYPE_UART,                                                      // UART2
-        #endif
+    #endif
 };
 #endif
+
+#if LPUARTS_AVAILABLE > 0
+    #if defined LPUARTS_PARALLEL                                         // see http://www.utasker.com/kinetis/UART_LPUART.html for details of UART/LPUART indexing
+        #define LPUART0_CH_NUMBER     UARTS_AVAILABLE                    // LPUARTs are indexed after UARTs
+        #define LPUART1_CH_NUMBER     (UARTS_AVAILABLE + 1)
+        #define LPUART2_CH_NUMBER     (UARTS_AVAILABLE + 2)
+        #define LPUART3_CH_NUMBER     (UARTS_AVAILABLE + 3)
+        #define LPUART4_CH_NUMBER     (UARTS_AVAILABLE + 4)
+        #define LPUART5_CH_NUMBER     (UARTS_AVAILABLE + 5)
+
+        #if UARTS_AVAILABLE == 0
+            #define DMUX_UART0_RX_CHANNEL (DMAMUX0_CHCFG_SOURCE_LPUART0_RX)
+            #define DMUX_UART1_RX_CHANNEL (DMAMUX0_CHCFG_SOURCE_LPUART1_RX)
+            #define DMUX_UART2_RX_CHANNEL (DMAMUX0_CHCFG_SOURCE_LPUART2_RX)
+            #define DMUX_UART3_RX_CHANNEL (DMAMUX0_CHCFG_SOURCE_LPUART3_RX)
+            #define DMUX_UART4_RX_CHANNEL (DMAMUX0_CHCFG_SOURCE_LPUART4_RX)
+        #elif UARTS_AVAILABLE == 1
+            #define DMUX_UART0_RX_CHANNEL (DMAMUX0_CHCFG_SOURCE_UART0_RX)
+            #define DMUX_UART1_RX_CHANNEL (DMAMUX0_CHCFG_SOURCE_LPUART0_RX)
+            #define DMUX_UART2_RX_CHANNEL (DMAMUX0_CHCFG_SOURCE_LPUART1_RX)
+            #define DMUX_UART3_RX_CHANNEL (DMAMUX0_CHCFG_SOURCE_LPUART2_RX)
+            #define DMUX_UART4_RX_CHANNEL (DMAMUX0_CHCFG_SOURCE_LPUART3_RX)
+        #elif UARTS_AVAILABLE == 2
+            #define DMUX_UART0_RX_CHANNEL (DMAMUX0_CHCFG_SOURCE_UART0_RX)
+            #define DMUX_UART1_RX_CHANNEL (DMAMUX0_CHCFG_SOURCE_UART1_RX)
+            #define DMUX_UART2_RX_CHANNEL (DMAMUX0_CHCFG_SOURCE_LPUART0_RX)
+            #define DMUX_UART3_RX_CHANNEL (DMAMUX0_CHCFG_SOURCE_LPUART1_RX)
+            #define DMUX_UART4_RX_CHANNEL (DMAMUX0_CHCFG_SOURCE_LPUART2_RX)
+        #elif UARTS_AVAILABLE == 3
+            #define DMUX_UART0_RX_CHANNEL (DMAMUX0_CHCFG_SOURCE_UART0_RX)
+            #define DMUX_UART1_RX_CHANNEL (DMAMUX0_CHCFG_SOURCE_UART1_RX)
+            #define DMUX_UART2_RX_CHANNEL (DMAMUX0_CHCFG_SOURCE_UART2_RX)
+            #define DMUX_UART3_RX_CHANNEL (DMAMUX0_CHCFG_SOURCE_LPUART0_RX)
+            #define DMUX_UART4_RX_CHANNEL (DMAMUX0_CHCFG_SOURCE_LPUART1_RX)
+        #elif UARTS_AVAILABLE == 4
+            #define DMUX_UART0_RX_CHANNEL (DMAMUX0_CHCFG_SOURCE_UART0_RX)
+            #define DMUX_UART1_RX_CHANNEL (DMAMUX0_CHCFG_SOURCE_UART1_RX)
+            #define DMUX_UART2_RX_CHANNEL (DMAMUX0_CHCFG_SOURCE_UART2_RX)
+            #define DMUX_UART3_RX_CHANNEL (DMAMUX0_CHCFG_SOURCE_UART3_RX)
+            #define DMUX_UART4_RX_CHANNEL (DMAMUX0_CHCFG_SOURCE_LPUART0_RX)
+        #elif UARTS_AVAILABLE == 5
+            #define DMUX_UART0_RX_CHANNEL (DMAMUX0_CHCFG_SOURCE_UART0_RX)
+            #define DMUX_UART1_RX_CHANNEL (DMAMUX0_CHCFG_SOURCE_UART1_RX)
+            #define DMUX_UART2_RX_CHANNEL (DMAMUX0_CHCFG_SOURCE_UART2_RX)
+            #define DMUX_UART3_RX_CHANNEL (DMAMUX0_CHCFG_SOURCE_UART3_RX)
+            #define DMUX_UART4_RX_CHANNEL (DMAMUX0_CHCFG_SOURCE_UART4_RX)
+            #define DMUX_UART5_RX_CHANNEL (DMAMUX0_CHCFG_SOURCE_LPUART0_RX)
+        #endif
+    #else
+        #define LPUART0_CH_NUMBER     0
+        #define LPUART1_CH_NUMBER     1
+        #define LPUART2_CH_NUMBER     2
+        #define LPUART3_CH_NUMBER     3
+        #define LPUART4_CH_NUMBER     4
+        #define LPUART5_CH_NUMBER     5
+
+        #if defined DMAMUX0_CHCFG_SOURCE_LPUART0_RX
+            #define DMUX_UART0_RX_CHANNEL (DMAMUX0_CHCFG_SOURCE_LPUART0_RX)
+        #else
+            #define DMUX_UART0_RX_CHANNEL (DMAMUX0_CHCFG_SOURCE_UART0_RX)
+        #endif
+        #if defined DMAMUX0_CHCFG_SOURCE_LPUART1_RX
+            #define DMUX_UART1_RX_CHANNEL (DMAMUX0_CHCFG_SOURCE_LPUART1_RX)
+        #else
+            #define DMUX_UART1_RX_CHANNEL (DMAMUX0_CHCFG_SOURCE_UART1_RX)
+        #endif
+        #if defined DMAMUX0_CHCFG_SOURCE_LPUART2_RX
+            #define DMUX_UART2_RX_CHANNEL (DMAMUX0_CHCFG_SOURCE_LPUART2_RX)
+        #else
+            #define DMUX_UART2_RX_CHANNEL (DMAMUX0_CHCFG_SOURCE_UART2_RX)
+        #endif
+        #if defined DMAMUX0_CHCFG_SOURCE_LPUART3_RX
+            #define DMUX_UART3_RX_CHANNEL (DMAMUX0_CHCFG_SOURCE_LPUART3_RX)
+        #else
+            #define DMUX_UART3_RX_CHANNEL (DMAMUX0_CHCFG_SOURCE_UART3_RX)
+        #endif
+        #if defined DMAMUX0_CHCFG_SOURCE_LPUART4_RX
+            #define DMUX_UART4_RX_CHANNEL (DMAMUX0_CHCFG_SOURCE_LPUART4_RX)
+        #else
+            #define DMUX_UART4_RX_CHANNEL (DMAMUX0_CHCFG_SOURCE_UART4_RX)
+        #endif
+        #if defined DMAMUX0_CHCFG_SOURCE_LPUART5_RX
+            #define DMUX_UART5_RX_CHANNEL (DMAMUX0_CHCFG_SOURCE_LPUART5_RX)
+        #else
+            #define DMUX_UART5_RX_CHANNEL (DMAMUX0_CHCFG_SOURCE_UART5_RX)
+        #endif
+    #endif
+
+    #if defined SERIAL_INTERFACE && !defined DEVICE_WITHOUT_DMA
+static const unsigned char ucUART_channel[] = {
+    DMA_UART0_RX_CHANNEL,
+        #if (LPUARTS_AVAILABLE + UARTS_AVAILABLE) > 1
+    DMA_UART1_RX_CHANNEL,
+        #endif
+        #if (LPUARTS_AVAILABLE + UARTS_AVAILABLE) > 2
+    DMA_UART2_RX_CHANNEL,
+        #endif
+        #if (LPUARTS_AVAILABLE + UARTS_AVAILABLE) > 3
+    DMA_UART3_RX_CHANNEL,
+        #endif
+        #if (LPUARTS_AVAILABLE + UARTS_AVAILABLE) > 4
+    DMA_UART4_RX_CHANNEL,
+        #endif
+        #if (LPUARTS_AVAILABLE + UARTS_AVAILABLE) > 5
+    DMA_UART5_RX_CHANNEL
+        #endif
+};
+
+static const unsigned char ucUART_DMUX_channel[] = {
+    DMUX_UART0_RX_CHANNEL,
+        #if (LPUARTS_AVAILABLE + UARTS_AVAILABLE) > 1
+    DMUX_UART1_RX_CHANNEL,
+        #endif
+        #if (LPUARTS_AVAILABLE + UARTS_AVAILABLE) > 2
+    DMUX_UART2_RX_CHANNEL,
+        #endif
+        #if (LPUARTS_AVAILABLE + UARTS_AVAILABLE) > 3
+    DMUX_UART3_RX_CHANNEL,
+        #endif
+        #if (LPUARTS_AVAILABLE + UARTS_AVAILABLE) > 4
+    DMUX_UART4_RX_CHANNEL,
+        #endif
+        #if (LPUARTS_AVAILABLE + UARTS_AVAILABLE) > 5
+    DMUX_UART5_RX_CHANNEL
+        #endif
+};
+    #endif
+#endif
+
+extern void fnSimulateSPIIn(int iPort, unsigned char *ptrDebugIn, unsigned short usLen)
+{
+#if defined SPI_INTERFACE
+    VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
+    switch (iPort) {
+    case 0:
+        while (usLen-- != 0) {                                           // for each byte
+        #if defined DSPI_SPI
+            SPI0_POPR = *ptrDebugIn++;
+            SPI0_SR |= SPI_SR_RFDF;
+            if ((SPI0_RSER & SPI_SRER_RFDF_RE) != 0) {
+                ptrVect->processor_interrupts.irq_SPI0();                // call the interrupt handler
+            }
+        #else
+            _EXCEPTION("To do...");
+        #endif
+        }
+        break;
+    #if SPI_AVAILABLE > 1
+    case 1:
+        while (usLen-- != 0) {                                           // for each byte
+        #if defined DSPI_SPI
+            SPI1_POPR = *ptrDebugIn++;
+            SPI1_SR |= SPI_SR_RFDF;
+            if ((SPI1_RSER & SPI_SRER_RFDF_RE) != 0) {
+                ptrVect->processor_interrupts.irq_SPI1();                // call the interrupt handler
+            }
+        #else
+            _EXCEPTION("To do...");
+        #endif
+        }
+        break;
+    #endif
+    #if SPI_AVAILABLE > 2
+    case 2:
+        while (usLen-- != 0) {                                           // for each byte
+        #if defined DSPI_SPI
+            SPI2_POPR = *ptrDebugIn++;
+            SPI2_SR |= SPI_SR_RFDF;
+            if ((SPI2_RSER & SPI_SRER_RFDF_RE) != 0) {
+                ptrVect->processor_interrupts.irq_SPI2();                // call the interrupt handler
+            }
+        #else
+            _EXCEPTION("To do...");
+        #endif
+        }
+        break;
+    #endif
+    }
+#endif
+}
 
 // Simulate the reception of serial data by inserting bytes into the input buffer and calling interrupts
 //
@@ -4693,6 +6719,11 @@ extern void fnSimulateSerialIn(int iPort, unsigned char *ptrDebugIn, unsigned sh
 {
 #if defined SERIAL_INTERFACE
     VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
+    #if defined LOG_UART_RX
+    if (ptrDebugIn != 0) {
+        fnLogRx(iPort, ptrDebugIn, usLen);                               // {43}
+    }
+    #endif
     #if NUMBER_EXTERNAL_SERIAL > 0
     if (iPort >= NUMBER_SERIAL) {
         extern int fnRxExtSCI(int iChannel, unsigned char *ptrData, unsigned short usLength);
@@ -4716,42 +6747,76 @@ extern void fnSimulateSerialIn(int iPort, unsigned char *ptrDebugIn, unsigned sh
         return;
     }
     #endif
-
-    #if LPUARTS_AVAILABLE > 0
-        #if UARTS_AVAILABLE > 0
+    #if defined SERIAL_INTERFACE
+    if (usLen != 0) {
+        iUART_rx_Active[iPort] = 1;                                      // mark that the reception line is not idle
+    }
+    #endif
+    #if LPUARTS_AVAILABLE > 0                                            // parts with LPUART
+        #if UARTS_AVAILABLE > 0                                          // parts with LPUART and UART
     if (uart_type[iPort] == UART_TYPE_LPUART) {
         #endif
         switch (iPort) {
         #if defined LPUARTS_PARALLEL
         case UARTS_AVAILABLE:
         #else
-        case 0:
+        case 0:                                                          // LPUART0
         #endif
             if ((LPUART0_CTRL & LPUART_CTRL_RE) != 0) {                  // if receiver enabled
-                while ((usLen--) != 0) {                                 // for each reception character
+                if (ptrDebugIn == 0) {                                   // idle line detection
+                    LPUART0_STAT |= LPUART_STAT_IDLE;                    // mark idle line status
+                    if ((LPUART0_CTRL & LPUART_CTRL_ILIE) != 0) {        // if the idle line interrupt is enabled
+        #if defined irq_LPUART0_RX_ID
+                        if (fnGenInt(irq_LPUART0_RX_ID) != 0) {         // if LPUART0 interrupt is not disabled
+                            VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
+                            ptrVect->processor_interrupts.irq_LPUART0_RX(); // call the interrupt handler
+                        }
+        #else
+                        if (fnGenInt(irq_LPUART0_ID) != 0) {             // if LPUART0 interrupt is not disabled
+                            VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
+                            ptrVect->processor_interrupts.irq_LPUART0(); // call the interrupt handler
+                        }
+        #endif
+                    }
+                    return;
+                }
+                while (usLen-- != 0) {                                   // for each reception character
                     LPUART0_DATA = *ptrDebugIn++;
                     LPUART0_STAT |= LPUART_STAT_RDRF;                    // set interrupt cause
                     if ((LPUART0_CTRL & LPUART_CTRL_RIE) != 0) {
                                                                          // if reception interrupt is enabled
-        #if !defined KINETIS_KE && !defined KINETIS_KL03 && !defined KINETIS_KL43 // these don't support DMA
+        #if !defined DEVICE_WITHOUT_DMA                                  // if the device supports DMA
                         if ((LPUART0_BAUD & LPUART_BAUD_RDMAE) != 0) {   // if the LPUART is operating in DMA reception mode
-            #if defined SERIAL_SUPPORT_DMA && defined DMA_LPUART0_RX_CHANNEL
-                            if ((DMA_ERQ & (DMA_ERQ_ERQ0 << DMA_LPUART0_RX_CHANNEL)) != 0) { // if source enabled
-                                KINETIS_DMA_TDC *ptrDMA_TCD = (KINETIS_DMA_TDC *)eDMA_DESCRIPTORS;
-                                ptrDMA_TCD += DMA_LPUART0_RX_CHANNEL;
-                                ptrDMA_TCD->DMA_TCD_CSR |= (DMA_TCD_CSR_ACTIVE); // trigger
-                                fnSimulateDMA(DMA_LPUART0_RX_CHANNEL);   // trigger DMA transfer on the UART's channel
+            #if defined SERIAL_SUPPORT_DMA
+                #if defined KINETIS_KL && !defined DEVICE_WITH_eDMA
+                            KINETIS_DMA *ptrDMA = (KINETIS_DMA *)DMA_BLOCK;
+                            ptrDMA += ucUART_channel[LPUART0_CH_NUMBER];
+                            if ((ptrDMA->DMA_DCR & DMA_DCR_ERQ) != 0) { // if source enabled
+                                fnSimulateDMA(ucUART_channel[LPUART0_CH_NUMBER], ucUART_DMUX_channel[LPUART0_CH_NUMBER]); // trigger DMA transfer on the UART's channel
                                 LPUART0_STAT &= ~LPUART_STAT_RDRF;       // remove interrupt cause
                             }
+                #else
+                            if ((DMA_ERQ & (DMA_ERQ_ERQ0 << ucUART_channel[LPUART0_CH_NUMBER])) != 0) { // if source enabled
+                                fnSimulateDMA(ucUART_channel[LPUART0_CH_NUMBER], ucUART_DMUX_channel[LPUART0_CH_NUMBER]); // trigger DMA transfer on the UART's channel
+                                LPUART0_STAT &= ~LPUART_STAT_RDRF;       // remove interrupt cause
+                            }
+                #endif
             #endif
                         }
                         else {
         #endif
+        #if defined irq_LPUART0_RX_ID
+                            if (fnGenInt(irq_LPUART0_RX_ID) != 0) {      // if LPUART0 interrupt is not disabled
+                                VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
+                                ptrVect->processor_interrupts.irq_LPUART0_RX(); // call the interrupt handler
+                            }
+        #else
                             if (fnGenInt(irq_LPUART0_ID) != 0) {         // if LPUART0 interrupt is not disabled
                                 VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
                                 ptrVect->processor_interrupts.irq_LPUART0(); // call the interrupt handler
                             }
-        #if !defined KINETIS_KE && !defined KINETIS_KL03 & !defined KINETIS_KL43
+        #endif
+        #if !defined DEVICE_WITHOUT_DMA                                  // if the device supports DMA
                         }
         #endif
                     }
@@ -4762,35 +6827,75 @@ extern void fnSimulateSerialIn(int iPort, unsigned char *ptrDebugIn, unsigned sh
             #if defined LPUARTS_PARALLEL
         case (UARTS_AVAILABLE + 1):
             #else
-        case 1:
+        case 1:                                                          // LPUART1
             #endif
             if ((LPUART1_CTRL & LPUART_CTRL_RE) != 0) {                  // if receiver enabled
+                if (ptrDebugIn == 0) {                                   // idle line detection
+                    LPUART1_STAT |= LPUART_STAT_IDLE;                    // mark idle line status
+                    if ((LPUART1_CTRL & LPUART_CTRL_ILIE) != 0) {        // if the idle line interrupt is enabled
+            #if defined irq_LPUART1_RX_ID
+                        if (fnGenInt(irq_LPUART1_RX_ID) != 0) {         // if LPUART1 interrupt is not disabled
+                            VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
+                            ptrVect->processor_interrupts.irq_LPUART1_RX(); // call the interrupt handler
+                        }
+            #elif defined irq_LPUART1_ID
+                        if (fnGenInt(irq_LPUART1_ID) != 0) {             // if LPUART1 interrupt is not disabled
+                            VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
+                            ptrVect->processor_interrupts.irq_LPUART1(); // call the interrupt handler
+                        }
+            #else                                                        // LPUART0 and LPUART1 share an interrupt vector
+                        if (fnGenInt(irq_LPUART0_ID) != 0) {             // if LPUART1 interrupt is not disabled
+                            VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
+                            ptrVect->processor_interrupts.irq_LPUART0(); // call the interrupt handler
+                        }
+            #endif
+                    }
+                    return;
+                }
                 while ((usLen--) != 0) {                                 // for each reception character
                     LPUART1_DATA = *ptrDebugIn++;
                     LPUART1_STAT |= LPUART_STAT_RDRF;                    // set interrupt cause
                     if ((LPUART1_CTRL & LPUART_CTRL_RIE) != 0) {
                                                                          // if reception interrupt is enabled
-            #if !defined KINETIS_KE && !defined KINETIS_KL03 && !defined KINETIS_KL43 // these don't support DMA
+            #if !defined DEVICE_WITHOUT_DMA                              // if the device supports DMA
                         if ((LPUART1_BAUD & LPUART_BAUD_RDMAE) != 0) {   // if the UART is operating in DMA reception mode
-                #if defined SERIAL_SUPPORT_DMA && defined DMA_LPUART1_RX_CHANNEL
-                            if ((DMA_ERQ & (DMA_ERQ_ERQ0 << DMA_LPUART1_RX_CHANNEL)) != 0) { // if source enabled
-                                KINETIS_DMA_TDC *ptrDMA_TCD = (KINETIS_DMA_TDC *)eDMA_DESCRIPTORS;
-                                ptrDMA_TCD += DMA_LPUART1_RX_CHANNEL;
-                                ptrDMA_TCD->DMA_TCD_CSR |= (DMA_TCD_CSR_ACTIVE); // trigger
-                                fnSimulateDMA(DMA_LPUART1_RX_CHANNEL);   // trigger DMA transfer on the UART's channel
+                #if defined SERIAL_SUPPORT_DMA
+                    #if defined KINETIS_KL && !defined DEVICE_WITH_eDMA
+                            KINETIS_DMA *ptrDMA = (KINETIS_DMA *)DMA_BLOCK;
+                            ptrDMA += ucUART_channel[LPUART1_CH_NUMBER];
+                            if ((ptrDMA->DMA_DCR & DMA_DCR_ERQ) != 0) {  // if source enabled
+                                fnSimulateDMA(ucUART_channel[LPUART1_CH_NUMBER], ucUART_DMUX_channel[LPUART1_CH_NUMBER]); // trigger DMA transfer on the UART's channel
                                 LPUART1_STAT &= ~LPUART_STAT_RDRF;       // remove interrupt cause
                             }
+                    #else
+                            if ((DMA_ERQ & (DMA_ERQ_ERQ0 << ucUART_channel[LPUART1_CH_NUMBER])) != 0) { // if source enabled
+                                fnSimulateDMA(ucUART_channel[LPUART1_CH_NUMBER], ucUART_DMUX_channel[LPUART1_CH_NUMBER]); // trigger DMA transfer on the UART's channel
+                                LPUART1_STAT &= ~LPUART_STAT_RDRF;       // remove interrupt cause
+                            }
+                    #endif
                 #endif
                         }
                         else {
             #endif
-                            if (fnGenInt(irq_LPUART1_ID) != 0) {             // if LPUART1 interrupt is not disabled
+            #if defined irq_LPUART1_RX_ID
+                            if (fnGenInt(irq_LPUART1_RX_ID) != 0) {      // if LPUART0 interrupt is not disabled
+                                VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
+                                ptrVect->processor_interrupts.irq_LPUART1_RX(); // call the interrupt handler
+                            }
+            #elif defined irq_LPUART1_ID
+                            if (fnGenInt(irq_LPUART1_ID) != 0) {         // if LPUART1 interrupt is not disabled
                                 VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
                                 ptrVect->processor_interrupts.irq_LPUART1(); // call the interrupt handler
                             }
-                #if !defined KINETIS_KE && !defined KINETIS_KL03 & !defined KINETIS_KL43
+            #else                                                        // LPUART0 and LPUART1 share an interrupt vector
+                            if (fnGenInt(irq_LPUART0_ID) != 0) {         // if LPUART1 interrupt is not disabled
+                                VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
+                                ptrVect->processor_interrupts.irq_LPUART0(); // call the interrupt handler
+                            }
+            #endif
+            #if !defined DEVICE_WITHOUT_DMA                              // if the device supports DMA
                         }
-                #endif
+            #endif
                     }
                 }
             }
@@ -4800,29 +6905,70 @@ extern void fnSimulateSerialIn(int iPort, unsigned char *ptrDebugIn, unsigned sh
             #if defined LPUARTS_PARALLEL
         case (UARTS_AVAILABLE + 2):
             #else
-        case 2:
+        case 2:                                                          // LPUART2
             #endif
             if ((LPUART2_CTRL & LPUART_CTRL_RE) != 0) {                  // if receiver enabled
-                while ((usLen--) != 0) {                                 // for each reception character
+                if (ptrDebugIn == 0) {                                   // idle line detection
+                    LPUART2_STAT |= LPUART_STAT_IDLE;                    // mark idle line status
+                    if ((LPUART2_CTRL & LPUART_CTRL_ILIE) != 0) {        // if the idle line interrupt is enabled
+            #if !defined irq_LPUART2_ID && defined INTMUX0_AVAILABLE
+                        if (fnGenInt(irq_INTMUX0_0_ID + INTMUX_LPUART2) != 0) // {46}
+            #elif defined irq_LPUART2_RX_ID
+                        if (fnGenInt(irq_LPUART2_RX_ID) != 0)            // if LPUART2 interrupt is not disabled
+            #else
+                        if (fnGenInt(irq_LPUART2_ID) != 0)
+            #endif
+                        {                                                // if LPUART2 interrupt is not disabled
+                            VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
+            #if defined irq_LPUART2_RX_ID
+                            ptrVect->processor_interrupts.irq_LPUART2_RX(); // call the interrupt handler
+            #elif !defined irq_LPUART2_ID
+                            fnCallINTMUX(INTMUX_LPUART2, INTMUX0_PERIPHERAL_LPUART2, (unsigned char *)&ptrVect->processor_interrupts.irq_LPUART2);
+            #else
+                            ptrVect->processor_interrupts.irq_LPUART2(); // call the interrupt handler
+            #endif
+                        }
+                    }
+                    return;
+                }
+                while (usLen-- != 0) {                                   // for each reception character
                     LPUART2_DATA = *ptrDebugIn++;
                     LPUART2_STAT |= LPUART_STAT_RDRF;                    // set interrupt cause
-                    if ((LPUART2_CTRL & LPUART_CTRL_RIE) != 0) {
-                                                                         // if reception interrupt is enabled
-                        if ((LPUART2_BAUD & LPUART_BAUD_RDMAE) != 0) {   // if the UART is operating in DMA reception mode
-            #if defined SERIAL_SUPPORT_DMA && defined DMA_LPUART2_RX_CHANNEL
-                            if ((DMA_ERQ & (DMA_ERQ_ERQ0 << DMA_LPUART2_RX_CHANNEL)) != 0) { // if source enabled
-                                KINETIS_DMA_TDC *ptrDMA_TCD = (KINETIS_DMA_TDC *)eDMA_DESCRIPTORS;
-                                ptrDMA_TCD += DMA_LPUART2_RX_CHANNEL;
-                                ptrDMA_TCD->DMA_TCD_CSR |= (DMA_TCD_CSR_ACTIVE); // trigger
-                                fnSimulateDMA(DMA_LPUART2_RX_CHANNEL);   // trigger DMA transfer on the UART's channel
+                    if ((LPUART2_CTRL & LPUART_CTRL_RIE) != 0) {         // if reception interrupt is enabled
+                        if ((LPUART2_BAUD & LPUART_BAUD_RDMAE) != 0) {   // if the LPUART is operating in DMA reception mode
+            #if defined SERIAL_SUPPORT_DMA
+                #if defined KINETIS_KL && !defined DEVICE_WITH_eDMA
+                            KINETIS_DMA *ptrDMA = (KINETIS_DMA *)DMA_BLOCK;
+                            ptrDMA += cUART_channel[LPUART2_CH_NUMBER];
+                            if ((ptrDMA->DMA_DCR & DMA_DCR_ERQ) != 0) {  // if source enabled
+                                fnSimulateDMA(cUART_channel[LPUART2_CH_NUMBER], ucUART_DMUX_channel[LPUART2_CH_NUMBER]); // trigger DMA transfer on the LPUART's channel
                                 LPUART2_STAT &= ~LPUART_STAT_RDRF;       // remove interrupt cause
                             }
+                #else
+                            if ((DMA_ERQ & (DMA_ERQ_ERQ0 << ucUART_channel[LPUART2_CH_NUMBER])) != 0) { // if source enabled
+                                fnSimulateDMA(ucUART_channel[LPUART2_CH_NUMBER], ucUART_DMUX_channel[LPUART2_CH_NUMBER]); // trigger DMA transfer on the LPUART's channel
+                                LPUART2_STAT &= ~LPUART_STAT_RDRF;       // remove interrupt cause
+                            }
+                #endif
             #endif
                         }
                         else {
-                            if (fnGenInt(irq_LPUART2_ID) != 0) {             // if LPUART2 interrupt is not disabled
+            #if !defined irq_LPUART2_ID && defined INTMUX0_AVAILABLE
+                            if (fnGenInt(irq_INTMUX0_0_ID + INTMUX_LPUART2) != 0) // {46}
+            #elif defined irq_LPUART2_RX_ID
+                            if (fnGenInt(irq_LPUART2_RX_ID) != 0)        // if LPUART2 interrupt is not disabled
+            #else
+                            if (fnGenInt(irq_LPUART2_ID) != 0)
+            #endif
+                            {                                            // if LPUART2 interrupt is not disabled
                                 VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
+            #if defined irq_LPUART2_RX_ID
+                                ptrVect->processor_interrupts.irq_LPUART2_RX(); // call the interrupt handler
+            #elif !defined irq_LPUART2_ID
+                                fnCallINTMUX(INTMUX_LPUART2, INTMUX0_PERIPHERAL_LPUART2, (unsigned char *)&ptrVect->processor_interrupts.irq_LPUART2);
+            #else
                                 ptrVect->processor_interrupts.irq_LPUART2(); // call the interrupt handler
+            #endif
                             }
                         }
                     }
@@ -4837,20 +6983,25 @@ extern void fnSimulateSerialIn(int iPort, unsigned char *ptrDebugIn, unsigned sh
         case 3:
             #endif
             if ((LPUART3_CTRL & LPUART_CTRL_RE) != 0) {                  // if receiver enabled
-                while ((usLen--) != 0) {                                 // for each reception character
+                while (usLen-- != 0) {                                   // for each reception character
                     LPUART3_DATA = *ptrDebugIn++;
                     LPUART3_STAT |= LPUART_STAT_RDRF;                    // set interrupt cause
-                    if ((LPUART3_CTRL & LPUART_CTRL_RIE) != 0) {
-                                                                         // if reception interrupt is enabled
-                        if ((LPUART3_BAUD & LPUART_BAUD_RDMAE) != 0) {   // if the UART is operating in DMA reception mode
-            #if defined SERIAL_SUPPORT_DMA && defined DMA_LPUART3_RX_CHANNEL
-                            if ((DMA_ERQ & (DMA_ERQ_ERQ0 << DMA_LPUART3_RX_CHANNEL)) != 0) { // if source enabled
-                                KINETIS_DMA_TDC *ptrDMA_TCD = (KINETIS_DMA_TDC *)eDMA_DESCRIPTORS;
-                                ptrDMA_TCD += DMA_LPUART3_RX_CHANNEL;
-                                ptrDMA_TCD->DMA_TCD_CSR |= (DMA_TCD_CSR_ACTIVE); // trigger
-                                fnSimulateDMA(DMA_LPUART3_RX_CHANNEL);   // trigger DMA transfer on the UART's channel
+                    if ((LPUART3_CTRL & LPUART_CTRL_RIE) != 0) {         // if reception interrupt is enabled
+                        if ((LPUART3_BAUD & LPUART_BAUD_RDMAE) != 0) {   // if the LPUART is operating in DMA reception mode
+            #if defined SERIAL_SUPPORT_DMA && defined DMA_UART3_RX_CHANNEL
+                #if defined KINETIS_KL && !defined DEVICE_WITH_eDMA
+                            KINETIS_DMA *ptrDMA = (KINETIS_DMA *)DMA_BLOCK;
+                            ptrDMA += cUART_channel[LPUART3_CH_NUMBER];
+                            if ((ptrDMA->DMA_DCR & DMA_DCR_ERQ) != 0) {  // if source enabled
+                                fnSimulateDMA(cUART_channel[LPUART3_CH_NUMBER], ucUART_DMUX_channel[LPUART3_CH_NUMBER]); // trigger DMA transfer on the LPUART's channel
                                 LPUART3_STAT &= ~LPUART_STAT_RDRF;       // remove interrupt cause
                             }
+                #else
+                            if ((DMA_ERQ & (DMA_ERQ_ERQ0 << ucUART_channel[LPUART3_CH_NUMBER])) != 0) { // if source enabled
+                                fnSimulateDMA(ucUART_channel[LPUART3_CH_NUMBER], ucUART_DMUX_channel[LPUART3_CH_NUMBER]); // trigger DMA transfer on the LPUART's channel
+                                LPUART3_STAT &= ~LPUART_STAT_RDRF;       // remove interrupt cause
+                            }
+                #endif
             #endif
                         }
                         else {
@@ -4871,20 +7022,25 @@ extern void fnSimulateSerialIn(int iPort, unsigned char *ptrDebugIn, unsigned sh
         case 4:
             #endif
             if ((LPUART4_CTRL & LPUART_CTRL_RE) != 0) {                  // if receiver enabled
-                while ((usLen--) != 0) {                                 // for each reception character
-                    LPUART4_DATA = *ptrDebugIn++;
+                while (usLen-- != 0) {                                   // for each reception character
+                    LPUART4_DATA = *ptrDebugIn++;                        // save the received byte into the reception data register
                     LPUART4_STAT |= LPUART_STAT_RDRF;                    // set interrupt cause
-                    if ((LPUART4_CTRL & LPUART_CTRL_RIE) != 0) {
-                                                                         // if reception interrupt is enabled
+                    if ((LPUART4_CTRL & LPUART_CTRL_RIE) != 0) {         // if reception interrupt is enabled
                         if ((LPUART4_BAUD & LPUART_BAUD_RDMAE) != 0) {   // if the UART is operating in DMA reception mode
-            #if defined SERIAL_SUPPORT_DMA && defined DMA_LPUART3_RX_CHANNEL
-                            if ((DMA_ERQ & (DMA_ERQ_ERQ0 << DMA_LPUART4_RX_CHANNEL)) != 0) { // if source enabled
-                                KINETIS_DMA_TDC *ptrDMA_TCD = (KINETIS_DMA_TDC *)eDMA_DESCRIPTORS;
-                                ptrDMA_TCD += DMA_LPUART4_RX_CHANNEL;
-                                ptrDMA_TCD->DMA_TCD_CSR |= (DMA_TCD_CSR_ACTIVE); // trigger
-                                fnSimulateDMA(DMA_LPUART4_RX_CHANNEL);   // trigger DMA transfer on the UART's channel
+            #if defined SERIAL_SUPPORT_DMA && defined DMA_UART4_RX_CHANNEL
+                #if defined KINETIS_KL && !defined DEVICE_WITH_eDMA
+                            KINETIS_DMA *ptrDMA = (KINETIS_DMA *)DMA_BLOCK;
+                            ptrDMA += cUART_channel[LPUART4_CH_NUMBER];
+                            if ((ptrDMA->DMA_DCR & DMA_DCR_ERQ) != 0) {  // if source enabled
+                                fnSimulateDMA(cUART_channel[LPUART4_CH_NUMBER], ucUART_DMUX_channel[LPUART4_CH_NUMBER]); // trigger DMA transfer on the LPUART's channel
                                 LPUART4_STAT &= ~LPUART_STAT_RDRF;       // remove interrupt cause
                             }
+                #else
+                            if ((DMA_ERQ & (DMA_ERQ_ERQ0 << ucUART_channel[LPUART4_CH_NUMBER])) != 0) { // if source enabled
+                                fnSimulateDMA(ucUART_channel[LPUART4_CH_NUMBER], ucUART_DMUX_channel[LPUART4_CH_NUMBER]); // trigger DMA transfer on the LPUART's channel
+                                LPUART4_STAT &= ~LPUART_STAT_RDRF;       // remove interrupt cause
+                            }
+                #endif
             #endif
                         }
                         else {
@@ -4905,34 +7061,60 @@ extern void fnSimulateSerialIn(int iPort, unsigned char *ptrDebugIn, unsigned sh
         #endif
     #endif
 
-    #if UARTS_AVAILABLE > 0
+    #if UARTS_AVAILABLE > 0                                              // UARTs
     switch (iPort) {
         #if LPUARTS_AVAILABLE < 1 || defined LPUARTS_PARALLEL
-    case 0:
+    case 0:                                                              // UART0
+        if (ptrDebugIn == 0) {                                           // idle line detection
+            UART0_S1 |= UART_S1_IDLE;                                    // mark idle line status
+            if ((UART0_C2 & UART_C2_ILIE) != 0) {                        // if the idle line interrupt is enabled
+                if (fnGenInt(irq_UART0_ID) != 0) {                       // if UARTs interrupt is not disabled
+                    VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
+                    ptrVect->processor_interrupts.irq_UART0();           // call the interrupt handler
+                }
+            }
+            return;
+        }
+        UART0_S1 &= ~(UART_S1_IDLE);
         if ((UART0_C2 & UART_C2_RE) != 0) {                              // if receiver enabled
-            while ((usLen--) != 0) {                                     // for each reception character
+            while (usLen-- != 0) {                                       // for each reception character
                 UART0_D = *ptrDebugIn++;
-                UART0_S1 |= UART_S1_RDRF;                                // set interrupt cause
-                if ((UART0_C2 & UART_C2_RIE) != 0) {                     // if reception interrupt is enabled
-            #if !defined KINETIS_KE && !defined KINETIS_KL03             // these don't support DMA
+                if ((UART0_S2 & UART_S2_LBKDE) == 0) {                   // don't set reception flag if break detection is enabled
+                    UART0_S1 |= UART_S1_RDRF;                            // set interrupt cause
+                }
+                if (((UART0_S1 & UART_S1_RDRF) != 0) && ((UART0_C2 & UART_C2_RIE) != 0)) { // if reception interrupt (or DMA) is enabled
+            #if !defined DEVICE_WITHOUT_DMA                              // if the device supports DMA
                     if ((UART0_C5 & UART_C5_RDMAS) != 0) {               // {4} if the UART is operating in DMA reception mode
                 #if defined SERIAL_SUPPORT_DMA && defined DMA_UART0_RX_CHANNEL
-                        if ((DMA_ERQ & (DMA_ERQ_ERQ0 << DMA_UART0_RX_CHANNEL)) != 0) { // if source enabled
-                            KINETIS_DMA_TDC *ptrDMA_TCD = (KINETIS_DMA_TDC *)eDMA_DESCRIPTORS;
-                            ptrDMA_TCD += DMA_UART0_RX_CHANNEL;
-                            ptrDMA_TCD->DMA_TCD_CSR |= (DMA_TCD_CSR_ACTIVE); // trigger
-                            fnSimulateDMA(DMA_UART0_RX_CHANNEL);         // trigger DMA transfer on the UART's channel
+                    #if ((defined KINETIS_KL || defined KINETIS_KM) && !defined DEVICE_WITH_eDMA)
+                        KINETIS_DMA *ptrDMA = (KINETIS_DMA *)DMA_BLOCK;
+                        ptrDMA += DMA_UART0_RX_CHANNEL;
+                        if ((ptrDMA->DMA_DCR & DMA_DCR_ERQ) != 0) {      // if source enabled
+                            fnSimulateDMA(DMA_UART0_RX_CHANNEL, DMAMUX0_CHCFG_SOURCE_UART0_RX); // trigger DMA transfer on the UART's channel
                             UART0_S1 &= ~UART_S1_RDRF;                   // remove interrupt cause
                         }
+                    #else
+                        if ((DMA_ERQ & (DMA_ERQ_ERQ0 << DMA_UART0_RX_CHANNEL)) != 0) { // if source enabled
+                            fnSimulateDMA(DMA_UART0_RX_CHANNEL, DMAMUX0_CHCFG_SOURCE_UART0_RX); // trigger DMA transfer on the UART's channel
+                            UART0_S1 &= ~UART_S1_RDRF;                   // remove interrupt cause
+                        }
+                    #endif
                 #endif
                     }
                     else {
             #endif
+            #if defined irq_UART0_1_ID                                   // when UARTs 0 and 1 share an interrupt
+                        if (fnGenInt(irq_UART0_1_ID) != 0) {             // if UART0/1 interrupt is not disabled
+                            VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
+                            ptrVect->processor_interrupts.irq_UART0_1(); // call the interrupt handler
+                        }
+            #else
                         if (fnGenInt(irq_UART0_ID) != 0) {               // if UART0 interrupt is not disabled
                             VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
                             ptrVect->processor_interrupts.irq_UART0();   // call the interrupt handler
                         }
-            #if !defined KINETIS_KE && !defined KINETIS_KL03 & !defined KINETIS_KL43
+           #endif
+            #if !defined DEVICE_WITHOUT_DMA                              // if the device supports DMA
                     }
             #endif
                 }
@@ -4942,12 +7124,25 @@ extern void fnSimulateSerialIn(int iPort, unsigned char *ptrDebugIn, unsigned sh
         #endif
     #if UARTS_AVAILABLE > 1 && (LPUARTS_AVAILABLE < 2 || defined LPUARTS_PARALLEL)
     case 1:
+        if (ptrDebugIn == 0) {                                           // idle line detection
+            UART1_S1 |= UART_S1_IDLE;                                    // mark idle line status
+            if ((UART1_C2 & UART_C2_ILIE) != 0) {                        // if the idle line interrupt is enabled
+                if (fnGenInt(irq_UART1_ID) != 0) {                       // if UARTs interrupt is not disabled
+                    VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
+                    ptrVect->processor_interrupts.irq_UART1();           // call the interrupt handler
+                }
+            }
+            return;
+        }
+        UART0_S1 &= ~(UART_S1_IDLE);
         if ((UART1_C2 & UART_C2_RE) != 0) {                              // if receiver enabled
-            while ((usLen--) != 0) {                                     // for each reception character
+            while (usLen-- != 0) {                                       // for each reception character
                 UART1_D = *ptrDebugIn++;                                 // save the received byte to the UART data register
-                UART1_S1 |= UART_S1_RDRF;                                // set interrupt cause
-                if ((UART1_C2 & UART_C2_RIE) != 0) {                     // if reception interrupt (or DMA) is enabled
-        #if !defined KINETIS_KE
+                if ((UART1_S2 & UART_S2_LBKDE) == 0) {                   // don't set reception flag if break detection is enabled
+                    UART1_S1 |= UART_S1_RDRF;                            // set interrupt cause
+                }
+                if (((UART1_S1 & UART_S1_RDRF) != 0) && ((UART1_C2 & UART_C2_RIE) != 0)) { // if reception interrupt (or dma) is enabled
+        #if !defined DEVICE_WITHOUT_DMA                                  // if the device supports DMA
             #if defined KINETIS_KL
                     if ((UART1_C4 & UART_C4_RDMAS) != 0)                 // DMA mode
             #else
@@ -4955,22 +7150,35 @@ extern void fnSimulateSerialIn(int iPort, unsigned char *ptrDebugIn, unsigned sh
             #endif
                     {                                                    // {4} if the UART is operating in DMA reception mode
             #if defined SERIAL_SUPPORT_DMA && defined DMA_UART1_RX_CHANNEL
-                        if ((DMA_ERQ & (DMA_ERQ_ERQ0 << DMA_UART1_RX_CHANNEL)) != 0) { // if source enabled
-                            KINETIS_DMA_TDC *ptrDMA_TCD = (KINETIS_DMA_TDC *)eDMA_DESCRIPTORS;
-                            ptrDMA_TCD += DMA_UART1_RX_CHANNEL;
-                            ptrDMA_TCD->DMA_TCD_CSR |= (DMA_TCD_CSR_ACTIVE); // trigger
-                            fnSimulateDMA(DMA_UART1_RX_CHANNEL);         // trigger DMA transfer on the UART's channel
+                #if ((defined KINETIS_KL || defined KINETIS_KM) && !defined DEVICE_WITH_eDMA)
+                        KINETIS_DMA *ptrDMA = (KINETIS_DMA *)DMA_BLOCK;
+                        ptrDMA += DMA_UART1_RX_CHANNEL;
+                        if ((ptrDMA->DMA_DCR & DMA_DCR_ERQ) != 0) {      // if source enabled
+                            fnSimulateDMA(DMA_UART1_RX_CHANNEL, DMAMUX0_CHCFG_SOURCE_UART1_RX); // trigger DMA transfer on the UART's channel
                             UART1_S1 &= ~UART_S1_RDRF;                   // remove interrupt cause
                         }
+                #else
+                        if ((DMA_ERQ & (DMA_ERQ_ERQ0 << DMA_UART1_RX_CHANNEL)) != 0) { // if source enabled
+                            fnSimulateDMA(DMA_UART1_RX_CHANNEL, DMAMUX0_CHCFG_SOURCE_UART1_RX); // trigger DMA transfer on the UART's channel
+                            UART1_S1 &= ~UART_S1_RDRF;                   // remove interrupt cause
+                        }
+                #endif
             #endif
                     }
                     else {
         #endif
+        #if defined irq_UART0_1_ID                                       // when UARTs 0 and 1 share an interrupt
+                        if (fnGenInt(irq_UART0_1_ID) != 0) {             // if UART0/1 interrupt is not disabled
+                            VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
+                            ptrVect->processor_interrupts.irq_UART0_1(); // call the interrupt handler
+                        }
+        #else
                         if (fnGenInt(irq_UART1_ID) != 0) {               // if UART1 interrupt is not disabled
                             VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
                             ptrVect->processor_interrupts.irq_UART1();   // call the interrupt handler
                         }
-        #if !defined KINETIS_KE
+        #endif
+        #if !defined DEVICE_WITHOUT_DMA                                  // if the device supports DMA
                     }
         #endif
                 }
@@ -4981,33 +7189,66 @@ extern void fnSimulateSerialIn(int iPort, unsigned char *ptrDebugIn, unsigned sh
     #if (UARTS_AVAILABLE > 2 && (LPUARTS_AVAILABLE < 3 || defined LPUARTS_PARALLEL)) || ((UARTS_AVAILABLE == 1) && (LPUARTS_AVAILABLE == 2))
     case 2:
         if ((UART2_C2 & UART_C2_RE) != 0) {                              // if receiver enabled
-            while (usLen--) {                                            // for each reception character
+            if (ptrDebugIn == 0) {                                       // idle line detection
+                UART2_S1 |= UART_S1_IDLE;                                // mark idle line status
+                if ((UART2_C2 & UART_C2_ILIE) != 0) {                    // if the idle line interrupt is enabled
+        #if defined irq_UART2_3_ID                                       // when UARTs 2 and 3 share an interrupt
+                    if (fnGenInt(irq_UART2_3_ID) != 0) {                 // if UART2/3 interrupt is not disabled
+                        VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
+                        ptrVect->processor_interrupts.irq_UART2_3(); // call the interrupt handler
+                    }
+        #else
+                    if (fnGenInt(irq_UART2_ID) != 0) {                   // if UART2 interrupt is not disabled
+                        VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
+                        ptrVect->processor_interrupts.irq_UART2();       // call the interrupt handler
+                    }
+        #endif
+                }
+                return;
+            }
+            UART2_S1 &= ~(UART_S1_IDLE);
+            while (usLen-- != 0) {                                       // for each reception character
                 UART2_D = *ptrDebugIn++;
-                UART2_S1 |= UART_S1_RDRF;                                // set interrupt cause
-                if (UART2_C2 & UART_C2_RIE) {                            // if reception interrupt is enabled
+                if ((UART2_S2 & UART_S2_LBKDE) == 0) {                   // don't set reception flag if break detection is enabled
+                    UART2_S1 |= UART_S1_RDRF;                            // set interrupt cause
+                }
+                if (((UART2_S1 & UART_S1_RDRF) != 0) && ((UART2_C2 & UART_C2_RIE) != 0)) { // if reception interrupt (or dma) is enabled
         #if !defined KINETIS_KE
-            #if defined KINETIS_KL
-                    if (UART2_C4 & UART_C4_TDMAS)
+            #if defined KINETIS_KL &&  (UARTS_AVAILABLE > 1)
+                    if ((UART2_C4 & UART_C4_RDMAS) != 0)                 // if DMA mode is enabled
             #else
-                    if (UART2_C5 & UART_C5_RDMAS)
+                    if ((UART2_C5 & UART_C5_RDMAS) != 0)                 // if DMA mode is enabled
             #endif
                     {                                                    // {4} if the UART is operating in DMA reception mode
             #if defined SERIAL_SUPPORT_DMA && defined DMA_UART2_RX_CHANNEL
-                        if (DMA_ERQ & (DMA_ERQ_ERQ0 << DMA_UART2_RX_CHANNEL)) { // if source enabled
-                            KINETIS_DMA_TDC *ptrDMA_TCD = (KINETIS_DMA_TDC *)eDMA_DESCRIPTORS;
-                            ptrDMA_TCD += DMA_UART2_RX_CHANNEL;
-                            ptrDMA_TCD->DMA_TCD_CSR |= (DMA_TCD_CSR_ACTIVE); // trigger
-                            fnSimulateDMA(DMA_UART2_RX_CHANNEL);         // trigger DMA transfer on the UART's channel
+                #if ((defined KINETIS_KL || defined KINETIS_KM) && !defined DEVICE_WITH_eDMA)
+                        KINETIS_DMA *ptrDMA = (KINETIS_DMA *)DMA_BLOCK;
+                        ptrDMA += DMA_UART2_RX_CHANNEL;
+                        if ((ptrDMA->DMA_DCR & DMA_DCR_ERQ) != 0) {      // if source enabled
+                            fnSimulateDMA(DMA_UART2_RX_CHANNEL, DMAMUX0_CHCFG_SOURCE_UART2_RX); // trigger DMA transfer on the UART's channel
                             UART2_S1 &= ~UART_S1_RDRF;                   // remove interrupt cause
                         }
+                #else
+                        if ((DMA_ERQ & (DMA_ERQ_ERQ0 << DMA_UART2_RX_CHANNEL)) != 0) { // if source enabled
+                            fnSimulateDMA(DMA_UART2_RX_CHANNEL, DMAMUX0_CHCFG_SOURCE_UART2_RX); // trigger DMA transfer on the UART's channel
+                            UART2_S1 &= ~UART_S1_RDRF;                   // remove interrupt cause
+                        }
+               #endif
             #endif
                     }
                     else {
         #endif
+        #if defined irq_UART2_3_ID                                       // when UARTs 2 and 3 share an interrupt
+                        if (fnGenInt(irq_UART2_3_ID) != 0) {             // if UART2/3 interrupt is not disabled
+                            VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
+                            ptrVect->processor_interrupts.irq_UART2_3();   // call the interrupt handler
+                        }
+        #else
                         if (fnGenInt(irq_UART2_ID) != 0) {               // if UART2 interrupt is not disabled
                             VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
                             ptrVect->processor_interrupts.irq_UART2();   // call the interrupt handler
                         }
+        #endif
         #if !defined KINETIS_KE
                     }
         #endif
@@ -5019,26 +7260,41 @@ extern void fnSimulateSerialIn(int iPort, unsigned char *ptrDebugIn, unsigned sh
     #if UARTS_AVAILABLE > 3
     case 3:
         if ((UART3_C2 & UART_C2_RE) != 0) {                              // if receiver enabled
-            while (usLen--) {                                            // for each reception character
+            while (usLen-- != 0) {                                       // for each reception character
                 UART3_D = *ptrDebugIn++;
-                UART3_S1 |= UART_S1_RDRF;                                // set interrupt cause
-                if (UART3_C2 & UART_C2_RIE) {                            // if reception interrupt is enabled
-                    if (UART3_C5 & UART_C5_RDMAS) {                      // {4} if the UART is operating in DMA reception mode
-        #if defined SERIAL_SUPPORT_DMA
-                        if (DMA_ERQ & (DMA_ERQ_ERQ0 << DMA_UART3_RX_CHANNEL)) { // if source enabled
-                            KINETIS_DMA_TDC *ptrDMA_TCD = (KINETIS_DMA_TDC *)eDMA_DESCRIPTORS;
-                            ptrDMA_TCD += DMA_UART3_RX_CHANNEL;
-                            ptrDMA_TCD->DMA_TCD_CSR |= (DMA_TCD_CSR_ACTIVE); // trigger
-                            fnSimulateDMA(DMA_UART3_RX_CHANNEL);         // trigger DMA transfer on the UART's channel
+                if ((UART3_S2 & UART_S2_LBKDE) == 0) {                   // don't set reception flag if break detection is enabled
+                    UART3_S1 |= UART_S1_RDRF;                            // set interrupt cause
+                }
+                if (((UART3_S1 & UART_S1_RDRF) != 0) && ((UART3_C2 & UART_C2_RIE) != 0)) { // if reception interrupt (or dma) is enabled
+                    if ((UART3_C5 & UART_C5_RDMAS) != 0) {               // {4} if the UART is operating in DMA reception mode
+        #if defined SERIAL_SUPPORT_DMA && defined DMA_UART3_RX_CHANNEL
+            #if ((defined KINETIS_KL || defined KINETIS_KM) && !defined DEVICE_WITH_eDMA)
+                        KINETIS_DMA *ptrDMA = (KINETIS_DMA *)DMA_BLOCK;
+                        ptrDMA += DMA_UART3_RX_CHANNEL;
+                        if ((ptrDMA->DMA_DCR & DMA_DCR_ERQ) != 0) {      // if source enabled
+                            fnSimulateDMA(DMA_UART3_RX_CHANNEL, DMAMUX0_CHCFG_SOURCE_UART3_RX); // trigger DMA transfer on the UART's channel
                             UART3_S1 &= ~UART_S1_RDRF;                   // remove interrupt cause
                         }
+            #else
+                        if (DMA_ERQ & (DMA_ERQ_ERQ0 << DMA_UART3_RX_CHANNEL)) { // if source enabled
+                            fnSimulateDMA(DMA_UART3_RX_CHANNEL, DMAMUX0_CHCFG_SOURCE_UART3_RX); // trigger DMA transfer on the UART's channel
+                            UART3_S1 &= ~UART_S1_RDRF;                   // remove interrupt cause
+                        }
+            #endif
         #endif
                     }
                     else {
+        #if defined irq_UART2_3_ID                                       // when UARTs 2 and 3 share an interrupt
+                        if (fnGenInt(irq_UART2_3_ID) != 0) {             // if UART2/3 interrupt is not disabled
+                            VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
+                            ptrVect->processor_interrupts.irq_UART2_3();   // call the interrupt handler
+                        }
+        #else
                         if (fnGenInt(irq_UART3_ID) != 0) {               // if UART3 interrupt is not disabled
                             VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
                             ptrVect->processor_interrupts.irq_UART3();   // call the interrupt handler
                         }
+        #endif
                     }
                 }
             }
@@ -5048,17 +7304,16 @@ extern void fnSimulateSerialIn(int iPort, unsigned char *ptrDebugIn, unsigned sh
     #if UARTS_AVAILABLE > 4
     case 4:
         if ((UART4_C2 & UART_C2_RE) != 0) {                              // if receiver enabled
-            while (usLen--) {                                            // for each reception character
+            while (usLen-- != 0) {                                       // for each reception character
                 UART4_D = *ptrDebugIn++;
-                UART4_S1 |= UART_S1_RDRF;                                // set interrupt cause
-                if (UART4_C2 & UART_C2_RIE) {                            // if reception interrupt is enabled
-                    if (UART4_C5 & UART_C5_RDMAS) {                      // {4} if the UART is operating in DMA reception mode
-        #if defined SERIAL_SUPPORT_DMA
-                        if (DMA_ERQ & (DMA_ERQ_ERQ0 << DMA_UART4_RX_CHANNEL)) { // if source enabled
-                            KINETIS_DMA_TDC *ptrDMA_TCD = (KINETIS_DMA_TDC *)eDMA_DESCRIPTORS;
-                            ptrDMA_TCD += DMA_UART4_RX_CHANNEL;
-                            ptrDMA_TCD->DMA_TCD_CSR |= (DMA_TCD_CSR_ACTIVE); // trigger
-                            fnSimulateDMA(DMA_UART4_RX_CHANNEL);         // trigger DMA transfer on the UART's channel
+                if ((UART4_S2 & UART_S2_LBKDE) == 0) {                   // don't set reception flag if break detection is enabled
+                    UART4_S1 |= UART_S1_RDRF;                            // set interrupt cause
+                }
+                if (((UART4_S1 & UART_S1_RDRF) != 0) && ((UART4_C2 & UART_C2_RIE) != 0)) { // if reception interrupt (or dma) is enabled
+                    if ((UART4_C5 & UART_C5_RDMAS) != 0) {               // {4} if the UART is operating in DMA reception mode
+        #if defined SERIAL_SUPPORT_DMA && defined DMA_UART4_RX_CHANNEL
+                        if ((DMA_ERQ & (DMA_ERQ_ERQ0 << DMA_UART4_RX_CHANNEL)) != 0) { // if source enabled
+                            fnSimulateDMA(DMA_UART4_RX_CHANNEL, DMAMUX0_CHCFG_SOURCE_UART4_RX); // trigger DMA transfer on the UART's channel
                             UART4_S1 &= ~UART_S1_RDRF;                   // remove interrupt cause
                         }
         #endif
@@ -5077,17 +7332,16 @@ extern void fnSimulateSerialIn(int iPort, unsigned char *ptrDebugIn, unsigned sh
     #if UARTS_AVAILABLE > 5
     case 5:
         if ((UART5_C2 & UART_C2_RE) != 0) {                              // if receiver enabled
-            while (usLen--) {                                            // for each reception character
+            while (usLen-- != 0) {                                       // for each reception character
                 UART5_D = *ptrDebugIn++;
-                UART5_S1 |= UART_S1_RDRF;                                // set interrupt cause
-                if (UART5_C2 & UART_C2_RIE) {                            // if reception interrupt is enabled
-                    if (UART5_C5 & UART_C5_RDMAS) {                      // {4} if the UART is operating in DMA reception mode
-        #if defined SERIAL_SUPPORT_DMA
-                        if (DMA_ERQ & (DMA_ERQ_ERQ0 << DMA_UART5_RX_CHANNEL)) { // if source enabled
-                            KINETIS_DMA_TDC *ptrDMA_TCD = (KINETIS_DMA_TDC *)eDMA_DESCRIPTORS;
-                            ptrDMA_TCD += DMA_UART5_RX_CHANNEL;
-                            ptrDMA_TCD->DMA_TCD_CSR |= (DMA_TCD_CSR_ACTIVE); // trigger
-                            fnSimulateDMA(DMA_UART5_RX_CHANNEL);         // trigger DMA transfer on the UART's channel
+                if ((UART5_S2 & UART_S2_LBKDE) == 0) {                   // don't set reception flag if break detection is enabled
+                    UART5_S1 |= UART_S1_RDRF;                            // set interrupt cause
+                }
+                if (((UART5_S1 & UART_S1_RDRF) != 0) && ((UART5_C2 & UART_C2_RIE) != 0)) { // if reception interrupt (or dma) is enabled
+                    if ((UART5_C5 & UART_C5_RDMAS) != 0) {               // {4} if the UART is operating in DMA reception mode
+        #if defined SERIAL_SUPPORT_DMA && defined DMA_UART5_RX_CHANNEL
+                        if ((DMA_ERQ & (DMA_ERQ_ERQ0 << DMA_UART5_RX_CHANNEL)) != 0) { // if source enabled
+                            fnSimulateDMA(DMA_UART5_RX_CHANNEL, DMAMUX0_CHCFG_SOURCE_UART5_RX); // trigger DMA transfer on the UART's channel
                             UART5_S1 &= ~UART_S1_RDRF;                   // remove interrupt cause
                         }
         #endif
@@ -5108,7 +7362,7 @@ extern void fnSimulateSerialIn(int iPort, unsigned char *ptrDebugIn, unsigned sh
 #endif
 }
 
-
+#if defined SERIAL_INTERFACE
 // Handle UART transmission interrupts
 //
 static void fnUART_Tx_int(int iChannel)
@@ -5122,15 +7376,22 @@ static void fnUART_Tx_int(int iChannel)
         #if defined LPUARTS_PARALLEL
         case UARTS_AVAILABLE:
         #else
-        case 0:                                                              // LPUART0
+        case 0:                                                          // LPUART0
         #endif
-            if ((LPUART0_CTRL & LPUART_CTRL_TE) != 0) {                      // if transmitter enabled
-                LPUART0_STAT |= (LPUART_STAT_TDRE | LPUART_STAT_TC);         // set interrupt cause
-                if ((LPUART0_CTRL & LPUART0_STAT) != 0) {                    // if transmit interrupt type enabled
-                    if (fnGenInt(irq_LPUART0_ID) != 0) {                     // if LPUART0 interrupt is not disabled
+            if ((LPUART0_CTRL & LPUART_CTRL_TE) != 0) {                  // if transmitter enabled
+                LPUART0_STAT |= (LPUART_STAT_TDRE | LPUART_STAT_TC);     // set interrupt cause
+                if ((LPUART0_CTRL & LPUART0_STAT) != 0) {                // if transmit interrupt type enabled
+        #if defined irq_LPUART0_TX_ID
+                    if (fnGenInt(irq_LPUART0_TX_ID) != 0) {              // if LPUART0 tx interrupt is not disabled
                         VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
-                        ptrVect->processor_interrupts.irq_LPUART0();         // call the interrupt handler
+                        ptrVect->processor_interrupts.irq_LPUART0_TX();  // call the interrupt handler
                     }
+        #else
+                    if (fnGenInt(irq_LPUART0_ID) != 0) {                 // if LPUART0 interrupt is not disabled
+                        VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
+                        ptrVect->processor_interrupts.irq_LPUART0();     // call the interrupt handler
+                    }
+        #endif
                 }
             }
             break;
@@ -5140,12 +7401,76 @@ static void fnUART_Tx_int(int iChannel)
             #else
         case 1:
             #endif
-            if (LPUART1_CTRL & LPUART_CTRL_TE) {                             // if transmitter enabled
-                LPUART1_STAT |= (LPUART_STAT_TDRE | LPUART_STAT_TC);         // set interrupt cause
-                if (LPUART1_CTRL & LPUART1_STAT) {                           // if transmit interrupt type enabled
-                    if (fnGenInt(irq_LPUART1_ID) != 0) {                     // if LPUART1 interrupt is not disabled
+            if ((LPUART1_CTRL & LPUART_CTRL_TE) != 0) {                  // if transmitter enabled
+                LPUART1_STAT |= (LPUART_STAT_TDRE | LPUART_STAT_TC);     // set interrupt cause
+                if ((LPUART1_CTRL & LPUART1_STAT) != 0) {                // if transmit interrupt type enabled
+            #if defined irq_LPUART1_TX_ID
+                    if (fnGenInt(irq_LPUART1_TX_ID) != 0) {              // if LPUART1 tx interrupt is not disabled
                         VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
-                        ptrVect->processor_interrupts.irq_LPUART1();         // call the interrupt handler
+                        ptrVect->processor_interrupts.irq_LPUART1_TX();  // call the interrupt handler
+                    }
+            #elif defined irq_LPUART1_ID
+                    if (fnGenInt(irq_LPUART1_ID) != 0) {                 // if LPUART1 interrupt is not disabled
+                        VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
+                        ptrVect->processor_interrupts.irq_LPUART1();     // call the interrupt handler
+                    }
+            #else                                                        // LPUART0 and LPUART1 share a common interrupt vector
+                    if (fnGenInt(irq_LPUART0_ID) != 0) {                 // if LPUART0/1 interrupt is not disabled
+                        VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
+                        ptrVect->processor_interrupts.irq_LPUART0();     // call the interrupt handler
+                    }
+            #endif
+                }
+            }
+            break;
+        #endif
+        #if (LPUARTS_AVAILABLE > 2) && (UARTS_AVAILABLE == 0)
+        case 2:
+            if ((LPUART2_CTRL & LPUART_CTRL_TE) != 0) {                  // if transmitter enabled
+                LPUART2_STAT |= (LPUART_STAT_TDRE | LPUART_STAT_TC);     // set interrupt cause
+                if ((LPUART2_CTRL & LPUART2_STAT) != 0) {                // if transmit interrupt type enabled
+            #if !defined irq_LPUART2_ID && defined INTMUX0_AVAILABLE
+                    if (fnGenInt(irq_INTMUX0_0_ID + INTMUX_LPUART2) != 0)// {46}
+            #elif defined irq_LPUART2_TX_ID
+                    if (fnGenInt(irq_LPUART2_TX_ID) != 0)                // if LPUART2 tx interrupt is not disabled
+            #else
+                    if (fnGenInt(irq_LPUART2_ID) != 0)
+            #endif
+                    {                                                    // if LPUART2 interrupt is not disabled
+                        VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
+            #if defined irq_LPUART2_TX_ID
+                        ptrVect->processor_interrupts.irq_LPUART2_TX();  // call the interrupt handler
+            #elif !defined irq_LPUART2_ID
+                        fnCallINTMUX(INTMUX_LPUART2, INTMUX0_PERIPHERAL_LPUART2, (unsigned char *)&ptrVect->processor_interrupts.irq_LPUART2);
+            #else
+                        ptrVect->processor_interrupts.irq_LPUART2();     // call the interrupt handler
+            #endif
+                    }
+                }
+            }
+            break;
+        #endif
+        #if (LPUARTS_AVAILABLE > 3) && (UARTS_AVAILABLE == 0)
+        case 3:
+            if ((LPUART3_CTRL & LPUART_CTRL_TE) != 0) {                  // if transmitter enabled
+                LPUART3_STAT |= (LPUART_STAT_TDRE | LPUART_STAT_TC);     // set interrupt cause
+                if ((LPUART3_CTRL & LPUART3_STAT) != 0) {                // if transmit interrupt type enabled
+                    if (fnGenInt(irq_LPUART3_ID) != 0) {                 // if LPUART3 interrupt is not disabled
+                        VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
+                        ptrVect->processor_interrupts.irq_LPUART3();     // call the interrupt handler
+                    }
+                }
+            }
+            break;
+        #endif
+        #if (LPUARTS_AVAILABLE > 4) && (UARTS_AVAILABLE == 0)
+        case 4:
+            if ((LPUART4_CTRL & LPUART_CTRL_TE) != 0) {                  // if transmitter enabled
+                LPUART4_STAT |= (LPUART_STAT_TDRE | LPUART_STAT_TC);     // set interrupt cause
+                if ((LPUART4_CTRL & LPUART4_STAT) != 0) {                // if transmit interrupt type enabled
+                    if (fnGenInt(irq_LPUART4_ID) != 0) {                 // if LPUART3 interrupt is not disabled
+                        VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
+                        ptrVect->processor_interrupts.irq_LPUART4();     // call the interrupt handler
                     }
                 }
             }
@@ -5161,39 +7486,60 @@ static void fnUART_Tx_int(int iChannel)
     switch (iChannel) {
         #if LPUARTS_AVAILABLE < 1 || defined LPUARTS_PARALLEL
     case 0:
-        if (UART0_C2 & UART_C2_TE) {                                     // if transmitter enabled
+        if ((UART0_C2 & UART_C2_TE) != 0) {                              // if transmitter enabled
             UART0_S1 |= (UART_S1_TDRE | UART_S1_TC);                     // set interrupt cause
             if ((UART0_C2 & UART0_S1) != 0) {                            // if transmit interrupt type enabled
+            #if defined irq_UART0_1_ID                                   // when UARTs 0 and 1 share an interrupt
+                if (fnGenInt(irq_UART0_1_ID) != 0) {                     // if UART0/1 interrupt is not disabled
+                    VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
+                    ptrVect->processor_interrupts.irq_UART0_1();         // call the interrupt handler
+                }
+            #else
                 if (fnGenInt(irq_UART0_ID) != 0) {
                     VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
                     ptrVect->processor_interrupts.irq_UART0();           // call the interrupt handler
                 }
+            #endif
             }
         }
         break;
         #endif
         #if UARTS_AVAILABLE > 1 && (LPUARTS_AVAILABLE < 2 || defined LPUARTS_PARALLEL)
     case 1:
-        if (UART1_C2 & UART_C2_TE) {                                     // if transmitter enabled
+        if ((UART1_C2 & UART_C2_TE) != 0) {                              // if transmitter enabled
             UART1_S1 |= (UART_S1_TDRE | UART_S1_TC);                     // set interrupt cause
-            if (UART1_C2 & UART1_S1) {                                   // if transmit interrupt type enabled
+            if ((UART1_C2 & UART1_S1) != 0) {                            // if transmit interrupt type enabled
+            #if defined irq_UART0_1_ID                                   // when UARTs 0 and 1 share an interrupt
+                if (fnGenInt(irq_UART0_1_ID) != 0) {                     // if UART0/1 interrupt is not disabled
+                    VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
+                    ptrVect->processor_interrupts.irq_UART0_1();         // call the interrupt handler
+                }
+            #else
                 if (fnGenInt(irq_UART1_ID) != 0) {
                     VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
                     ptrVect->processor_interrupts.irq_UART1();           // call the interrupt handler
                 }
+            #endif
             }
         }
         break;
         #endif
         #if (UARTS_AVAILABLE > 2 && (LPUARTS_AVAILABLE < 3 || defined LPUARTS_PARALLEL)) || (LPUARTS_AVAILABLE == 2 && UARTS_AVAILABLE == 1)
     case 2:
-        if (UART2_C2 & UART_C2_TE) {                                     // if transmitter enabled
+        if ((UART2_C2 & UART_C2_TE) != 0) {                              // if transmitter enabled
             UART2_S1 |= (UART_S1_TDRE | UART_S1_TC);                     // set interrupt cause
-            if (UART2_C2 & UART2_S1) {                                   // if transmit interrupt type enabled
+            if ((UART2_C2 & UART2_S1) != 0) {                            // if transmit interrupt type enabled
+            #if defined irq_UART2_3_ID                                   // when UARTs 2 and 3 share an interrupt
+                if (fnGenInt(irq_UART2_3_ID) != 0) {                     // if UART2/3 interrupt is not disabled
+                    VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
+                    ptrVect->processor_interrupts.irq_UART2_3();         // call the interrupt handler
+                }
+            #else
                 if (fnGenInt(irq_UART2_ID) != 0) {                       // if UART2 interrupt is not disabled
                     VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
                     ptrVect->processor_interrupts.irq_UART2();           // call the interrupt handler
                 }
+            #endif
             }
         }
         break;
@@ -5203,10 +7549,17 @@ static void fnUART_Tx_int(int iChannel)
         if (UART3_C2 & UART_C2_TE) {                                     // if transmitter enabled
             UART3_S1 |= (UART_S1_TDRE | UART_S1_TC);                     // set interrupt cause
             if (UART3_C2 & UART3_S1) {                                   // if transmit interrupt type enabled
+            #if defined irq_UART2_3_ID                                   // when UARTs 2 and 3 share an interrupt
+                if (fnGenInt(irq_UART2_3_ID) != 0) {                     // if UART2/3 interrupt is not disabled
+                    VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
+                    ptrVect->processor_interrupts.irq_UART2_3();         // call the interrupt handler
+                }
+            #else
                 if (fnGenInt(irq_UART3_ID) != 0) {                       // if UART3 interrupt is not disabled
                     VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
                     ptrVect->processor_interrupts.irq_UART3();           // call the interrupt handler
                 }
+            #endif
             }
         }
         break;
@@ -5240,8 +7593,24 @@ static void fnUART_Tx_int(int iChannel)
     }
     #endif
 }
+#endif
 
-
+#if defined USB_INTERFACE && defined USB_HS_INTERFACE
+static void fnHandleHSUSB_Interrupts(void)
+{
+    if ((iInts & USBHS_INT) != 0) {
+        int iEndPoint = 0;
+        iInts &= ~USBHS_INT;
+        while ((iEndPoint < ENDPOINTS_TO_CHECK) && (ulHSEndpointInt != 0)) {
+            if (ulHSEndpointInt & (1 << iEndPoint)) {
+                ulHSEndpointInt &= ~(1 << iEndPoint);
+                fnCheckUSBOut(0, 0, iEndPoint);
+            }
+            iEndPoint++;
+        }
+    }
+}
+#endif
 
 // Process simulated interrupts
 //
@@ -5430,12 +7799,21 @@ extern unsigned long fnSimInts(char *argv[])
             else {
 		        iInts &= ~I2C_INT0;                                      // interrupt has been handled
 		        iInts &= ~I2C_INT0;
+    #if I2C_AVAILABLE > 0
                 if ((I2C0_C1 & I2C_IEN) != 0) {                          // if I2C interrupt enabled
                     if (fnGenInt(irq_I2C0_ID) != 0) {                    // if I2C interrupt is not disabled
                         VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
                         ptrVect->processor_interrupts.irq_I2C0();        // call the interrupt handler
                     }
                 }
+    #elif LPI2C_AVAILABLE > 0
+                if (((LPI2C0_MIER & LPI2C0_MSR) & (LPI2C_MIER_TDIE | LPI2C_MIER_RDIE | LPI2C_MIER_EPIE | LPI2C_MIER_SDIE | LPI2C_MIER_NDIE | LPI2C_MIER_ALIE | LPI2C_MIER_FEIE | LPI2C_MIER_PLTIE | LPI2C_MIER_DMIE)) != 0) { // if an enabled interrupt source is active
+                    if (fnGenInt(irq_LPI2C0_ID) != 0) {
+                        VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
+                        ptrVect->processor_interrupts.irq_LPI2C0();      // call the interrupt handler
+                    }
+                }
+    #endif
             }
         }
 	}
@@ -5450,17 +7828,34 @@ extern unsigned long fnSimInts(char *argv[])
             }
             else {
 		        iInts &= ~I2C_INT1;                                      // interrupt has been handled
+    #if I2C_AVAILABLE > 1
                 if ((I2C1_C1 & I2C_IEN) != 0) {                          // if I2C interrupt enabled
-                    if (fnGenInt(irq_I2C1_ID) != 0) {                    // if I2C interrupt is not disabled
+        #if !defined irq_I2C1_ID && defined INTMUX0_AVAILABLE
+                    if (fnGenInt(irq_INTMUX0_0_ID + INTMUX_I2C1) != 0)
+        #else
+                    if (fnGenInt(irq_I2C1_ID) != 0)                      // if I2C interrupt is not disabled
+        #endif
+                    {
                         VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
+        #if !defined irq_I2C1_ID && defined INTMUX0_AVAILABLE
+                        fnCallINTMUX(INTMUX_I2C1, INTMUX0_PERIPHERAL_I2C1, (unsigned char *)&ptrVect->processor_interrupts.irq_I2C1);
+        #else
                         ptrVect->processor_interrupts.irq_I2C1();       // call the interrupt handler
+        #endif
                     }
                 }
+    #elif LPI2C_AVAILABLE > 1
+                if (((LPI2C1_MIER & LPI2C1_MSR) & (LPI2C_MIER_TDIE | LPI2C_MIER_RDIE | LPI2C_MIER_EPIE | LPI2C_MIER_SDIE | LPI2C_MIER_NDIE | LPI2C_MIER_ALIE | LPI2C_MIER_FEIE | LPI2C_MIER_PLTIE | LPI2C_MIER_DMIE)) != 0) { // if an enabled interrupt source is active
+                    if (fnGenInt(irq_LPI2C1_ID) != 0) {
+                        VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
+                        ptrVect->processor_interrupts.irq_LPI2C1();      // call the interrupt handler
+                    }
+                }
+    #endif
             }
         }
 	}
 #endif
-
 #if NUMBER_I2C > 2
     if (((iInts & I2C_INT2) != 0) && (argv != 0)) {
         ptrCnt = (int *)argv[THROUGHPUT_I2C2];
@@ -5470,17 +7865,39 @@ extern unsigned long fnSimInts(char *argv[])
             }
             else {
 		        iInts &= ~I2C_INT2;                                      // interrupt has been handled
+    #if I2C_AVAILABLE > 2
                 if ((I2C2_C1 & I2C_IEN) != 0) {                          // if I2C interrupt enabled
-                    if (fnGenInt(irq_I2C2_ID) != 0) {                    // if I2C interrupt is not disabled
+        #if !defined irq_I2C2_ID
+                    if (fnGenInt(irq_INTMUX0_0_ID + INTMUX_I2C2) != 0)
+        #else
+                    if (fnGenInt(irq_I2C2_ID) != 0)
+        #endif
+                    {                                                    // if I2C interrupt is not disabled
                         VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
-                        ptrVect->processor_interrupts.irq_I2C2();       // call the interrupt handler
+        #if !defined irq_I2C2_ID
+                        fnCallINTMUX(INTMUX_I2C2, INTMUX0_PERIPHERAL_I2C2, (unsigned char *)&ptrVect->processor_interrupts.irq_LPI2C2);
+        #else
+                        ptrVect->processor_interrupts.irq_I2C2();        // call the interrupt handler
+        #endif
                     }
                 }
+    #elif LPI2C_AVAILABLE > 2
+                if (((LPI2C2_MIER & LPI2C2_MSR) & (LPI2C_MIER_TDIE | LPI2C_MIER_RDIE | LPI2C_MIER_EPIE | LPI2C_MIER_SDIE | LPI2C_MIER_NDIE | LPI2C_MIER_ALIE | LPI2C_MIER_FEIE | LPI2C_MIER_PLTIE | LPI2C_MIER_DMIE)) != 0) { // if an enabled interrupt source is active
+        #if !defined irq_LPI2C2_ID
+                    if (fnGenInt(irq_INTMUX0_0_ID + INTMUX_LPI2C2) != 0)
+        #else
+                    if (fnGenInt(irq_LPI2C2_ID) != 0)
+        #endif
+                    {
+                        VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
+                        ptrVect->processor_interrupts.irq_LPI2C2();      // call the interrupt handler
+                    }
+                }
+    #endif
             }
         }
 	}
 #endif
-
 #if NUMBER_I2C > 3
     if (((iInts & I2C_INT3) != 0) && (argv != 0)) {
         ptrCnt = (int *)argv[THROUGHPUT_I2C3];
@@ -5500,29 +7917,80 @@ extern unsigned long fnSimInts(char *argv[])
         }
 	}
 #endif
-#if defined USB_INTERFACE
-    #if defined USB_HS_INTERFACE                                         // {12}
-    if ((iInts & USBHS_INT) != 0) {
-        int iEndpoint = 0;
-        iInts &= ~USBHS_INT;
-        while ((iEndpoint < NUMBER_OF_USBHS_ENDPOINTS) && (ulHSEndpointInt != 0)) {
-            if (ulHSEndpointInt & (1 << iEndpoint)) {
-                ulHSEndpointInt &= ~(1 << iEndpoint);
-                fnCheckUSBOut(0, iEndpoint);
+#if defined SPI_INTERFACE
+    if ((iInts & CHANNEL_0_SPI_INT) != 0) {
+        iInts &= ~CHANNEL_0_SPI_INT;                                     // interrupt has been handled
+    #if defined DSPI_SPI
+        SPI0_SR |= SPI_SR_TFFF;
+        if ((SPI0_RSER & SPI_SRER_TFFF_RE) != 0) {                       // if transmitter fifo not full interrupt enabled
+            if (fnGenInt(irq_SPI0_ID) != 0) {                            // if SPI0 interrupt is not disabled
+                VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
+                ptrVect->processor_interrupts.irq_SPI0();                // call the interrupt handler
             }
-            iEndpoint++;
+        }
+    #else
+        _EXCEPTION("To do..");
+    #endif
+    }
+    #if SPI_AVAILABLE > 1
+    if ((iInts & CHANNEL_1_SPI_INT) != 0) {
+        iInts &= ~CHANNEL_1_SPI_INT;                                     // interrupt has been handled
+        #if defined DSPI_SPI
+        SPI1_SR |= SPI_SR_TFFF;
+        if ((SPI1_RSER & SPI_SRER_TFFF_RE) != 0)
+        #elif defined LPSPI_SPI
+        if (0)
+        #else
+        SPI1_S |= (SPI_S_SPTEF | SPI_S_SPRF);                            // set tranmitter empty and receiver not empty flags
+        if ((SPI1_C1 & (SPI_C1_SPTIE | SPI_C1_SPIE)) != 0)               // if either of the interrupt sources are enabled
+        #endif
+        {                                                                // if transmitter fifo not full interrupt enabled
+            #if !defined irq_SPI1_ID && defined INTMUX0_AVAILABLE
+            if (fnGenInt(irq_INTMUX0_0_ID + INTMUX_SPI1) != 0)
+            #else
+            if (fnGenInt(irq_SPI1_ID) != 0)                              // if SPI1 interrupt is not disabled
+            #endif
+            {
+                VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
+            #if !defined irq_SPI1_ID && defined INTMUX0_AVAILABLE
+                fnCallINTMUX(INTMUX_SPI1, INTMUX0_PERIPHERAL_SPI1, (unsigned char *)&ptrVect->processor_interrupts.irq_SPI1);
+            #else
+                ptrVect->processor_interrupts.irq_SPI1();                // call the interrupt handler
+            #endif
+            }
         }
     }
     #endif
-    if (((iInts & USB_INT) & ~iMasks) != 0) {                            // full-speed USB
-        int iEndpoint = 0;
-        iInts &= ~USB_INT;
-        while ((iEndpoint < NUMBER_OF_USB_ENDPOINTS) && (ulEndpointInt != 0)) {
-            if (ulEndpointInt & (1 << iEndpoint)) {
-                ulEndpointInt &= ~(1 << iEndpoint);
-                fnCheckUSBOut(0, iEndpoint);
+    #if SPI_AVAILABLE > 2
+    if ((iInts & CHANNEL_2_SPI_INT) != 0) {
+        iInts &= ~CHANNEL_2_SPI_INT;                                     // interrupt has been handled
+        #if defined DSPI_SPI
+        SPI2_SR |= SPI_SR_TFFF;
+        if ((SPI2_RSER & SPI_SRER_TFFF_RE) != 0) {                       // if transmitter fifo not full interrupt enabled
+            if (fnGenInt(irq_SPI2_ID) != 0) {                            // if SPI2 interrupt is not disabled
+                VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
+                ptrVect->processor_interrupts.irq_SPI2();                // call the interrupt handler
             }
-            iEndpoint++;
+        }
+        #else
+        _EXCEPTION("To do..");
+        #endif
+    }
+    #endif
+#endif
+#if defined USB_INTERFACE
+    #if defined USB_HS_INTERFACE                                         // {12}
+    fnHandleHSUSB_Interrupts();
+    #endif
+    if (((iInts & USB_INT) & ~iMasks) != 0) {                            // full-speed USB
+        int iEndPoint = 0;
+        iInts &= ~USB_INT;
+        while ((iEndPoint < NUMBER_OF_USB_ENDPOINTS) && (ulEndpointInt != 0)) {
+            if (ulEndpointInt & (1 << iEndPoint)) {
+                ulEndpointInt &= ~(1 << iEndPoint);
+                fnCheckUSBOut(0, 0, iEndPoint);
+            }
+            iEndPoint++;
         }
     }
 #endif
@@ -5531,76 +7999,244 @@ extern unsigned long fnSimInts(char *argv[])
 
 #if defined USB_INTERFACE
 
+#if defined HS_USB_AVAILABLE && defined USB_HOST_SUPPORT
+static int fnGetPeriodicListLength(unsigned long ulUSBCMC)               // {53}
+{
+    int iPeriodListLength = 0;
+    switch (ulUSBCMC & (USBHS_USBCMD_FS_128 | USBHS_USBCMD_FS2)) {
+    case USBHS_USBCMD_FS_8:
+        iPeriodListLength = 8;
+        break;
+    case USBHS_USBCMD_FS_16:
+        iPeriodListLength = 16;
+        break;
+    case USBHS_USBCMD_FS_32:
+        iPeriodListLength = 32;
+        break;
+    case USBHS_USBCMD_FS_64:
+        iPeriodListLength = 64;
+        break;
+    case USBHS_USBCMD_FS_128:
+        iPeriodListLength = 128;
+        break;
+    case USBHS_USBCMD_FS_256:
+        iPeriodListLength = 256;
+        break;
+    case USBHS_USBCMD_FS_512:
+        iPeriodListLength = 512;
+        break;
+    case USBHS_USBCMD_FS_1024:
+        iPeriodListLength = 1024;
+        break;
+    }
+    return iPeriodListLength;
+}
+
+static KINETIS_USBHS_HOST_ENDPOINT_QUEUE_HEADER *fnGetPeriodicEntry(unsigned long ulFRINDEX, int iPeriodListLength)// {53}
+{
+    unsigned long *ptrList = (unsigned long *)(USBHS0_PERIODICLISTBASE + (((ulFRINDEX & 0x00003ff8) >> 1) & ((iPeriodListLength << 2) - 1))); // pointer into the periodic list
+    if ((*ptrList & HOST_QUEUE_HEAD_WORD0_T) == 0) {                     // if the list entry is valid
+        KINETIS_USBHS_HOST_ENDPOINT_QUEUE_HEADER *ptrHostHead = (KINETIS_USBHS_HOST_ENDPOINT_QUEUE_HEADER *)(*ptrList & HOST_QUEUE_HEAD_HORIZONTAL_LINK_POINTER_MASK);
+        if ((*ptrList & HOST_QUEUE_HEAD_WORD0_TYPE_FSTN) != HOST_QUEUE_HEAD_WORD0_TYPE_QH) {
+            _EXCEPTION("Queue head expected!");
+        }
+        ptrHostHead = (KINETIS_USBHS_HOST_ENDPOINT_QUEUE_HEADER *)(ptrHostHead->ulQueueheadWord0 & HOST_QUEUE_HEAD_HORIZONTAL_LINK_POINTER_MASK);
+        return ptrHostHead;
+    }
+    else {
+        return 0;
+    }
+}
+#endif
+
 #define _fnLE_add(x) (void *)x
 
 // Inject USB transactions for test purposes
 //
-extern int fnSimulateUSB(int iDevice, int iEndPoint, unsigned char ucPID, unsigned char *ptrDebugIn, unsigned short usLenEvent)
+extern int fnSimulateUSB(int iChannel, int iDevice, int iEndPoint, unsigned char ucPID, unsigned char *ptrDebugIn, unsigned short usLenEvent)
 {
 #if defined USB_HS_INTERFACE                                             // {12}
-    static unsigned char ucHSRxBank[NUMBER_OF_USB_ENDPOINTS];            // monitor the buffer to inject to
+    static unsigned char ucHSRxBank[NUMBER_OF_HSUSB_ENDPOINTS];          // monitor the buffer to inject to
 #endif
     unsigned char *ptrData;
 #if defined USB_HOST_SUPPORT
-    int iRealEndpoint = iEndPoint;
+    int iRealEndpoint;
+    int iPeriodic = 0;
+    if (iEndPoint < 0) {
+        iEndPoint = -iEndPoint;
+        iPeriodic = 1;
+    }
+    iRealEndpoint = iEndPoint;
 #endif
     KINETIS_USB_ENDPOINT_BD *ptrBDT = (KINETIS_USB_ENDPOINT_BD *)((BDT_PAGE_01 << 8) + (BDT_PAGE_02 << 16) + (BDT_PAGE_03 << 24)); // address of buffer descriptors in RAM
 #if defined USB_HS_INTERFACE                                             // {12}
-    if (USBHS_USBCMD & USBHS_USBCMD_RS) {                                // if the high speed USB controller is in the running state
+    #if defined USB_FS_INTERFACE                                         // when FS and HS interfaces are supported at the same time
+    if ((iChannel > 0) && ((USBHS0_USBCMD & USBHS_USBCMD_RS) != 0))
+    #else
+    iChannel = 0;
+    if ((USBHS0_USBCMD & USBHS_USBCMD_RS) != 0)                          // if the high speed USB controller is in the running state
+    #endif
+    {
         if (ptrDebugIn == 0) {                                           // bus state changes
-            USBHS_USBSTS = 0;
-            if (usLenEvent & USB_RESET_CMD) {
-                USBHS_USBSTS |= (USBHS_USBINTR_URE);                     // set USB reset interrupt flag
-                USBHS_PORTSC1 = USBHS_PORTSC1_PR;
+            USBHS0_USBSTS = 0;
+            if ((usLenEvent & USB_RESET_CMD) != 0) {
+                USBHS0_USBSTS |= (USBHS_USBINTR_URE);                    // set USB reset interrupt flag
+                USBHS0_PORTSC1 = (USBHS_PORTSC1_PR | USBHS_PORTSC1_CSC);
+                USBHS0_USBSTS |= USBHS_USBINTR_PCE;
                 memset(ucHSRxBank,   0, sizeof(ucHSRxBank));             // default is even bank
                 memset(ucHSTxBuffer, 0, sizeof(ucHSTxBuffer));           // default is even buffer
             }
-            if (usLenEvent & USB_SLEEP_CMD) {
-                USBHS_PORTSC1 |= USBHS_PORTSC1_SUSP;
-                USBHS_USBSTS |= USBHS_USBINTR_SLE;
+            if ((usLenEvent & USB_SLEEP_CMD) != 0) {
+                USBHS0_PORTSC1 |= USBHS_PORTSC1_SUSP;
+                USBHS0_USBSTS |= USBHS_USBINTR_SLE;
             }
-            if (usLenEvent & USB_RESUME_CMD) {
-                USBHS_PORTSC1 &= ~USBHS_PORTSC1_SUSP;
-                USBHS_USBSTS |= USBHS_USBINTR_PCE;
+            if ((usLenEvent & USB_RESUME_CMD) != 0) {
+                USBHS0_PORTSC1 &= ~USBHS_PORTSC1_SUSP;
+                USBHS0_USBSTS |= USBHS_USBINTR_PCE;
             }
-            if (usLenEvent & USB_IN_SUCCESS) {
-                USBHS_EPCOMPLETE |= (USBHS_EPCOMPLETE_ETCE0 << iEndPoint); // transmission complete
-                USBHS_USBSTS |= USBHS_USBINTR_UE;                        // transfer complete status
-            }
-        }
-        else {
-            KINETIS_USBHS_ENDPOINT_QUEUE_HEADER *ptrQueueHeader = (KINETIS_USBHS_ENDPOINT_QUEUE_HEADER *)USBHS_EPLISTADDR + (2 * iEndPoint); // endpoint's reception queue header
-            if ((unsigned char)(USBHS_DEVICEADDR >> USBHS_DEVICEADDR_USBADR_SHIFT) != (unsigned char)iDevice) { // not our device address so ignore
-                if (iDevice != 0xff) {                                   // special broadcast for simulator use so that it doesn't have to know the USB address
-                    return 1;
-                }
-            }
-            USBHS_USBSTS |= USBHS_USBINTR_UE;                            // transfer complete status
-
-            switch (ucPID) {
-            case SETUP_PID:
-                uMemcpy(ptrQueueHeader->ucSetupBuffer, ptrDebugIn, usLenEvent); // setup data content (always 8 bytes in length) is stored directly in the queue header
-                USBHS_EPSETUPSR |= (USBHS_EPSETUPSR_SETUP0 << iEndPoint); // setup complete
-                break;
-            case OUT_PID:                                                // this presently generates an end of reception on each packet received - the USBHS controller does it only on complete data reception
-                if (ptrQueueHeader->CurrentdTD_pointer != 0) {
-                    if (ptrQueueHeader->CurrentdTD_pointer->ul_dtToken & ENDPOINT_QUEUE_HEADER_TOKEN_STATUS_ACTIVE) { // transfer buffer enabled for reception
-                        if (ptrQueueHeader->CurrentdTD_pointer->ul_dtToken & ENDPOINT_QUEUE_HEADER_TOKEN_IOC) { // if an interrupt is to be generated on completion
-                            USBHS_EPCOMPLETE |= (USBHS_EPCOMPLETE_ERCE0 << iEndPoint); // reception complete
+            if ((usLenEvent & USB_IN_SUCCESS) != 0) {
+    #if defined USB_HOST_SUPPORT
+                KINETIS_USBHS *ptrHS_USB = (KINETIS_USBHS *)USBHS_BASE_ADD; // HS USB controller
+                if ((ptrHS_USB->USBMODE & USBHS_USBMODE_CM_HOST_FLAG) != 0) {
+                    KINETIS_USBHS_HOST_ENDPOINT_QUEUE_HEADER *ptrHostQueueHeader = (KINETIS_USBHS_HOST_ENDPOINT_QUEUE_HEADER *)ptrHS_USB->ASYNCLISTADDR_EPLISTADDR;
+                    ptrHostQueueHeader = (KINETIS_USBHS_HOST_ENDPOINT_QUEUE_HEADER *)(ptrHostQueueHeader->ulQueueheadWord0 & HOST_QUEUE_HEAD_HORIZONTAL_LINK_POINTER_MASK);
+                    if (((unsigned long)(ptrHostQueueHeader->ptrCurrent_qTD) & HOST_OVERLAY_TERMINATE) == 0) { // if valid
+                        USB_HS_HOST_TRANSFER_OVERLAY *ptr_qTD = (USB_HS_HOST_TRANSFER_OVERLAY *)((unsigned long)(ptrHostQueueHeader->ptrCurrent_qTD) & HOST_QUEUE_HEAD_HORIZONTAL_LINK_POINTER_MASK);
+                        unsigned char ucType = (ptrHostQueueHeader->ulQueueheadWord0 & HOST_QUEUE_HEAD_WORD0_TYPE_FSTN);
+                        switch (ucType) {
+                        case HOST_QUEUE_HEAD_WORD0_TYPE_iTD:             // item type - isochronous transfer descriptor
+                        case HOST_QUEUE_HEAD_WORD0_TYPE_QsiTD:           // item type - split transaction isochronous transfer descriptor
+                        case HOST_QUEUE_HEAD_WORD0_TYPE_FSTN:            // item type - frame span traversal node
+                            _EXCEPTION("TO DO");
+                            break;
+                        case HOST_QUEUE_HEAD_WORD0_TYPE_QH:              // item type - queue head
+                            if ((ptr_qTD->ulControl & HOST_OVERLAY_CONTROL_IOC) == 0) { // if interrupt not enabled
+                                return 0;
+                            }
+                            ptrHS_USB->USBSTS |= USBHS_USBSTS_UI;        // transfer complete status
+                            break;
                         }
-                        uMemcpy((void *)ptrQueueHeader->CurrentdTD_pointer->ulBufferPointerPage[0], ptrDebugIn, usLenEvent); // copy data
-                        ptrQueueHeader->CurrentdTD_pointer->ul_dtToken -= (usLenEvent << ENDPOINT_QUEUE_HEADER_TOKEN_TOTAL_BYTES_SHIFT);
-                        ptrQueueHeader->CurrentdTD_pointer->ul_dtToken &= ~(ENDPOINT_QUEUE_HEADER_TOKEN_STATUS_MASK);
                     }
                 }
-                break;
+                else {
+    #endif
+                    USBHS0_EPCOMPLETE |= (USBHS_EPCOMPLETE_ETCE0 << iEndPoint); // transmission complete
+                    USBHS0_USBSTS |= USBHS_USBINTR_UE;                   // transfer complete status
+    #if defined USB_HOST_SUPPORT
+                }
+    #endif
             }
+    #if defined USB_HOST_SUPPORT
+            if ((USB_HIGHSPEED_ATTACH_CMD & usLenEvent) != 0) {
+                USBHS0_PORTSC1 |= (USBHS_PORTSC1_PSPD_HS);
+                if ((USBHS0_PORTSC1 & USBHS_PORTSC1_CSC) == 0) {         // if not connected
+                    USBHS0_PORTSC1 |= (USBHS_PORTSC1_CCS | USBHS_PORTSC1_CSC); // change connection status to connectd
+                }
+                USBHS0_USBSTS |= USBHS_USBINTR_PCE;
+            }
+            else if ((USB_FULLSPEED_ATTACH_CMD & usLenEvent) != 0) {
+                USBHS0_PORTSC1 &= ~(USBHS_PORTSC1_PSPD_HS);
+                USBHS0_PORTSC1 |= (USBHS_PORTSC1_PSPD_FS);
+                if ((USBHS0_PORTSC1 & USBHS_PORTSC1_CSC) == 0) {         // if not connected
+                    USBHS0_PORTSC1 |= (USBHS_PORTSC1_CCS | USBHS_PORTSC1_CSC); // change connection status to connectd
+                }
+                USBHS0_USBSTS |= USBHS_USBINTR_PCE;
+            }
+            else if ((USB_LOWSPEED_ATTACH_CMD & usLenEvent) != 0) {
+                USBHS0_PORTSC1 &= ~(USBHS_PORTSC1_PSPD_HS);
+                USBHS0_PORTSC1 |= (USBHS_PORTSC1_PSPD_LS);
+                if ((USBHS0_PORTSC1 & USBHS_PORTSC1_CSC) == 0) {          // if not connected
+                    USBHS0_PORTSC1 |= (USBHS_PORTSC1_CCS | USBHS_PORTSC1_CSC); // change connection status to connectd
+                }
+                USBHS0_USBSTS |= USBHS_USBINTR_PCE;
+            }
+    #endif
+        }
+        else {
+#if defined USB_HOST_SUPPORT
+            KINETIS_USBHS *ptrHS_USB = (KINETIS_USBHS *)USBHS_BASE_ADD;  // HS USB controller
+            if ((ptrHS_USB->USBMODE & USBHS_USBMODE_CM_HOST_FLAG) != 0) {// if in host mode
+                KINETIS_USBHS_HOST_ENDPOINT_QUEUE_HEADER *ptrHostQueueHeader;
+                if (iPeriodic != 0) {                                    // {53} use periodic schedule
+                    ptrHostQueueHeader = fnGetPeriodicEntry(ptrHS_USB->FRINDEX, fnGetPeriodicListLength(ptrHS_USB->USBCMD));
+                    ptrHostQueueHeader->ptrCurrent_qTD = ptrHostQueueHeader->host_transfer_overlay.ptrNext_qTD;
+                }
+                else {
+                    ptrHostQueueHeader = (KINETIS_USBHS_HOST_ENDPOINT_QUEUE_HEADER *)ptrHS_USB->ASYNCLISTADDR_EPLISTADDR;
+                    ptrHostQueueHeader = (KINETIS_USBHS_HOST_ENDPOINT_QUEUE_HEADER *)(ptrHostQueueHeader->ulQueueheadWord0 & HOST_QUEUE_HEAD_HORIZONTAL_LINK_POINTER_MASK);
+                    ptrHostQueueHeader += iEndPoint;
+                }
+                if (((unsigned long)(ptrHostQueueHeader->ptrCurrent_qTD) & HOST_OVERLAY_TERMINATE) == 0) { // if valid
+                    USB_HS_HOST_TRANSFER_OVERLAY *ptr_qTD = (USB_HS_HOST_TRANSFER_OVERLAY *)((unsigned long)(ptrHostQueueHeader->ptrCurrent_qTD) & HOST_QUEUE_HEAD_HORIZONTAL_LINK_POINTER_MASK);
+                    unsigned char ucType = (ptrHostQueueHeader->ulQueueheadWord0 & HOST_QUEUE_HEAD_WORD0_TYPE_FSTN);
+                    switch (ucType) {
+                    case HOST_QUEUE_HEAD_WORD0_TYPE_iTD:             // item type - isochronous transfer descriptor
+                    case HOST_QUEUE_HEAD_WORD0_TYPE_QsiTD:           // item type - split transaction isochronous transfer descriptor
+                    case HOST_QUEUE_HEAD_WORD0_TYPE_FSTN:            // item type - frame span traversal node
+                        _EXCEPTION("TO DO");
+                        break;
+                    case HOST_QUEUE_HEAD_WORD0_TYPE_QH:              // item type - queue head
+                        if ((ptr_qTD->ulControl & HOST_OVERLAY_CONTROL_IOC) == 0) { // if interrupt not enabled
+                            return 0;
+                        }
+                        if (ucPID == STALL_PID) {                    // if a stall is to be sent
+                            ptr_qTD->ulControl &= ~(HOST_OVERLAY_CONTROL_STATUS_ACTIVE);
+                            ptr_qTD->ulControl |= HOST_OVERLAY_CONTROL_STATUS_HALTED;
+                            ptrHS_USB->USBSTS |= USBHS_USBINTR_UEE;
+                        }
+                        else {
+                            memcpy((unsigned char *)ptr_qTD->ulBufferPointerPage[0], ptrDebugIn, usLenEvent);
+                            ptr_qTD->ulControl &= ~(HOST_OVERLAY_CONTROL_TOTAL_BYTES_MASK | HOST_OVERLAY_CONTROL_STATUS_ACTIVE);
+                            ptr_qTD->ulControl |= ((((ptrHostQueueHeader->ulHostCharacteristics & HOST_CHARACTERISTICS_MAX_PACKET_LENGTH_MASK) >> HOST_CHARACTERISTICS_MAX_PACKET_LENGTH_SHIFT) - usLenEvent) << HOST_OVERLAY_CONTROL_TOTAL_BYTES__SHIFT);
+                            ptr_qTD->ulControl &= ~(HOST_OVERLAY_CONTROL_DT);
+                            ptr_qTD->ulBufferPointerPage[0] += usLenEvent;
+                            ptrHostQueueHeader->host_transfer_overlay.ulBufferPointerPage[0] += usLenEvent;
+                            ptrHostQueueHeader->host_transfer_overlay.ulBufferPointerPage[1] += 0x10;
+                        }
+                        ptrHostQueueHeader->host_transfer_overlay.ulControl = ptr_qTD->ulControl;
+                        ptrHS_USB->USBSTS |= USBHS_USBSTS_UI;
+                        break;
+                    }
+                }
+            }
+            else {
+#endif
+                KINETIS_USBHS_ENDPOINT_QUEUE_HEADER *ptrQueueHeader = (KINETIS_USBHS_ENDPOINT_QUEUE_HEADER *)USBHS0_EPLISTADDR + (2 * iEndPoint); // endpoint's reception queue header
+                if ((unsigned char)(USBHS0_DEVICEADDR >> USBHS_DEVICEADDR_USBADR_SHIFT) != (unsigned char)iDevice) { // not our device address so ignore
+                    if (iDevice != 0xff) {                               // special broadcast for simulator use so that it doesn't have to know the USB address
+                        return 1;
+                    }
+                }
+                USBHS0_USBSTS |= USBHS_USBINTR_UE;                       // transfer complete status
+
+                switch (ucPID) {
+                case SETUP_PID:
+                    memcpy(ptrQueueHeader->ucSetupBuffer, ptrDebugIn, usLenEvent); // setup data content (always 8 bytes in length) is stored directly in the queue header
+                    USBHS0_EPSETUPSR |= (USBHS_EPSETUPSR_SETUP0 << iEndPoint); // setup complete
+                    break;
+                case OUT_PID:                                            // this presently generates an end of reception on each packet received - the USBHS controller does it only on complete data reception
+                    if (ptrQueueHeader->CurrentdTD_pointer != 0) {
+                        if ((ptrQueueHeader->CurrentdTD_pointer->ul_dtToken & ENDPOINT_QUEUE_HEADER_TOKEN_STATUS_ACTIVE) != 0) { // transfer buffer enabled for reception
+                            if ((ptrQueueHeader->CurrentdTD_pointer->ul_dtToken & ENDPOINT_QUEUE_HEADER_TOKEN_IOC) != 0) { // if an interrupt is to be generated on completion
+                                USBHS0_EPCOMPLETE |= (USBHS_EPCOMPLETE_ERCE0 << iEndPoint); // reception complete
+                            }
+                            memcpy((void *)ptrQueueHeader->CurrentdTD_pointer->ulBufferPointerPage[0], ptrDebugIn, usLenEvent); // copy data
+                            ptrQueueHeader->CurrentdTD_pointer->ul_dtToken -= (usLenEvent << ENDPOINT_QUEUE_HEADER_TOKEN_TOTAL_BYTES_SHIFT);
+                            ptrQueueHeader->CurrentdTD_pointer->ul_dtToken &= ~(ENDPOINT_QUEUE_HEADER_TOKEN_STATUS_MASK);
+                        }
+                    }
+                    break;
+                }
+    #if defined USB_HOST_SUPPORT
+            }
+    #endif
             ucRxBank[iEndPoint] ^= ODD_BANK;                             // the next one to be used - toggle mechanism
         }
         if (fnGenInt(irq_USB_HS_ID) != 0) {                              // if USB HS interrupt is not disabled
             VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
             ptrVect->processor_interrupts.irq_USB_HS();                  // call the interrupt handler
-        } 
+        }
+        return 0;
     }
 #endif
 #if defined USB_HOST_SUPPORT                                             // {25}
@@ -5620,6 +8256,12 @@ extern int fnSimulateUSB(int iDevice, int iEndPoint, unsigned char ucPID, unsign
     if (ptrDebugIn == 0) {                                               // bus state changes
         INT_STAT = 0;
         if ((usLenEvent & USB_RESET_CMD) != 0) {
+#if defined USB_HOST_SUPPORT
+            if ((CTL & HOST_MODE_EN) != 0) {                             // in host mode
+                fnChangeUSBState(0, iChannel);
+                CTL &= ~TXSUSPEND_TOKENBUSY;
+            }
+#endif
             INT_STAT |= USB_RST;
             memset(ucRxBank,   0, sizeof(ucRxBank));                     // default is even bank
             memset(ucTxBuffer, 0, sizeof(ucTxBuffer));                   // default is even buffer
@@ -5674,9 +8316,9 @@ extern int fnSimulateUSB(int iDevice, int iEndPoint, unsigned char ucPID, unsign
             }
     #if defined USB_HOST_SUPPORT
             if ((CTL & HOST_MODE_EN) != 0) {
-                if (ptrBDT->usb_bd_rx_even.ulUSB_BDControl & DTS) {      // if data toggle synchronisation is being used
+                if ((ptrBDT->usb_bd_rx_even.ulUSB_BDControl & DTS) != 0) { // if data toggle synchronisation is being used
                     if (((ptrBDT->usb_bd_rx_even.ulUSB_BDControl & DATA_1) == 0) == iData1Frame[iRealEndpoint]) { // check that the receive buffer accepts this data token
-                        _EXCEPTION("Wrong Rx buffer!!");
+                        _EXCEPTION("Wrong Rx buffer!!");                 // note that this can happen when USB device simulation is started with a host configuration / in this case use the "Attach .. device" command and not "Enumeration"
                     }
                 }
             }
@@ -5756,35 +8398,71 @@ extern int fnSimulateUSB(int iDevice, int iEndPoint, unsigned char ucPID, unsign
 
 // Handle data sent by USB
 //
-extern void fnSimUSB(int iType, int iEndpoint, USB_HW *ptrUSB_HW)
+extern void fnSimUSB(int iChannel, int iType, int iEndPoint, USB_HW *ptrUSB_HW)
 {
-    extern void fnChangeUSBState(int iNewState);
     switch (iType) {
     case USB_SIM_RESET:
         {
             int x;
-            fnChangeUSBState(0);
+            fnChangeUSBState(0, iChannel);
             for (x = 0; x < NUMBER_OF_USB_ENDPOINTS; x++) {
                 fnLogUSB(x, 0, 0, (unsigned char *)0xffffffff, 0);       // log reset on each endpoint
             }
         }
         break;
     case USB_SIM_SOF:
-        if ((CTL & HOST_MODE_EN) && (INT_ENB & SOF_TOK_EN)) {            // if host mode and SOF enabled
-            iInts |= USB_INT;;
+        if (((CTL & HOST_MODE_EN) != 0) && ((INT_ENB & SOF_TOK_EN) != 0)) { // if host mode and SOF enabled
+            iInts |= USB_INT;
             ulEndpointInt = 1;                                           // flag endpoint - always endpoint 0 used
         }
         break;
+#if defined USB_HS_INTERFACE
+    case USB_SIM_WAIT:
+        fnHandleHSUSB_Interrupts();
+        break;
+#endif
     case USB_SIM_TX:                                                     // a frame transmission has just been started
 #if defined USB_HS_INTERFACE                                             // {12}
         if (ptrUSB_HW->ucDeviceType == USB_DEVICE_HS) {
-            KINETIS_USBHS_ENDPOINT_QUEUE_HEADER *ptrQueueHeader = (KINETIS_USBHS_ENDPOINT_QUEUE_HEADER *)USBHS_EPLISTADDR;
-            ptrQueueHeader += ((2 * iEndpoint) + 1);                     // move to the transmitter queue header
+    #if defined USB_HOST_SUPPORT
+            KINETIS_USBHS *ptrHS_USB = (KINETIS_USBHS *)USBHS_BASE_ADD; // HS USB controller
+            if ((ptrHS_USB->USBMODE & USBHS_USBMODE_CM_HOST_FLAG) != 0) { // if the HS USB controller is operating in host mode
+                KINETIS_USBHS_HOST_ENDPOINT_QUEUE_HEADER *ptrHostQueueHeader = (KINETIS_USBHS_HOST_ENDPOINT_QUEUE_HEADER *)ptrHS_USB->ASYNCLISTADDR_EPLISTADDR;
+                ptrHostQueueHeader = (KINETIS_USBHS_HOST_ENDPOINT_QUEUE_HEADER *)(ptrHostQueueHeader->ulQueueheadWord0 & HOST_QUEUE_HEAD_HORIZONTAL_LINK_POINTER_MASK);
+                ptrHostQueueHeader += iEndPoint;
+                if (((unsigned long)(ptrHostQueueHeader->ptrCurrent_qTD) & HOST_OVERLAY_TERMINATE) == 0) { // if valid
+                    USB_HS_HOST_TRANSFER_OVERLAY *ptr_qTD;
+                    unsigned char ucType;
+                    ptrHostQueueHeader->ptrCurrent_qTD = ptrHostQueueHeader->host_transfer_overlay.ptrNext_qTD;
+                    memcpy(&ptrHostQueueHeader->host_transfer_overlay, (unsigned char *)ptrHostQueueHeader->ptrCurrent_qTD, sizeof(ptrHostQueueHeader->host_transfer_overlay));
+                    ptr_qTD = (USB_HS_HOST_TRANSFER_OVERLAY *)((unsigned long)(ptrHostQueueHeader->ptrCurrent_qTD) & HOST_QUEUE_HEAD_HORIZONTAL_LINK_POINTER_MASK);
+                    ucType = (ptrHostQueueHeader->ulQueueheadWord0 & HOST_QUEUE_HEAD_WORD0_TYPE_FSTN);
+                    switch (ucType) {
+                    case HOST_QUEUE_HEAD_WORD0_TYPE_iTD:                 // item type - isochronous transfer descriptor
+                    case HOST_QUEUE_HEAD_WORD0_TYPE_QsiTD:               // item type - split transaction isochronous transfer descriptor
+                    case HOST_QUEUE_HEAD_WORD0_TYPE_FSTN:                // item type - frame span traversal node
+                        _EXCEPTION("TO DO");
+                        break;
+                    case HOST_QUEUE_HEAD_WORD0_TYPE_QH:                  // item type - queue head
+                        {
+                            if ((ptr_qTD->ulControl & HOST_OVERLAY_CONTROL_IOC) != 0) { // if interrupt on completion flag is set
+                                iInts |= USBHS_INT;                      // flag that the interrupt should be handled
+                                ulHSEndpointInt |= (1 << iEndPoint);     // flag endpoint
+                            }
+                        }
+                        break;
+                    }
+                }
+                break;
+            }
+    #endif
+            KINETIS_USBHS_ENDPOINT_QUEUE_HEADER *ptrQueueHeader = (KINETIS_USBHS_ENDPOINT_QUEUE_HEADER *)USBHS0_EPLISTADDR;
+            ptrQueueHeader += ((2 * iEndPoint) + 1);                     // move to the transmitter queue header
             if (ptrQueueHeader->CurrentdTD_pointer != 0) {
-                uMemcpy((void *)ptrQueueHeader->CurrentdTD_pointer, &ptrQueueHeader->dTD, sizeof(USB_HS_TRANSFER_OVERLAY)); // transfer the transfer block content to the overlay block
-                if (ptrQueueHeader->CurrentdTD_pointer->ul_dtToken & ENDPOINT_QUEUE_HEADER_TOKEN_IOC) { // if transfer termination should generate an interrupt
+                memcpy((void *)ptrQueueHeader->CurrentdTD_pointer, &ptrQueueHeader->dTD, sizeof(USB_HS_TRANSFER_OVERLAY)); // transfer the transfer block content to the overlay block
+                if ((ptrQueueHeader->CurrentdTD_pointer->ul_dtToken & ENDPOINT_QUEUE_HEADER_TOKEN_IOC) != 0) { // if transfer termination should generate an interrupt
                     iInts |= USBHS_INT;                                  // flag that the interrupt should be handled
-                    ulHSEndpointInt |= (1 << iEndpoint);                 // flag endpoint
+                    ulHSEndpointInt |= (1 << iEndPoint);                 // flag endpoint
                 }
             }
             break;
@@ -5795,16 +8473,16 @@ extern void fnSimUSB(int iType, int iEndpoint, USB_HW *ptrUSB_HW)
             return;
         }
         iInts |= USB_INT;                                                // flag that the interrupt should be handled
-        ulEndpointInt |= (1 << iEndpoint);                               // flag endpoint
+        ulEndpointInt |= (1 << iEndPoint);                               // flag endpoint
         break;
     case USB_SIM_ENUMERATED:                                             // flag that we have completed enumeration
-        fnChangeUSBState(1);
+        fnChangeUSBState(1, iChannel);
         break;
     case USB_SIM_STALL:
-        fnLogUSB(iEndpoint, 0, 1, (unsigned char *)0xffffffff, 0);       // log stall
+        fnLogUSB(iEndPoint, 0, 1, (unsigned char *)0xffffffff, 0);       // log stall
         break;
     case USB_SIM_SUSPEND:
-        fnChangeUSBState(0);
+        fnChangeUSBState(0, iChannel);
         break;
     }
 }
@@ -5819,7 +8497,7 @@ static int iTokenOut = 0;
 
 extern void fnAddToken(unsigned char ucToken)
 {
-    ucTokenQueue[iTokenIn++] = ucToken;
+    ucTokenQueue[iTokenIn++] = ucToken;                                  // enter the token that determines the host transfer behaviour
     if (iTokenIn >= MAX_TOKENS) {
         iTokenIn = 0;
     }
@@ -5845,13 +8523,13 @@ static unsigned char ucGetToken(int iNoIN)
 
 #if defined USB_MSD_HOST
 #define MEMORY_STICK_USES_SHARED_ENDPOINTS
-#define DEVICE_ENPOINT0_LENGTH   64
+#define DEVICE_ENDPOINT0_LENGTH   64
 static const unsigned char ucDeviceDescriptor[] = {                      // constant device descriptor (example of memory stick)
     0x12,
     0x01,
     0x00, 0x02,
     0x00, 0x00, 0x00,
-    DEVICE_ENPOINT0_LENGTH,
+    DEVICE_ENDPOINT0_LENGTH,
     0x0d, 0x1d,
     0x13, 0x02,
     0x10, 0x01,
@@ -5909,11 +8587,11 @@ static int fnMsdModel(unsigned char *ptrUSBData, unsigned short usUSBLength)
         }
         return 1;                                                        // OUT belonging to a write has been handled
     }
-    if (uMemcmp(ptrUSBData, "USBC", 4) != 0) {
+    if (memcmp(ptrUSBData, "USBC", 4) != 0) {
         _EXCEPTION("USBC expected!");
     }
     ptrUSBData += 4;
-    uMemcpy(&ucStatusTransport[4], ptrUSBData, 4);                       // tag ID for status stage
+    memcpy(&ucStatusTransport[4], ptrUSBData, 4);                        // tag ID for status stage
     ulFrameCount = 1;                                                    // default is that the content fits in a single frame
     ucLastOpCode = ptrBlockWrapper->CBWCB[0];
     switch (ucLastOpCode) {                                              // op code
@@ -5932,7 +8610,6 @@ static int fnMsdModel(unsigned char *ptrUSBData, unsigned short usUSBLength)
             };
             memcpy(ucDataTransport, ucUFI_INQUIRY, sizeof(ucUFI_INQUIRY));
             usDataTransportLength = sizeof(ucUFI_INQUIRY);
-//iStall = 1; // test stalling
         }
         break;
     case UFI_REQUEST_SENSE:
@@ -5981,8 +8658,8 @@ static int fnMsdModel(unsigned char *ptrUSBData, unsigned short usUSBLength)
             ucPresentLUN = ptrBlockWrapper->dCBWLUN;
             if (UFI_READ_10 == ucLastOpCode) {
                 fnGetSimDiskData(ucMemoryStickSector, ucPresentLUN, ulLBA); // read the sector's content from the simulated memory stick
-                usDataTransportLength = 64;                              // endpoint assumed to be 64 bytes in length
-                memcpy(ucDataTransport, ucMemoryStickSector, usDataTransportLength); // prepare the frame to be returned
+                usDataTransportLength = 64;                              // endpoint assumed to be 64 bytes in length (HS will be 512 but the overall operation is equivalent)
+                memcpy(ucDataTransport, ucMemoryStickSector, usDataTransportLength); // prepare the frame to be returned on next IN
                 iSectorOffset = 64;
             }
             else {
@@ -5999,13 +8676,131 @@ static int fnMsdModel(unsigned char *ptrUSBData, unsigned short usUSBLength)
     return 0;
 }
 #elif defined USB_CDC_HOST
-#define DEVICE_ENPOINT0_LENGTH   8
-static const unsigned char ucDeviceDescriptor[] = {                      // constant device descriptor (example of CDC)
-    0x12, 0x01, 0x00, 0x02, 0xef, 0x02, 0x01, DEVICE_ENPOINT0_LENGTH, 0xA2, 0x15, 0x44, 0x00, 0x00, 0x01,
-    0x01, 0x02, 0x03, 0x01 
-};
+    #if defined TELIT_LE910C1
+        #define DEVICE_ENDPOINT0_LENGTH   64
+    static const unsigned char ucDeviceDescriptor[] = {                      // constant device descriptor (example of CDC)
+        #if 1                                                                // configuration 1203
+        0x12, 0x01, 0x00, 0x02, 0x00, 0x00, 0x00, 0x40, 0xC7, 0x1B, 0x03, 0x12, 0x18, 0x03,
+        0x01, 0x02, 0x03, 0x01
+       #else                                                                // configuration 1201
+        0x12, 0x01, 0x00, 0x02, 0x00, 0x00, 0x00, DEVICE_ENDPOINT0_LENGTH, 0xc7, 0x1b, 0x01, 0x12, 0x18, 0x03,
+        0x01, 0x02, 0x03, 0x01 
+        #endif
+    };
+    #elif defined USB_RNDIS_HOST
+        #define DEVICE_ENDPOINT0_LENGTH   64
+    static const unsigned char ucDeviceDescriptor[] = {                      // constant device descriptor (example of CDC-RNDIS from Android smart phone)
+        0x12, 0x01, 0x00, 0x02, 0x00, 0x00, 0x00, DEVICE_ENDPOINT0_LENGTH, 0xce, 0x0f, 0x9b, 0x71, 0x28, 0x02, 0x01, 0x02,
+        0x03, 0x01
+    };
+    #else
+        #define DEVICE_ENDPOINT0_LENGTH   8
+    static const unsigned char ucDeviceDescriptor[] = {                      // constant device descriptor (example of CDC)
+        0x12, 0x01, 0x00, 0x02, 0xef, 0x02, 0x01, DEVICE_ENDPOINT0_LENGTH, 0xA2, 0x15, 0x44, 0x00, 0x00, 0x01,
+        0x01, 0x02, 0x03, 0x01 
+    };
+    #endif
 
 static const unsigned char ucConfigDescriptor[] = {                      // constant configuration descriptor (example of CDC)
+#if defined TELIT_LE910C1
+    #if 1
+    0x09, 0x02, 0x3D, 0x01, 0x08, 0x01, 0x00, 0xA0, 0xFA, 0x08, 0x0B, 0x00, 0x02, 0x02,
+    0x06, 0x00, 0x08, 0x09, 0x04, 0x00, 0x00, 0x01, 0x02, 0x02, 0xFF, 0x06, 0x05, 0x24,
+    0x00, 0x10, 0x01, 0x05, 0x24, 0x01, 0x00, 0x01, 0x04, 0x24, 0x02, 0x00, 0x05, 0x24,
+    0x06, 0x00, 0x01, 0x07, 0x05, 0x82, 0x03, 0x08, 0x00, 0x09, 0x09, 0x04, 0x01, 0x00,
+    0x02, 0x0A, 0x00, 0x00, 0x07, 0x07, 0x05, 0x81, 0x02, 0x00, 0x02, 0x00, 0x07, 0x05,
+    0x01, 0x02, 0x00, 0x02, 0x00, 0x09, 0x04, 0x02, 0x00, 0x02, 0xFF, 0xFF, 0xFF, 0x00,
+    0x07, 0x05, 0x83, 0x02, 0x00, 0x02, 0x00, 0x07, 0x05, 0x02, 0x02, 0x00, 0x02, 0x00,
+    0x09, 0x04, 0x03, 0x00, 0x02, 0xFF, 0x42, 0x01, 0x0A, 0x07, 0x05, 0x03, 0x02, 0x00,
+    0x02, 0x00, 0x07, 0x05, 0x84, 0x02, 0x00, 0x02, 0x00, 0x09, 0x04, 0x04, 0x00, 0x03,
+    0xFF, 0x00, 0x00, 0x00, 0x05, 0x24, 0x00, 0x10, 0x01, 0x05, 0x24, 0x01, 0x00, 0x00,
+    0x04, 0x24, 0x02, 0x02, 0x05, 0x24, 0x06, 0x00, 0x00, 0x07, 0x05, 0x86, 0x03, 0x0A,
+    0x00, 0x09, 0x07, 0x05, 0x85, 0x02, 0x00, 0x02, 0x00, 0x07, 0x05, 0x04, 0x02, 0x00,
+    0x02, 0x00, 0x09, 0x04, 0x05, 0x00, 0x03, 0xFF, 0x00, 0x00, 0x00, 0x05, 0x24, 0x00,
+    0x10, 0x01, 0x05, 0x24, 0x01, 0x00, 0x00, 0x04, 0x24, 0x02, 0x02, 0x05, 0x24, 0x06,
+    0x00, 0x00, 0x07, 0x05, 0x88, 0x03, 0x0A, 0x00, 0x09, 0x07, 0x05, 0x87, 0x02, 0x00,
+    0x02, 0x00, 0x07, 0x05, 0x05, 0x02, 0x00, 0x02, 0x00, 0x09, 0x04, 0x06, 0x00, 0x03,
+    0xFF, 0x00, 0x00, 0x00, 0x05, 0x24, 0x00, 0x10, 0x01, 0x05, 0x24, 0x01, 0x00, 0x00,
+    0x04, 0x24, 0x02, 0x02, 0x05, 0x24, 0x06, 0x00, 0x00, 0x07, 0x05, 0x8A, 0x03, 0x0A,
+    0x00, 0x09, 0x07, 0x05, 0x89, 0x02, 0x00, 0x02, 0x00, 0x07, 0x05, 0x06, 0x02, 0x00,
+    0x02, 0x00, 0x09, 0x04, 0x07, 0x00, 0x03, 0xFF, 0x00, 0x00, 0x00, 0x05, 0x24, 0x00,
+    0x10, 0x01, 0x05, 0x24, 0x01, 0x00, 0x00, 0x04, 0x24, 0x02, 0x02, 0x05, 0x24, 0x06,
+    0x00, 0x00, 0x07, 0x05, 0x8C, 0x03, 0x0A, 0x00, 0x09, 0x07, 0x05, 0x8B, 0x02, 0x00,
+    0x02, 0x00, 0x07, 0x05, 0x07, 0x02, 0x00, 0x02, 0x00
+    #else
+    0x09, 0x02, 0x19, 0x01, 0x07, 0x01, 0x00, 0xA0,
+    0xFA, 0x09, 0x04, 0x00, 0x00, 0x02, 0xFF, 0xFF,
+    0xFF, 0x00, 0x07, 0x05, 0x81, 0x02, 0x00, 0x02,
+    0x00, 0x07, 0x05, 0x01, 0x02, 0x00, 0x02, 0x00,
+    0x09, 0x04, 0x01, 0x00, 0x02, 0xFF, 0x42, 0x01,
+    0x06, 0x07, 0x05, 0x02, 0x02, 0x00, 0x02, 0x00,
+    0x07, 0x05, 0x82, 0x02, 0x00, 0x02, 0x00, 0x09,
+    0x04, 0x02, 0x00, 0x03, 0xFF, 0xFF, 0xFF, 0x00,
+    0x07, 0x05, 0x84, 0x03, 0x08, 0x00, 0x09, 0x07,
+    0x05, 0x83, 0x02, 0x00, 0x02, 0x00, 0x07, 0x05,
+    0x03, 0x02, 0x00, 0x02, 0x00, 0x09, 0x04, 0x03,
+    0x00, 0x03, 0xFF, 0x00, 0x00, 0x00, 0x05, 0x24,
+    0x00, 0x10, 0x01, 0x05, 0x24, 0x01, 0x00, 0x00,
+    0x04, 0x24, 0x02, 0x02, 0x05, 0x24, 0x06, 0x00,
+    0x00, 0x07, 0x05, 0x86, 0x03, 0x0A, 0x00, 0x09,
+    0x07, 0x05, 0x85, 0x02, 0x00, 0x02, 0x00, 0x07,
+    0x05, 0x04, 0x02, 0x00, 0x02, 0x00, 0x09, 0x04,
+    0x04, 0x00, 0x03, 0xFF, 0x00, 0x00, 0x00, 0x05,
+    0x24, 0x00, 0x10, 0x01, 0x05, 0x24, 0x01, 0x00,
+    0x00, 0x04, 0x24, 0x02, 0x02, 0x05, 0x24, 0x06,
+    0x00, 0x00, 0x07, 0x05, 0x88, 0x03, 0x0A, 0x00,
+    0x09, 0x07, 0x05, 0x87, 0x02, 0x00, 0x02, 0x00,
+    0x07, 0x05, 0x05, 0x02, 0x00, 0x02, 0x00, 0x09,
+    0x04, 0x05, 0x00, 0x03, 0xFF, 0x00, 0x00, 0x00,
+    0x05, 0x24, 0x00, 0x10, 0x01, 0x05, 0x24, 0x01,
+    0x00, 0x00, 0x04, 0x24, 0x02, 0x02, 0x05, 0x24,
+    0x06, 0x00, 0x00, 0x07, 0x05, 0x8A, 0x03, 0x0A,
+    0x00, 0x09, 0x07, 0x05, 0x89, 0x02, 0x00, 0x02,
+    0x00, 0x07, 0x05, 0x06, 0x02, 0x00, 0x02, 0x00,
+    0x09, 0x04, 0x06, 0x00, 0x03, 0xFF, 0x00, 0x00,
+    0x00, 0x05, 0x24, 0x00, 0x10, 0x01, 0x05, 0x24,
+    0x01, 0x00, 0x00, 0x04, 0x24, 0x02, 0x02, 0x05,
+    0x24, 0x06, 0x00, 0x00, 0x07, 0x05, 0x8C, 0x03,
+    0x0A, 0x00, 0x09, 0x07, 0x05, 0x8B, 0x02, 0x00,
+    0x02, 0x00, 0x07, 0x05, 0x07, 0x02, 0x00, 0x02,
+    0x00
+    #endif
+
+#elif defined USB_RNDIS_HOST
+    0x09, 0x02, 0x4b, 0x00, 0x02, 0x01, 0x00, 0x80, 0xfa,                // configuration descriptor
+    0x08, 0x0b, 0x00, 0x02, 0xe0, 0x01, 0x03, 0xc1,                      // interface association descriptor
+    0x09, 0x04, 0x00, 0x00, 0x01, 0xe0, 0x01, 0x03, 0xbf,                // interface descriptor
+    0x05, 0x24, 0x00, 0x10, 0x01,                                        // class descriptor
+    0x05, 0x24, 0x01, 0x00, 0x01,                                        // class descriptor
+    0x04, 0x24, 0x02, 0x00,                                              // class descriptor
+    0x05, 0x24, 0x06, 0x00, 0x01,                                        // class descriptor
+    0x07, 0x05, 0x82, 0x03, 0x08, 0x00, 0x20,                            // interrupt IN endpoint - 32 bytes on endpoint 2
+    0x09, 0x04, 0x01, 0x00, 0x02, 0x0a, 0x00, 0x00, 0xc0,                // interface descriptor
+    0x07, 0x05, 0x81, 0x02, 0x40, 0x00, 0x00,                            // bulk IN endpoint - 64 bytes on endpoint 1
+    0x07, 0x05, 0x01, 0x02, 0x40, 0x00, 0x00,                            // bulk OUT endpoint - 64 bytes on endpoint 2
+#elif 0                                                                  // CDC with two interfaces
+    0x09, 0x02, 0x8D, 0x00, 0x04, 0x01, 0x04, 0xC0, 0x00, 0x08, 0x0B, 0x00, 0x02, 0x02,
+    0x02, 0x00, 0x00, 0x09, 0x04, 0x00, 0x00, 0x01, 0x02, 0x02, 0x00, 0x05, 0x05, 0x24,
+    0x00, 0x10, 0x01, 0x05, 0x24, 0x01, 0x01, 0x00, 0x04, 0x24, 0x02, 0x02, 0x05, 0x24,
+    0x06, 0x00, 0x01, 0x07, 0x05, 0x82, 0x03, 0x40, 0x00, 0x0A, 0x09, 0x04, 0x01, 0x00,
+    0x02, 0x0A, 0x00, 0x00, 0x05, 0x07, 0x05, 0x01, 0x02, 0x40, 0x00, 0x00, 0x07, 0x05,
+    0x81, 0x02, 0x40, 0x00, 0x00, 0x08, 0x0B, 0x02, 0x02, 0x02, 0x02, 0x00, 0x00, 0x09,
+    0x04, 0x02, 0x00, 0x01, 0x02, 0x02, 0x00, 0x05, 0x05, 0x24, 0x00, 0x10, 0x01, 0x05,
+    0x24, 0x01, 0x01, 0x00, 0x04, 0x24, 0x02, 0x02, 0x05, 0x24, 0x06, 0x00, 0x01, 0x07,
+    0x05, 0x84, 0x03, 0x40, 0x00, 0x0A, 0x09, 0x04, 0x03, 0x00, 0x02, 0x0A, 0x00, 0x00,
+    0x05, 0x07, 0x05, 0x03, 0x02, 0x40, 0x00, 0x00, 0x07, 0x05, 0x83, 0x02, 0x40, 0x00,
+    0x00
+#elif 1                                                                  // CDC + MSD composite
+    0x09, 0x02, 0x79, 0x00, 0x04, 0x01, 0x00, 0xC0, 0xE8, 0x08, 0x0B, 0x00, 0x02, 0x02,
+    0x03, 0x00, 0x02, 0x09, 0x04, 0x00, 0x00, 0x01, 0x02, 0x02, 0x00, 0x00, 0x05, 0x24,
+    0x00, 0x10, 0x01, 0x05, 0x24, 0x01, 0x01, 0x01, 0x04, 0x24, 0x02, 0x06, 0x05, 0x24,
+    0x06, 0x00, 0x01, 0x07, 0x05, 0x85, 0x03, 0x10, 0x00, 0x0A, 0x09, 0x04, 0x01, 0x00,
+    0x02, 0x0A, 0x00, 0x00, 0x00, 0x07, 0x05, 0x83, 0x02, 0x10, 0x00, 0x00, 0x07, 0x05,
+    0x04, 0x02, 0x10, 0x00, 0x00, 0x09, 0x04, 0x02, 0x00, 0x02, 0xFF, 0xFF, 0xFF, 0x04,
+    0x07, 0x05, 0x81, 0x02, 0x40, 0x00, 0x00, 0x07, 0x05, 0x02, 0x02, 0x40, 0x00, 0x00,
+    0x09, 0x04, 0x03, 0x00, 0x02, 0x08, 0x06, 0x50, 0x00, 0x07, 0x05, 0x86, 0x02, 0x40,
+    0x00, 0x00, 0x07, 0x05, 0x07, 0x02, 0x40, 0x00, 0x00
+#else
     0x09, 0x02, 0x4b, 0x00, 0x02, 0x01, 0x04, 0xc0, 0x00,                // configuration descriptor
     0x08, 0x0b, 0x00, 0x02, 0x02, 0x00, 0x00, 0x00,                      // interface association descriptor
     0x09, 0x04, 0x00, 0x00, 0x01, 0x02, 0x02, 0x00, 0x05,                // interface descriptor
@@ -6017,6 +8812,7 @@ static const unsigned char ucConfigDescriptor[] = {                      // cons
     0x09, 0x04, 0x01, 0x00, 0x02, 0x0a, 0x00, 0x00, 0x05,                // interface descriptor
     0x07, 0x05, 0x02, 0x02, 0x20, 0x00, 0x00,                            // bulk OUT endpoint - 32 bytes on endpoint 2
     0x07, 0x05, 0x82, 0x02, 0x20, 0x00, 0x00,                            // bulk OUT endpoint - 32 bytes on endpoint 2
+#endif
 };
 #endif
 
@@ -6082,30 +8878,181 @@ static unsigned char ucStringDescriptor[] = {                            // stri
 #define QUEUE_STRING_DESCRIPTOR 4
 #define QUEUE_MAX_LUN           5
 
-static void fnSimulateUSB_ep0(int iAdd, unsigned char *ptrData, unsigned short usSize)
+static void fnSimulateUSB_ep(int iAdd, unsigned char *ptrData, unsigned short usSize, int iEndPoint, int iPeriodic)
 {
     unsigned short usSent = 0;
     unsigned short usRemaining = usSize;
+    unsigned short usEndpointLength = DEVICE_ENDPOINT0_LENGTH;
+    if (iPeriodic != 0) {
+        iEndPoint = -iEndPoint;
+    }
     while (usRemaining != 0) {
-        if (usRemaining > DEVICE_ENPOINT0_LENGTH) {
-            fnSimulateUSB(iAdd, 0, 0, ptrData, DEVICE_ENPOINT0_LENGTH);
-            usRemaining -= DEVICE_ENPOINT0_LENGTH;
-            ptrData += DEVICE_ENPOINT0_LENGTH;
+        if (usRemaining > usEndpointLength) {
+            fnSimulateUSB(0, iAdd, iEndPoint, 0, ptrData, usEndpointLength);
+            usRemaining -= usEndpointLength;
+            ptrData += usEndpointLength;
         }
         else {
-            fnSimulateUSB(iAdd, 0, 0, ptrData, usRemaining);
-            if (usRemaining == DEVICE_ENPOINT0_LENGTH) {
-                fnSimulateUSB(iAdd, 0, 0, ptrData, 0);                   // terminate with zero length frame
+            fnSimulateUSB(0, iAdd, iEndPoint, 0, ptrData, usRemaining);
+            if (usRemaining == usEndpointLength) {
+                fnSimulateUSB(0, iAdd, iEndPoint, 0, ptrData, 0);        // terminate with zero length frame
             }
             break;
         }
     }
 }
 
+#if defined USB_RNDIS_HOST
+static unsigned char ucResponseMsg[128] = { 0 };
+static unsigned char ucResponseMsgLength = 0;
+static unsigned long ulLastMessageID = 0;
+static int fnRNDIS_hostModel(unsigned char *ptrData, unsigned short usLength)
+{
+    unsigned long ulMessageID;
+    unsigned long ulMessageLength;
+    unsigned long ulOID;
+    unsigned long ulMessageType = *ptrData++;
+    ulMessageType |= (*ptrData++ << 8);
+    ulMessageType |= (*ptrData++ << 16);
+    ulMessageType |= (*ptrData++ << 24);
+    ulMessageLength = *ptrData++;
+    ulMessageLength |= (*ptrData++ << 8);
+    ulMessageLength |= (*ptrData++ << 16);
+    ulMessageLength |= (*ptrData++ << 24);
+    ulMessageID = *ptrData++;
+    ulMessageID |= (*ptrData++ << 8);
+    ulMessageID |= (*ptrData++ << 16);
+    ulMessageID |= (*ptrData++ << 24);
+    ulLastMessageID = ulMessageID;
+    switch (ulMessageType) {
+    case REMOTE_NDIS_INITIALIZE_MSG:
+        return 2;
+    case REMOTE_NDIS_QUERY_MSG:
+        ulOID = *ptrData++;
+        ulOID |= (*ptrData++ << 8);
+        ulOID |= (*ptrData++ << 16);
+        ulOID |= (*ptrData++ << 24);
+        switch (ulOID) {
+        case OID_GEN_SUPPORTED_LIST:                                     // 0x00010101
+            return 3;
+        case 0x00010202:                                                 // unknown
+            return 4;
+        case OID_GEN_MAXIMUM_FRAME_SIZE:                                 // 0x00010106:
+            return 5;
+        case OID_GEN_LINK_SPEED:                                         // 0x00010107
+            return 6;
+        case OID_GEN_MEDIA_CONNECT_STATUS:                               // 0x00010114
+            return 7;
+        case OID_802_3_CURRENT_ADDRESS:                                  // 0x01010102
+            return 8;
+        case OID_802_3_PERMANENT_ADDRESS:                                // 0x01010101
+            return 9;
+        case OID_GEN_MAXIMUM_TOTAL_SIZE:                                 // 0x00010111
+            return 11;
+        }
+        break;
+    case REMOTE_NDIS_SET_MSG:
+        return 10;
+    case REMOTE_NDIS_KEEPALIVE_MSG:
+        return 12;
+    }
+    return 0;
+}
+
+static const unsigned char ucResponse1_ref[] = {
+    0x02, 0x00, 0x00, 0x80, 0x34, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x01, 0x00, 0x00, 0x00, 0x2C, 0x06, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00
+};
+
+static const unsigned char ucResponse2_ref[] = {
+    0x04, 0x00, 0x00, 0x80, 0x88, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x70, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00, 0x01, 0x01, 0x01, 0x00, 0x02, 0x01, 0x01, 0x00,
+    0x03, 0x01, 0x01, 0x00, 0x04, 0x01, 0x01, 0x00, 0x06, 0x01, 0x01, 0x00, 0x07, 0x01, 0x01, 0x00,
+    0x0a, 0x01, 0x01, 0x00, 0x0b, 0x01, 0x01, 0x00, 0x0c, 0x01, 0x01, 0x00, 0x0d, 0x01, 0x01, 0x00,
+    0x16, 0x01, 0x01, 0x00, 0x0e, 0x01, 0x01, 0x00, 0x11, 0x01, 0x01, 0x00, 0x14, 0x01, 0x01, 0x00,
+    0x02, 0x02, 0x01, 0x00, 0x01, 0x01, 0x02, 0x00, 0x02, 0x01, 0x02, 0x00, 0x03, 0x01, 0x02, 0x00,
+    0x04, 0x01, 0x02, 0x00, 0x05, 0x01, 0x02, 0x00, 0x01, 0x01, 0x01, 0x01, 0x02, 0x01, 0x01, 0x01,
+    0x03, 0x01, 0x01, 0x01, 0x05, 0x01, 0x01, 0x01, 0x04, 0x01, 0x01, 0x01, 0x01, 0x01, 0x02, 0x01,
+    0x02, 0x01, 0x02, 0x01, 0x03, 0x01, 0x02, 0x01
+};
+
+static const unsigned char ucResponse3_ref[] = {
+    0x04, 0x00, 0x00, 0x80, 0x1C, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x04, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+};
+
+static const unsigned char ucResponse4_ref[] = {
+    0x04, 0x00, 0x00, 0x80, 0x1c, 0x00, 0x00, 0x00, 0x05, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x04, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00, 0xdc, 0x05, 0x00, 0x00
+};
+
+static const unsigned char ucResponse5_ref[] = {
+    0x04, 0x00, 0x00, 0x80, 0x1c, 0x00, 0x00, 0x00, 0x06, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x04, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+};
+
+static const unsigned char ucResponse6_ref[] = {
+    0x04, 0x00, 0x00, 0x80, 0x1c, 0x00, 0x00, 0x00, 0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x04, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00
+};
+
+static const unsigned char ucResponse7_ref[] = {
+    0x04, 0x00, 0x00, 0x80, 0x1e, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x06, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00, 0x6a, 0xda, 0x12, 0x2d, 0xe5, 0x6d
+};
+
+static const unsigned char ucResponse8_ref[] = {
+    0x04, 0x00, 0x00, 0x80, 0x1e, 0x00, 0x00, 0x00, 0x09, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x06, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00, 0x6a, 0xda, 0x12, 0x2d, 0xe5, 0x6d
+};
+
+static const unsigned char ucResponse9_ref[] = {
+    0x05, 0x00, 0x00, 0x80, 0x10, 0x00, 0x00, 0x00, 0x0c, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+};
+
+static const unsigned char ucResponse10_ref[] = {
+    0x04, 0x00, 0x00, 0x80, 0x1c, 0x00, 0x00, 0x00, 0x0d, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x04, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00, 0x16, 0x06, 0x00, 0x00
+};
+
+static const unsigned char ucResponseLinkup_ref[] = {
+    0x07, 0x00, 0x00, 0x00, 0x14, 0x00, 0x00, 0x00, 0x0b, 0x00, 0x01, 0x40, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00
+};
+
+static const unsigned char ucResponseKeepalive_ref[] = {
+    0x08, 0x00, 0x00, 0x80, 0x10, 0x00, 0x00, 0x00, 0x0E, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00
+};
+
+
+static void fnInjectResponse(int iEndPoint, const unsigned char *ptrData, int iSize)
+{
+    unsigned char ucResponse[256];
+    memcpy(ucResponse, ptrData, iSize);
+    if (ucResponse[0] != 0x07) {                                         // status change has no ID
+        ucResponse[8] = (unsigned char)ulLastMessageID;
+        ucResponse[9] = (unsigned char)(ulLastMessageID >> 8);
+        ucResponse[10] = (unsigned char)(ulLastMessageID >> 16);
+        ucResponse[11] = (unsigned char)(ulLastMessageID >> 24);
+    }
+    fnSimulateUSB_ep((ADDR & ~LS_EN), (unsigned char *)ucResponse, iSize, iEndPoint, 0);
+}
+#endif
+
 // This routine reacts to embedded host mode transfers as a device would do
 //
-static void fnUSBHostModel(int iEndpoint, unsigned char ucPID, unsigned short usUSBLength, unsigned char *ptrUSBData)
+static int fnUSBHostModel(int iEndPoint, unsigned char ucPID, unsigned short usUSBLength, unsigned char *ptrUSBData, int iPeriodic)
 {
+#if defined USB_RNDIS_HOST
+    static unsigned short usRNDIS_hostSetupDataLengthExpected[NUMBER_OF_USB_ENDPOINTS] = {0};
+    static unsigned short usRNDIS_hostSetupDataReceived[NUMBER_OF_USB_ENDPOINTS] = {0};
+    static unsigned char  ucRNDIS_hostSetupData[NUMBER_OF_USB_ENDPOINTS][64] = {{0}};
+    static int iRNDIS_ready[NUMBER_OF_USB_ENDPOINTS] = {0};
+    static int iZeroData = 0;
+#endif
     static unsigned char ucStringRef = 0;
     static int iHostQueue = 0;
 
@@ -6119,7 +9066,35 @@ static void fnUSBHostModel(int iEndpoint, unsigned char ucPID, unsigned short us
             if (usUSBLength != 8) {
                 _EXCEPTION("Bad descriptor length detected!");
             }
-            if (ptrDescriptor->bmRecipient_device_direction == (STANDARD_DEVICE_TO_HOST | REQUEST_INTERFACE_CLASS)) { // class spefific interface request
+    #if defined USB_RNDIS_HOST
+            if (ptrDescriptor->bmRecipient_device_direction == (STANDARD_HOST_TO_DEVICE | REQUEST_INTERFACE_CLASS)) { // class specific interface request
+                if ((0 == ptrDescriptor->bRequest) || (SET_CONTROL_LINE_STATE == ptrDescriptor->bRequest) || (SET_LINE_CODING == ptrDescriptor->bRequest)) {
+                    USB_HOST_DESCRIPTOR *ptrControlSetup = (USB_HOST_DESCRIPTOR *)ptrUSBData;
+                    usRNDIS_hostSetupDataLengthExpected[iEndPoint] = ptrControlSetup->wLength[0]; // length of data content expected
+                    usRNDIS_hostSetupDataLengthExpected[iEndPoint] |= (ptrControlSetup->wLength[1] << 8);
+                    usRNDIS_hostSetupDataReceived[iEndPoint] = 0;        // no data received yet
+                    if (usRNDIS_hostSetupDataLengthExpected[iEndPoint] == 0) {
+                        iZeroData = 1;                                   // the control endpoint should terminate with a zero data status 
+                    }
+                }
+                break;
+            }
+            else if (ptrDescriptor->bmRecipient_device_direction == (STANDARD_DEVICE_TO_HOST | REQUEST_INTERFACE_CLASS)) {
+                if (1 == ptrDescriptor->bRequest) {
+                    USB_HOST_DESCRIPTOR *ptrControlSetup = (USB_HOST_DESCRIPTOR *)ptrUSBData;
+                    unsigned short usMaxData;
+                    usMaxData = ptrControlSetup->wLength[0];             // mex. length of data content
+                    usMaxData |= (ptrControlSetup->wLength[1] << 8);
+                    usMaxData = 0;
+                }
+            }
+    #endif
+            if (ptrDescriptor->bmRecipient_device_direction == (STANDARD_DEVICE_TO_HOST | REQUEST_INTERFACE_CLASS)) { // class specific interface request
+    #if defined USB_RNDIS_HOST
+                if (ucResponseMsgLength != 0) {
+                    iRNDIS_ready[iEndPoint] = 11;
+                }
+    #endif
     #if defined USB_MSD_HOST
                 if (GET_MAX_LUN == ptrDescriptor->bRequest) {            // requesting maximum LUN
                     iHostQueue = QUEUE_MAX_LUN;                          // send the data
@@ -6208,6 +9183,12 @@ static void fnUSBHostModel(int iEndpoint, unsigned char ucPID, unsigned short us
             else if (USB_REQUEST_SET_INTERFACE == ptrDescriptor->bRequest) { // set interface
                 iHostQueue = QUEUE_ZERO_DATA;                            // device responds with a zero data IN
             }
+            else if (SET_CONTROL_LINE_STATE == ptrDescriptor->bRequest) {
+                iHostQueue = QUEUE_ZERO_DATA;                            // device responds with a zero data IN
+            }
+            else if (SET_LINE_CODING == ptrDescriptor->bRequest) {
+                iHostQueue = QUEUE_ZERO_DATA;                            // device responds with a zero data IN
+            }
             else {
                 _EXCEPTION("Unknown request");
             }
@@ -6216,39 +9197,99 @@ static void fnUSBHostModel(int iEndpoint, unsigned char ucPID, unsigned short us
     case IN_PID:                                                         // the device can insert data since the host is sending IN PID
         switch (iHostQueue) {
         case QUEUE_DEVICE_DESCRIPTOR:                                    // inject the device descriptor
-            fnSimulateUSB_ep0((ADDR & ~LS_EN),(unsigned char *)&ucDeviceDescriptor, sizeof(ucDeviceDescriptor));
+            fnSimulateUSB_ep((ADDR & ~LS_EN),(unsigned char *)&ucDeviceDescriptor, sizeof(ucDeviceDescriptor), 0, 0);
             break;
         case QUEUE_CONFIG_DESCRIPTOR:
-            fnSimulateUSB_ep0((ADDR & ~LS_EN),(unsigned char *)&ucConfigDescriptor, sizeof(ucConfigDescriptor));
+            fnSimulateUSB_ep((ADDR & ~LS_EN),(unsigned char *)&ucConfigDescriptor, sizeof(ucConfigDescriptor), 0, 0);
             break;
         case QUEUE_STRING_DESCRIPTOR:
-            fnSimulateUSB_ep0((ADDR & ~LS_EN), (unsigned char *)&ucStringDescriptor, ucStringDescriptor[0]);
+            fnSimulateUSB_ep((ADDR & ~LS_EN), (unsigned char *)&ucStringDescriptor, ucStringDescriptor[0], 0, 0);
             break;
     #if defined USB_MSD_HOST
         case QUEUE_MAX_LUN:
-            fnSimulateUSB((ADDR & ~LS_EN), 0, 0, (unsigned char *)&ucMaxLum, sizeof(ucMaxLum));
+            fnSimulateUSB(0, (ADDR & ~LS_EN), 0, 0, (unsigned char *)&ucMaxLum, sizeof(ucMaxLum));
+            break;
+    #endif
+    #if defined USB_RNDIS_HOST
+        case 0:
+            if ((iZeroData != 0) && (iEndPoint == 0)) {
+                iZeroData = 0;                                           // reset single-shot flag
+                fnSimulateUSB(0, (ADDR & ~LS_EN), 0, 0, (unsigned char *)1, 0); // inject a zero data frame
+            }
+            else {
+                int iThisEvent = iRNDIS_ready[iEndPoint];
+                iRNDIS_ready[iEndPoint] = 0;
+                switch (iThisEvent) {
+                case 1:
+                    {
+                        static const unsigned char ucReady[] = { 1,0,0,0,0,0,0 };
+                        fnSimulateUSB_ep((ADDR & ~LS_EN), (unsigned char *)ucReady, sizeof(ucReady), iEndPoint, iPeriodic);
+                    }
+                    break;
+                case 2:
+                    fnInjectResponse(iEndPoint, ucResponse1_ref, sizeof(ucResponse1_ref));
+                    break;
+                case 3:
+                    fnInjectResponse(iEndPoint, ucResponse2_ref, sizeof(ucResponse2_ref));
+                    break;
+                case 4:
+                    fnInjectResponse(iEndPoint, ucResponse3_ref, sizeof(ucResponse3_ref));
+                    break;
+                case 5:
+                    fnInjectResponse(iEndPoint, ucResponse4_ref, sizeof(ucResponse4_ref));
+                    break;
+                case 6:
+                    fnInjectResponse(iEndPoint, ucResponse5_ref, sizeof(ucResponse5_ref));
+                    break;
+                case 7:
+                    fnInjectResponse(iEndPoint, ucResponse6_ref, sizeof(ucResponse6_ref));
+                    break;
+                case 8:
+                    fnInjectResponse(iEndPoint, ucResponse7_ref, sizeof(ucResponse7_ref));
+                    break;
+                case 9:
+                    fnInjectResponse(iEndPoint, ucResponse8_ref, sizeof(ucResponse8_ref));
+                    break;
+                case 10:
+                    fnInjectResponse(iEndPoint, ucResponse9_ref, sizeof(ucResponse9_ref));
+                    break;
+                case 11:
+                    fnInjectResponse(iEndPoint, ucResponse10_ref, sizeof(ucResponse10_ref));
+                    iRNDIS_ready[2] = 1;                                 // when interrupt endpoint 2 is next polled it should return a response available message
+                    iRNDIS_ready[iEndPoint] = 13;
+                    break;
+                case 13:
+                    fnInjectResponse(iEndPoint, ucResponseLinkup_ref, sizeof(ucResponseLinkup_ref));
+                    break;
+                case 12:
+                    fnInjectResponse(iEndPoint, ucResponseKeepalive_ref, sizeof(ucResponseKeepalive_ref));
+                    break;
+                default:
+                    return -1;
+                }
+            }
             break;
     #endif
         case QUEUE_ZERO_DATA:
-            fnSimulateUSB((ADDR & ~LS_EN), 0, 0, (unsigned char *)1, 0); // inject a zero data frame
+            fnSimulateUSB(0, (ADDR & ~LS_EN), 0, 0, (unsigned char *)1, 0); // inject a zero data frame
             break;
         default:
     #if defined USB_MSD_HOST
         #if defined MEMORY_STICK_USES_SHARED_ENDPOINTS
-            if (iEndpoint == 2)                                          // IN is on endpoint 2
+            if (iEndPoint == 2)                                          // IN is on endpoint 2
         #else
-            if (iEndpoint == 1)                                          // IN is on endpoint 1
+            if (iEndPoint == 1)                                          // IN is on endpoint 1
         #endif
             {
                 if (iStall != 0) {
                     // Stall the endoint
                     //
                     iStall = 0;
-                    fnSimulateUSB((ADDR & ~LS_EN), iEndpoint, STALL_PID, (unsigned char *)1, 0); // inject a stall token on this IN endpoint
+                    fnSimulateUSB(0, (ADDR & ~LS_EN), iEndPoint, STALL_PID, (unsigned char *)1, 0); // inject a stall token on this IN endpoint
                     break;
                 }
                 if (ulFrameCount != 0) {
-                    fnSimulateUSB((ADDR & ~LS_EN), iEndpoint, 0, (unsigned char *)&ucDataTransport, usDataTransportLength);
+                    fnSimulateUSB(0, (ADDR & ~LS_EN), iEndPoint, 0, (unsigned char *)&ucDataTransport, usDataTransportLength);
                     ulFrameCount--;
                     if (ulFrameCount != 0) {                             // if the data occupies multiple frames
                         if (ucLastOpCode == UFI_READ_10) {               // we are presently reading sector content
@@ -6268,7 +9309,7 @@ static void fnUSBHostModel(int iEndpoint, unsigned char ucPID, unsigned short us
                     }
                 }
                 else {
-                    fnSimulateUSB((ADDR & ~LS_EN), iEndpoint, 0, (unsigned char *)&ucStatusTransport, sizeof(ucStatusTransport));
+                    fnSimulateUSB(0, (ADDR & ~LS_EN), iEndPoint, 0, (unsigned char *)&ucStatusTransport, sizeof(ucStatusTransport));
                 }
             }
     #endif
@@ -6277,11 +9318,29 @@ static void fnUSBHostModel(int iEndpoint, unsigned char ucPID, unsigned short us
         iHostQueue = 0;
         break;
     case OUT_PID:
+    #if defined USB_RNDIS_HOST
+        if (usRNDIS_hostSetupDataLengthExpected[iEndPoint] != 0) {
+            if ((usRNDIS_hostSetupDataReceived[iEndPoint] + usUSBLength) > usRNDIS_hostSetupDataLengthExpected[iEndPoint]) {
+                _EXCEPTION("Too much data sent after setup report");
+            }
+            else {
+                memcpy(&ucRNDIS_hostSetupData[iEndPoint][usRNDIS_hostSetupDataReceived[iEndPoint]], ptrUSBData, usUSBLength); // collect the data
+                usRNDIS_hostSetupDataReceived[iEndPoint] += usUSBLength;
+                if (usRNDIS_hostSetupDataReceived[iEndPoint] == usRNDIS_hostSetupDataLengthExpected[iEndPoint]) {
+                    if ((iRNDIS_ready[iEndPoint] = fnRNDIS_hostModel(&ucRNDIS_hostSetupData[iEndPoint][0], usRNDIS_hostSetupDataReceived[iEndPoint])) != 0) {
+                        iRNDIS_ready[2] = 1;                                 // when interrupt endpoint 2 is polled it should return a response available message
+                    }
+                    iZeroData = 1;                                       // the control endpoint should terminate with a zero data status
+                    usRNDIS_hostSetupDataLengthExpected[iEndPoint] = usRNDIS_hostSetupDataReceived[iEndPoint] = 0;
+                }
+            }
+        }
+    #endif
     #if defined USB_MSD_HOST
-        if (2 == iEndpoint) {                                            // we expect bulk out on this endpoint only
+        if (2 == iEndPoint) {                                            // we expect bulk out on this endpoint only
             fnMsdModel(ptrUSBData, usUSBLength);                         // allow MSD model to handle the data
         }
-        else if ((0 == iEndpoint) && (usUSBLength == 0)) {               // expect only zero terminations on endpoint 0
+        else if ((0 == iEndPoint) && (usUSBLength == 0)) {               // expect only zero terminations on endpoint 0
         }
         else {
             _EXCEPTION("Unexpected");
@@ -6289,11 +9348,12 @@ static void fnUSBHostModel(int iEndpoint, unsigned char ucPID, unsigned short us
     #endif
         break;
     }
+    return 0;
 }
 
 // Synchronise to correct data frame for all endpoints
 //
-extern void fnResetUSB_buffers(void)
+extern void fnResetUSB_buffers(int iChannel)
 {
     int i = 0;
     iData1Frame[i++] = 1;                                                // reset endpoint 0 to DATA1
@@ -6305,7 +9365,7 @@ extern void fnResetUSB_buffers(void)
 
 // Check whether data has been prepared for transmission
 //
-extern void fnCheckUSBOut(int iDevice, int iEndpoint)
+extern void fnCheckUSBOut(int iChannel, int iDevice, int iEndPoint)
 {
     KINETIS_USB_BD *bufferDescriptor;
     unsigned long ulAddress = ((BDT_PAGE_01 << 8) | (BDT_PAGE_02 << 16) | (BDT_PAGE_03 << 24));
@@ -6316,12 +9376,69 @@ extern void fnCheckUSBOut(int iDevice, int iEndpoint)
     int iMaxUSB_ints = 1;
     #endif
     #if defined USB_HOST_SUPPORT
-    int iRealEndpoint = iEndpoint;
+    int iRealEndpoint = iEndPoint;
     #endif
     #if defined USB_HS_INTERFACE                                         // {12}
-    if ((USBHS_USBCMD & USBHS_USBCMD_RS) != 0) {                         // if USB HS controller operating
-        KINETIS_USBHS_ENDPOINT_QUEUE_HEADER *ptrQueueHeader = (KINETIS_USBHS_ENDPOINT_QUEUE_HEADER *)USBHS_EPLISTADDR;
-        ptrQueueHeader += ((2 * iEndpoint) + 1);                         // move to the transmitter queue header
+        #if defined USB_FS_INTERFACE                                     // when FS and HS interfaces are supported at the same time
+    if ((iChannel > 0) && ((USBHS0_USBCMD & USBHS_USBCMD_RS) != 0))
+        #else
+    if ((USBHS0_USBCMD & USBHS_USBCMD_RS) != 0)                          // if the high speed USB controller is in the running state
+        #endif
+    {
+    #if defined USB_HOST_SUPPORT
+        KINETIS_USBHS *ptrHSUSB = (KINETIS_USBHS *)USBHS_BASE_ADD;
+        if ((ptrHSUSB->USBMODE & USBHS_USBMODE_CM_HOST_FLAG) != 0) {     // if operating in host mode
+            KINETIS_USBHS_HOST_ENDPOINT_QUEUE_HEADER *ptrHostQueueHeader = (KINETIS_USBHS_HOST_ENDPOINT_QUEUE_HEADER *)ptrHSUSB->ASYNCLISTADDR_EPLISTADDR;
+            ptrHostQueueHeader = (KINETIS_USBHS_HOST_ENDPOINT_QUEUE_HEADER *)(ptrHostQueueHeader->ulQueueheadWord0 & HOST_QUEUE_HEAD_HORIZONTAL_LINK_POINTER_MASK);
+            ptrHostQueueHeader += iEndPoint;
+            if (((unsigned long)(ptrHostQueueHeader->ptrCurrent_qTD) & HOST_OVERLAY_TERMINATE) == 0) { // if valid
+                USB_HS_HOST_TRANSFER_OVERLAY *ptr_qTD = (USB_HS_HOST_TRANSFER_OVERLAY *)((unsigned long)(ptrHostQueueHeader->ptrCurrent_qTD) & HOST_QUEUE_HEAD_HORIZONTAL_LINK_POINTER_MASK);
+                unsigned short usDataLength = (unsigned short)((ptr_qTD->ulControl & HOST_OVERLAY_CONTROL_TOTAL_BYTES_MASK) >> HOST_OVERLAY_CONTROL_TOTAL_BYTES__SHIFT);
+                unsigned short usMaxPacket = (unsigned short)((ptrHostQueueHeader->ulHostCharacteristics & HOST_CHARACTERISTICS_MAX_PACKET_LENGTH_MASK) >> HOST_CHARACTERISTICS_MAX_PACKET_LENGTH_SHIFT);
+                unsigned char *ptrUSBData = (unsigned char *)ptr_qTD->ulBufferPointerPage[0];
+                do {                                                     // the USB HS controller automatically sends complete buffers as single frames and there is only a single interrupt on completion
+                    if (usDataLength < usMaxPacket) {
+                        usMaxPacket = usDataLength;
+                    }
+                    switch (ptr_qTD->ulControl & HOST_OVERLAY_CONTROL_PID_CODE_MASK) {
+                    case HOST_OVERLAY_CONTROL_PID_CODE_SETUP:
+                        fnLogUSB(iRealEndpoint, SETUP_PID, usDataLength, ptrUSBData, 0); // log the transmitted data
+                        fnUSBHostModel(((ptrHostQueueHeader->ulHostCharacteristics & HOST_CHARACTERISTICS_ENDPOINT_MASK) >> 8), SETUP_PID, usDataLength, ptrUSBData, 0); // let the host model handle the setup
+                        ptr_qTD->ulControl |= HOST_OVERLAY_CONTROL_DT;   // set data toggle
+                        ptr_qTD->ulBufferPointerPage[0] += usDataLength;
+                        ptrHostQueueHeader->host_transfer_overlay.ptrNext_qTD = 0;
+                        ptrHostQueueHeader->host_transfer_overlay.ptrAlternateNext_qTD = (unsigned char *)0x1e; // don't know what this signifies at the moment
+                        ptrHostQueueHeader->host_transfer_overlay.ulControl = (ptr_qTD->ulControl & ~(HOST_OVERLAY_CONTROL_STATUS_ACTIVE));
+                        ptrHostQueueHeader->host_transfer_overlay.ulBufferPointerPage[0] = ptr_qTD->ulBufferPointerPage[0];
+                        ptrHostQueueHeader->host_transfer_overlay.ulBufferPointerPage[1] += 2; // don't know what this signifies at the moment
+                        ptrHostQueueHeader->host_transfer_overlay.ulBufferPointerPage[2] += 0x17; // don't know what this signifies at the moment
+                        break;
+                    case HOST_OVERLAY_CONTROL_PID_CODE_IN:
+                        if (fnUSBHostModel(((ptrHostQueueHeader->ulHostCharacteristics & HOST_CHARACTERISTICS_ENDPOINT_MASK) >> 8), IN_PID, 0, 0, 0) < 0) { // let the host model prepare the data
+                            return;                                      // ignore
+                        }
+                        ucHSTxBuffer[iEndPoint] ^= ODD_BANK;             // toggle buffer
+                        ptr_qTD->ulControl &= ~(HOST_OVERLAY_CONTROL_STATUS_ACTIVE);
+                        return;
+                    case HOST_OVERLAY_CONTROL_PID_CODE_OUT:
+                        ptr_qTD->ulControl &= ~HOST_OVERLAY_CONTROL_STATUS_ACTIVE;
+                        ptrHostQueueHeader->host_transfer_overlay.ulControl = ptr_qTD->ulControl;
+                        if (usDataLength != 0) {                         // if not zero data
+                            fnUSBHostModel(((ptrHostQueueHeader->ulHostCharacteristics & HOST_CHARACTERISTICS_ENDPOINT_MASK) >> 8), OUT_PID, usDataLength, ptrUSBData, 0); // let the host model handle the data
+                        }
+                        break;
+                    }
+                    usDataLength -= usMaxPacket;
+                    ptrUSBData += usMaxPacket;
+                } while (usDataLength != 0);
+                ptr_qTD->ulControl &= ~(HOST_OVERLAY_CONTROL_STATUS_ACTIVE);
+                fnSimulateUSB(iChannel, iDevice, iEndPoint, 0, 0, USB_IN_SUCCESS); // generate tx interrupt
+            }
+            return;
+        }
+    #endif
+        KINETIS_USBHS_ENDPOINT_QUEUE_HEADER *ptrQueueHeader = (KINETIS_USBHS_ENDPOINT_QUEUE_HEADER *)USBHS0_EPLISTADDR;
+        ptrQueueHeader += ((2 * iEndPoint) + 1);                         // move to the transmitter queue header
         if (ptrQueueHeader->CurrentdTD_pointer != 0) {
             unsigned short usDataLength = (unsigned short)(ptrQueueHeader->CurrentdTD_pointer->ul_dtToken >> ENDPOINT_QUEUE_HEADER_TOKEN_TOTAL_BYTES_SHIFT);
             unsigned short usMaxPacket = (unsigned short)(ptrQueueHeader->ulCapabilities >> 16);
@@ -6330,32 +9447,33 @@ extern void fnCheckUSBOut(int iDevice, int iEndpoint)
                 if (usDataLength < usMaxPacket) {
                     usMaxPacket = usDataLength;
                 }
-                fnLogUSB(iEndpoint, 0, usMaxPacket, ptrUSBData, ((ucHSTxBuffer[iEndpoint] & ODD_BANK) != 0));
-                ucHSTxBuffer[iEndpoint] ^= ODD_BANK;                     // toggle buffer
+                fnLogUSB(iEndPoint, 0, usMaxPacket, ptrUSBData, ((ucHSTxBuffer[iEndPoint] & ODD_BANK) != 0));
+                ucHSTxBuffer[iEndPoint] ^= ODD_BANK;                     // toggle buffer
                 usDataLength -= usMaxPacket;
                 ptrUSBData += usMaxPacket;
             } while (usDataLength != 0);
-            fnSimulateUSB(iDevice, iEndpoint, 0, 0, USB_IN_SUCCESS);     // generate tx interrupt
+            fnSimulateUSB(iChannel, iDevice, iEndPoint, 0, 0, USB_IN_SUCCESS); // generate tx interrupt
             ptrQueueHeader->CurrentdTD_pointer->ulBufferPointerPage[0] = (unsigned long)ptrUSBData;
         }
+        return;
     }
     #endif
     if ((CTL & USB_EN_SOF_EN) == 0) {                                    // {13} if the FS USB controller is not enabled ignore inputs
         return;
     }
-    bdt += iEndpoint;
+    bdt += iEndPoint;
 
     do {
     #if defined USB_HOST_SUPPORT                                         // {25}
         if ((CTL & HOST_MODE_EN) != 0) {
-            iEndpoint = 0;
+            iEndPoint = 0;
             bdt = (KINETIS_USB_ENDPOINT_BD *)ulAddress;                  // in host mode only endpoint 0 buffers are used
             if ((INT_ENB & SOF_TOK_EN) != 0) {                           // if host mode and SOF enabled
-                fnSimulateUSB(iDevice, 0, 0, 0, USB_SOF_EVENT);          // generate SOF interrupt
+                fnSimulateUSB(0, iDevice, 0, 0, 0, USB_SOF_EVENT);       // generate SOF interrupt
             }
         }
     #endif
-        if (ucTxBuffer[iEndpoint] != 0) {                                // decide which is the active output buffer descriptor
+        if (ucTxBuffer[iEndPoint] != 0) {                                // decide which is the active output buffer descriptor
             bufferDescriptor = &bdt->usb_bd_tx_odd;                      // the odd one is to be used
         }
         else {
@@ -6376,11 +9494,14 @@ extern void fnCheckUSBOut(int iDevice, int iEndpoint)
                 unsigned char ucToken = ucGetToken(1);                   // the token that was sent (skip INs)
                 if ((ucToken >> 4) == SETUP_PID) {                       // a SETUP token was sent (will always be on control endpoint 0
                     fnLogUSB(iRealEndpoint, SETUP_PID, usUSBLength, ptrUSBData, ((bufferDescriptor->ulUSB_BDControl & DATA_1) != 0)); // log the transmitted data
-                    fnUSBHostModel((ucToken & 0x0f), SETUP_PID, usUSBLength, ptrUSBData); // let the host model handle the data
+                    fnUSBHostModel((ucToken & 0x0f), SETUP_PID, usUSBLength, ptrUSBData, 0); // let the host model handle the data
                 }
                 else if ((ucToken >> 4) == OUT_PID) {                    // an OUT token was sent
                     fnLogUSB(iRealEndpoint, 0, usUSBLength, ptrUSBData, ((bufferDescriptor->ulUSB_BDControl & DATA_1) != 0));
-                    fnUSBHostModel((ucToken & 0x0f), OUT_PID, usUSBLength, ptrUSBData); // let the host model handle the data
+                    fnUSBHostModel((ucToken & 0x0f), OUT_PID, usUSBLength, ptrUSBData, 0); // let the host model handle the data
+                }
+                else if (ucToken == 0) {                                 // no token pending so ignore
+                    return;
                 }
                 else {
                     _EXCEPTION("Unexpected token queued");               // IN tokens are not expected to be returned since they should be skipped
@@ -6390,27 +9511,27 @@ extern void fnCheckUSBOut(int iDevice, int iEndpoint)
                 bufferDescriptor->ulUSB_BDControl |= (ACK_PID << RX_PID_SHIFT); // insert ACK
                 ucTxBuffer[0] ^= ODD_BANK;                               // toggle buffer (always on endpoint 0)
                 CTL &= ~(TXSUSPEND_TOKENBUSY);                           // token no longer in progress
-                fnSimulateUSB(iDevice, 0, 0, 0, USB_IN_SUCCESS);         // generate tx interrupt (always on endpoint 0)
+                fnSimulateUSB(0, iDevice, 0, 0, 0, USB_IN_SUCCESS);      // generate tx interrupt (always on endpoint 0)
             }
             else {                                                       // device mode
                 fnLogUSB(iRealEndpoint, 0, usUSBLength, ptrUSBData, ((bufferDescriptor->ulUSB_BDControl & DATA_1) != 0));
                 ucTxBuffer[iRealEndpoint] ^= ODD_BANK;                   // toggle buffer
-                fnSimulateUSB(iDevice, iRealEndpoint, 0, 0, USB_IN_SUCCESS); // generate tx interrupt
+                fnSimulateUSB(0, iDevice, iRealEndpoint, 0, 0, USB_IN_SUCCESS); // generate tx interrupt
             }
     #else
-            fnLogUSB(iEndpoint, 0, usUSBLength, ptrUSBData, ((bufferDescriptor->ulUSB_BDControl & DATA_1) != 0));
-            ucTxBuffer[iEndpoint] ^= ODD_BANK;                           // toggle buffer
-            fnSimulateUSB(iDevice, iEndpoint, 0, 0, USB_IN_SUCCESS);     // generate tx interrupt
+            fnLogUSB(iEndPoint, 0, usUSBLength, ptrUSBData, ((bufferDescriptor->ulUSB_BDControl & DATA_1) != 0));
+            ucTxBuffer[iEndPoint] ^= ODD_BANK;                           // toggle buffer
+            fnSimulateUSB(0, iDevice, iEndPoint, 0, 0, USB_IN_SUCCESS);  // generate tx interrupt
     #endif
         }                                                                // handle further buffer if available
-        else {                                                           // no data to be sent - the buffer descrptior is not owned
+        else {                                                           // no data to be sent - the buffer descriptor is not owned
     #if defined USB_HOST_SUPPORT                                         // {25}
             if ((CTL & HOST_MODE_EN) != 0) {                             // if in host mode
                 unsigned char ucToken = ucGetToken(0);                   // we expect an IN
-                if ((ucToken >> 4) == IN_PID) {                          // an IN token is to be sent so that the device can return data
-                    fnUSBHostModel((ucToken & 0x0f), IN_PID, 0, 0);      // let the host model prepare the data
+                if ((ucToken >> 4) == IN_PID) {
+                    fnUSBHostModel((ucToken & 0x0f), IN_PID, 0, 0, 0);   // let the host model prepare the data
                 }
-                else if (ucToken != 0) {                                 // an OUT_PID is never expected here since the buffer descrptior would be owned if it were set as token
+                else if (ucToken != 0) {                                 // an OUT_PID is never expected here since the buffer descriptor would be owned if it were set as token
                     _EXCEPTION("Unexpected token");
                 }
             }
@@ -6421,21 +9542,21 @@ extern void fnCheckUSBOut(int iDevice, int iEndpoint)
             iMasks |= USB_INT;
             return;
         }
-    } while (1);
+    } FOREVER_LOOP();
 }
 
 // Request an endpoint buffer size
 //
-extern unsigned short fnGetEndpointInfo(int iEndpoint)
+extern unsigned short fnGetEndpointInfo(int iEndPoint)
 {
     #if defined USB_HS_INTERFACE                                         // {12}
-    KINETIS_USBHS_ENDPOINT_QUEUE_HEADER *ptrQueueHeader = (KINETIS_USBHS_ENDPOINT_QUEUE_HEADER *)USBHS_EPLISTADDR;
-    ptrQueueHeader += (2 * iEndpoint);                                   // move to the receiver queue header
+    KINETIS_USBHS_ENDPOINT_QUEUE_HEADER *ptrQueueHeader = (KINETIS_USBHS_ENDPOINT_QUEUE_HEADER *)USBHS0_EPLISTADDR;
+    ptrQueueHeader += (2 * iEndPoint);                                   // move to the receiver queue header
     return (unsigned short)(ptrQueueHeader->ulCapabilities >> ENDPOINT_QUEUE_HEADER_TOKEN_TOTAL_BYTES_SHIFT); // the endpoint reception buffer size
     #else
     KINETIS_USB_ENDPOINT_BD *ptrBDT = (KINETIS_USB_ENDPOINT_BD *)((BDT_PAGE_01 << 8) + (BDT_PAGE_02 << 16) + (BDT_PAGE_03 << 24));
     unsigned short usBufferSize;
-    ptrBDT += iEndpoint;
+    ptrBDT += iEndPoint;
     usBufferSize =  (unsigned short)((ptrBDT->usb_bd_rx_even.ulUSB_BDControl & USB_BYTE_CNT_MASK) >> USB_CNT_SHIFT); // get the length from the control register
     return usBufferSize;
     #endif
@@ -6456,10 +9577,171 @@ extern void fnSimulateModemChange(int iPort, unsigned long ulNewState, unsigned 
 #endif
 }
 
+#if LPUARTS_AVAILABLE > 0
+static void fnGenericLPUARTBreakHandling(KINETIS_LPUART_CONTROL *ptrLPUART, int iPort, int LPUART_irq_ID, void (*irq_LPUART)(void), int iUseIntMux, int iMuxChannel, int iInterruptAssignment)
+{
+    ptrLPUART->LPUART_STAT |= (LPUART_STAT_LBKDIF | LPUART_STAT_RDRF);   // set the status flags
+    if ((ptrLPUART->LPUART_BAUD & LPUART_BAUD_LBKDIE) != 0) {            // if the break interrupt is enabled
+        ptrLPUART->LPUART_DATA = 0;                                      // a break character is seen as a data reception of 0
+        if (iUseIntMux != 0) {                                           // if the interrupt is assigned via the interrupt multiplexer
+    #if defined INTMUX0_AVAILABLE
+            fnCallINTMUX(iMuxChannel, iInterruptAssignment, (unsigned char *)&irq_LPUART);
+    #else
+            _EXCEPTION("Interrupt multiplexer not available!");
+    #endif
+        }
+        else if (fnGenInt(LPUART_irq_ID) != 0) {                         // if LPUART interrupt is not disabled
+            irq_LPUART();                                                // call the interrupt handler
+        }
+    }
+    else {
+        unsigned char ucBreakChar = 0;
+        fnSimulateSerialIn(iPort, (unsigned char *)&ucBreakChar, 1);     // a break chactater is seen as a data reception of 0
+    }
+}
+#endif
+#if UARTS_AVAILABLE > 0
+static void fnGenericUARTBreakHandling(KINETIS_UART_CONTROL *ptrUART, int iPort, int UART_irq_ID, void (*irq_UART)(void), int iUseIntMux, int iMuxChannel, int iInterruptAssignment)
+{
+    if ((ptrUART->UART_BDH & UART_BDH_LBKDIE) != 0) {                    // if break detection is enabled
+        ptrUART->UART_S1 |= (UART_S1_FE | UART_S1_RDRF);                 // set framing error flag
+    }
+    if (((ptrUART->UART_S1 & UART_S1_FE) != 0) && ((ptrUART->UART_BDH & UART_BDH_LBKDIE) != 0)) { // if break detection interrupt is enabled
+        ptrUART->UART_D = 0;                                             // a break character is seen as a data reception of 0
+        if (fnGenInt(UART_irq_ID) != 0) {                                // if UART interrupt is not disabled
+            irq_UART();                                                  // call the interrupt handler
+        }
+    }
+    else {
+        unsigned char ucBreakChar = 0;
+        fnSimulateSerialIn(iPort, (unsigned char *)&ucBreakChar, 1);     // a break chactater is seen as a data reception of 0
+    }
+}
+#endif
+
 // UART Break detection simulation
 //
 extern void fnSimulateBreak(int iPort)
 {
+#if defined SERIAL_INTERFACE
+    VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
+    switch (iPort) {
+#if LPUARTS_AVAILABLE > 0
+    #if defined LPUARTS_PARALLEL
+        #define LPUART0_CH_NUMBER     UARTS_AVAILABLE
+    #else
+        #define LPUART0_CH_NUMBER     0
+    #endif
+    case LPUART0_CH_NUMBER:                                              // LPUART 0
+    #if defined irq_LPUART0_RX_ID
+        fnGenericLPUARTBreakHandling((KINETIS_LPUART_CONTROL *)LPUART0_BLOCK, iPort, irq_LPUART0_RX_ID, ptrVect->processor_interrupts.irq_LPUART0_RX, 0, 0, 0);
+    #else
+        fnGenericLPUARTBreakHandling((KINETIS_LPUART_CONTROL *)LPUART0_BLOCK, iPort, irq_LPUART0_ID, ptrVect->processor_interrupts.irq_LPUART0, 0, 0, 0);
+    #endif
+        break;
+#endif
+#if LPUARTS_AVAILABLE > 1
+    #if defined LPUARTS_PARALLEL
+        #define LPUART1_CH_NUMBER     (UARTS_AVAILABLE + 1)
+    #else
+        #define LPUART1_CH_NUMBER     1
+    #endif
+    case LPUART1_CH_NUMBER:                                              // LPUART 1
+    #if defined irq_LPUART1_RX_ID
+        fnGenericLPUARTBreakHandling((KINETIS_LPUART_CONTROL *)LPUART1_BLOCK, iPort, irq_LPUART1_RX_ID, ptrVect->processor_interrupts.irq_LPUART1_RX, 0, 0, 0);
+    #elif defined irq_LPUART1_ID
+        fnGenericLPUARTBreakHandling((KINETIS_LPUART_CONTROL *)LPUART1_BLOCK, iPort, irq_LPUART1_ID, ptrVect->processor_interrupts.irq_LPUART1, 0, 0, 0);
+    #else                                                                // LPUART0 and LPUART1 share an interrupt vector
+        fnGenericLPUARTBreakHandling((KINETIS_LPUART_CONTROL *)LPUART1_BLOCK, iPort, irq_LPUART0_ID, ptrVect->processor_interrupts.irq_LPUART0, 0, 0, 0);
+    #endif
+        break;
+#endif
+#if LPUARTS_AVAILABLE > 2
+    #if defined LPUARTS_PARALLEL
+        #define LPUART2_CH_NUMBER     (UARTS_AVAILABLE + 2)
+    #else
+        #define LPUART2_CH_NUMBER     2
+    #endif
+    case LPUART2_CH_NUMBER:                                              // LPUART 2
+    #if !defined irq_LPUART2_ID && defined INTMUX0_AVAILABLE
+        fnGenericLPUARTBreakHandling((KINETIS_LPUART_CONTROL *)LPUART2_BLOCK, iPort, (irq_INTMUX0_0_ID + INTMUX_LPUART2), ptrVect->processor_interrupts.irq_LPUART2, 1, INTMUX_LPUART2, INTMUX0_PERIPHERAL_LPUART2);
+    #elif defined irq_LPUART2_RX_ID
+        fnGenericLPUARTBreakHandling((KINETIS_LPUART_CONTROL *)LPUART2_BLOCK, iPort, irq_LPUART2_RX_ID, ptrVect->processor_interrupts.irq_LPUART2_RX, 0, 0, 0);
+    #else
+        fnGenericLPUARTBreakHandling((KINETIS_LPUART_CONTROL *)LPUART2_BLOCK, iPort, irq_LPUART2_ID, ptrVect->processor_interrupts.irq_LPUART2, 0, 0, 0);
+    #endif
+        break;
+#endif
+#if LPUARTS_AVAILABLE > 3
+    #if defined LPUARTS_PARALLEL
+        #define LPUART3_CH_NUMBER     (UARTS_AVAILABLE + 3)
+    #else
+        #define LPUART3_CH_NUMBER     3
+    #endif
+    case LPUART3_CH_NUMBER:                                              // LPUART 3
+        fnGenericLPUARTBreakHandling((KINETIS_LPUART_CONTROL *)LPUART3_BLOCK, iPort, irq_LPUART3_ID, ptrVect->processor_interrupts.irq_LPUART3, 0, 0, 0);
+        break;
+#endif
+#if LPUARTS_AVAILABLE > 4
+    #if defined LPUARTS_PARALLEL
+        #define LPUART4_CH_NUMBER     (UARTS_AVAILABLE + 4)
+    #else
+        #define LPUART4_CH_NUMBER     4
+    #endif
+    case LPUART4_CH_NUMBER:                                              // LPUART 4
+        fnGenericLPUARTBreakHandling((KINETIS_LPUART_CONTROL *)LPUART4_BLOCK, iPort, irq_LPUART4_ID, ptrVect->processor_interrupts.irq_LPUART4, 0, 0, 0);
+        break;
+#endif
+#if UARTS_AVAILABLE > 0
+    #if defined UART0_BLOCK
+    case 0:
+        #if defined irq_UART0_1_ID                                       // when UARTs 0 and 1 share an interrupt
+        fnGenericUARTBreakHandling((KINETIS_UART_CONTROL *)UART0_BLOCK, iPort, irq_UART0_1_ID, ptrVect->processor_interrupts.irq_UART0_1, 0, 0, 0);
+        #else
+        fnGenericUARTBreakHandling((KINETIS_UART_CONTROL *)UART0_BLOCK, iPort, irq_UART0_ID, ptrVect->processor_interrupts.irq_UART0, 0, 0, 0);
+        #endif
+        break;
+    #endif
+    #if UARTS_AVAILABLE > 1
+    case 1:
+        #if defined irq_UART0_1_ID                                       // when UARTs 0 and 1 share an interrupt
+        fnGenericUARTBreakHandling((KINETIS_UART_CONTROL *)UART1_BLOCK, iPort, irq_UART0_1_ID, ptrVect->processor_interrupts.irq_UART0_1, 0, 0, 0);
+        #else
+        fnGenericUARTBreakHandling((KINETIS_UART_CONTROL *)UART1_BLOCK, iPort, irq_UART1_ID, ptrVect->processor_interrupts.irq_UART1, 0, 0, 0);
+        #endif
+        break;
+    #endif
+    #if UARTS_AVAILABLE > 2
+    case 2:
+        #if defined irq_UART2_3_ID                                       // when UARTs 2 and 3 share an interrupt
+        fnGenericUARTBreakHandling((KINETIS_UART_CONTROL *)UART2_BLOCK, iPort, irq_UART2_3_ID, ptrVect->processor_interrupts.irq_UART2_3, 0, 0, 0);
+        #else
+        fnGenericUARTBreakHandling((KINETIS_UART_CONTROL *)UART2_BLOCK, iPort, irq_UART2_ID, ptrVect->processor_interrupts.irq_UART2, 0, 0, 0);
+        #endif
+        break;
+    #endif
+    #if UARTS_AVAILABLE > 3
+    case 3:
+        #if defined irq_UART2_3_ID                                       // when UARTs 2 and 3 share an interrupt
+        fnGenericUARTBreakHandling((KINETIS_UART_CONTROL *)UART3_BLOCK, iPort, irq_UART2_3_ID, ptrVect->processor_interrupts.irq_UART2_3, 0, 0, 0);
+        #else
+        fnGenericUARTBreakHandling((KINETIS_UART_CONTROL *)UART3_BLOCK, iPort, irq_UART3_ID, ptrVect->processor_interrupts.irq_UART3, 0, 0, 0);
+        #endif
+        break;
+    #endif
+    #if UARTS_AVAILABLE > 4
+    case 4:
+        fnGenericUARTBreakHandling((KINETIS_UART_CONTROL *)UART4_BLOCK, iPort, irq_UART4_ID, ptrVect->processor_interrupts.irq_UART4, 0, 0, 0);
+        break;
+    #endif
+    #if UARTS_AVAILABLE > 5
+    case 5:
+        fnGenericUARTBreakHandling((KINETIS_UART_CONTROL *)UART5_BLOCK, iPort, irq_UART5_ID, ptrVect->processor_interrupts.irq_UART5, 0, 0, 0);
+        break;
+    #endif
+#endif
+    }
+#endif
 }
 
 
@@ -6471,16 +9753,17 @@ extern unsigned long fnSimDMA(char *argv[])
     unsigned long ulChannel = 0x00000001;
     unsigned long iChannel = 0;
     int _iDMA = iDMA;
+    int iNonPeripheralDMA = iDMA;
     #if defined SERIAL_INTERFACE && defined SERIAL_SUPPORT_DMA
     int *ptrCnt;
     #endif
 
     while (_iDMA != 0) {                                                 // while DMA operations to be performed
-        if (_iDMA & ulChannel) {                                         // DMA request on this channel
-            _iDMA &= ~ulChannel;
+        if ((_iDMA & ulChannel) != 0) {                                  // DMA request on this channel
+            _iDMA &= ~ulChannel;                                         // this channel will have been handled after this loop
             switch (iChannel) {
     #if defined SERIAL_INTERFACE && defined SERIAL_SUPPORT_DMA           // {4}
-            case DMA_UART0_TX_CHANNEL:                                   // handle UART DMA transmission on UART 0
+            case DMA_UART0_TX_CHANNEL:                                   // handle UART DMA transmission on LPUART/UART 0
         #if LPUARTS_AVAILABLE > 0 && !defined LPUARTS_PARALLEL
                 if ((LPUART0_BAUD & LPUART_BAUD_TDMAE) != 0)             // if DMA operation is enabled
         #else
@@ -6494,7 +9777,13 @@ extern unsigned long fnSimDMA(char *argv[])
                         }
                         else {
                             iDMA &= ~ulChannel;
-                            if (fnSimulateDMA(iChannel) > 0) {           // process the trigger
+                            iNonPeripheralDMA &= ~ulChannel;             // peripheral DMA handled
+        #if LPUARTS_AVAILABLE > 0 && !defined LPUARTS_PARALLEL
+                            if (fnSimulateDMA(iChannel, DMAMUX0_CHCFG_SOURCE_LPUART0_TX) > 0)
+        #else
+                            if (fnSimulateDMA(iChannel, DMAMUX0_CHCFG_SOURCE_UART0_TX) > 0)
+        #endif
+                            {                                            // process the trigger
                                 iDMA |= ulChannel;                       // further DMA triggers
                             }
                             else {
@@ -6513,21 +9802,27 @@ extern unsigned long fnSimDMA(char *argv[])
         #if ((UARTS_AVAILABLE + LPUARTS_AVAILABLE) > 1)
             case DMA_UART1_TX_CHANNEL:                                   // handle UART DMA transmission on UART 1
             #if LPUARTS_AVAILABLE > 1 && !defined LPUARTS_PARALLEL
-                if (LPUART1_BAUD & LPUART_BAUD_TDMAE)                    // if DMA operation is enabled
+                if ((LPUART1_BAUD & LPUART_BAUD_TDMAE) != 0)             // if DMA operation is enabled
             #elif defined KINETIS_KL
-                if (UART1_C4 & UART_C4_TDMAS)
+                if ((UART1_C4 & UART_C4_TDMAS) != 0)
             #else
-                if (UART1_C5 & UART_C5_TDMAS)
+                if ((UART1_C5 & UART_C5_TDMAS) != 0)
             #endif
                 {                                                        // if DMA operation is enabled
-                    ptrCnt = (int *)argv[THROUGHPUT_UART1];
+                    ptrCnt = (int *)argv[THROUGHPUT_UART1];              // maximum UART throughput during a tick interval
                     if (*ptrCnt != 0) {
                         if (--(*ptrCnt) == 0) {
                             iMasks |= ulChannel;                         // enough serial DMA transfers handled in this tick period
                         }
                         else {
                             iDMA &= ~ulChannel;
-                            if (fnSimulateDMA(iChannel) > 0) {           // process the trigger
+                            iNonPeripheralDMA &= ~ulChannel;             // peripheral DMA handled
+            #if LPUARTS_AVAILABLE > 1 && !defined LPUARTS_PARALLEL
+                            if (fnSimulateDMA(iChannel, DMAMUX0_CHCFG_SOURCE_LPUART1_TX) > 0)
+            #else
+                            if (fnSimulateDMA(iChannel, DMAMUX0_CHCFG_SOURCE_UART1_TX) > 0)
+            #endif
+                            {
                                 iDMA |= ulChannel;                       // further DMA triggers
                             }
                             else {
@@ -6546,12 +9841,12 @@ extern unsigned long fnSimDMA(char *argv[])
         #endif
         #if ((UARTS_AVAILABLE + LPUARTS_AVAILABLE) > 2)
             case DMA_UART2_TX_CHANNEL:                                   // handle UART DMA transmission on UART 2
-            #if defined KINETIS_KL && !defined KINETIS_KL43
-                if (UART2_C4 & UART_C4_TDMAS)
+            #if defined KINETIS_KL && (!defined K_STYLE_UART2 && !((LPUARTS_AVAILABLE == 3 && (UARTS_AVAILABLE == 0))))
+                if ((UART2_C4 & UART_C4_TDMAS) != 0)
             #elif LPUARTS_AVAILABLE > 2 && !defined LPUARTS_PARALLEL
-                if (LPUART2_BAUD & LPUART_BAUD_TDMAE)                    // if DMA operation is enabled
+                if ((LPUART2_BAUD & LPUART_BAUD_TDMAE) != 0)             // if DMA operation is enabled
             #else
-                if (UART2_C5 & UART_C5_TDMAS)
+                if ((UART2_C5 & UART_C5_TDMAS) != 0)
             #endif
                 {                                                        // if DMA operation is enabled
                     ptrCnt = (int *)argv[THROUGHPUT_UART2];
@@ -6561,14 +9856,20 @@ extern unsigned long fnSimDMA(char *argv[])
                         }
                         else {
                             iDMA &= ~ulChannel;
-                            if (fnSimulateDMA(iChannel) > 0) {           // process the trigger
+                            iNonPeripheralDMA &= ~ulChannel;             // peripheral DMA handled
+            #if LPUARTS_AVAILABLE > 2 && !defined LPUARTS_PARALLEL
+                            if (fnSimulateDMA(iChannel, DMAMUX0_CHCFG_SOURCE_LPUART2_TX) > 0)
+            #else
+                            if (fnSimulateDMA(iChannel, DMAMUX0_CHCFG_SOURCE_UART2_TX) > 0)
+            #endif
+                            {
                                 iDMA |= ulChannel;                       // further DMA triggers
                             }
                             else {
                                 fnUART_Tx_int(2);                        // handle possible pending interrupt after DMA completion
                             }
             #if LPUARTS_AVAILABLE > 2 && !defined LPUARTS_PARALLEL
-	                        fnLogTx1((unsigned char)LPUART2_DATA);
+	                        fnLogTx2((unsigned char)LPUART2_DATA);
             #else
 	                        fnLogTx2(UART2_D);
             #endif
@@ -6595,7 +9896,15 @@ extern unsigned long fnSimDMA(char *argv[])
                         }
                         else {
                             iDMA &= ~ulChannel;
-                            if (fnSimulateDMA(iChannel) > 0) {           // process the trigger
+                            iNonPeripheralDMA &= ~ulChannel;             // peripheral DMA handled
+            #if LPUARTS_AVAILABLE > 3 && !defined LPUARTS_PARALLEL
+                            if (fnSimulateDMA(iChannel, DMAMUX0_CHCFG_SOURCE_LPUART3_TX) > 0)
+            #elif UARTS_AVAILABLE == 3 && LPUARTS_AVAILABLE == 1 && defined LPUARTS_PARALLEL
+                            if (fnSimulateDMA(iChannel, DMAMUX0_CHCFG_SOURCE_LPUART0_TX) > 0)
+            #else
+                            if (fnSimulateDMA(iChannel, DMAMUX0_CHCFG_SOURCE_UART3_TX) > 0)
+            #endif
+                            {
                                 iDMA |= ulChannel;                       // further DMA triggers
                             }
                             else {
@@ -6629,7 +9938,13 @@ extern unsigned long fnSimDMA(char *argv[])
                         }
                         else {
                             iDMA &= ~ulChannel;
-                            if (fnSimulateDMA(iChannel) > 0) {           // process the trigger
+                            iNonPeripheralDMA &= ~ulChannel;             // peripheral DMA handled
+            #if LPUARTS_AVAILABLE > 4 && !defined LPUARTS_PARALLEL
+                            if (fnSimulateDMA(iChannel, DMAMUX0_CHCFG_SOURCE_LPUART4_TX) > 0)
+            #else
+                            if (fnSimulateDMA(iChannel, DMAMUX0_CHCFG_SOURCE_UART4_TX) > 0)
+            #endif
+                            {
                                 iDMA |= ulChannel;                       // further DMA triggers
                             }
                             else {
@@ -6646,23 +9961,38 @@ extern unsigned long fnSimDMA(char *argv[])
                 }
                 break;
         #endif
-        #if UARTS_AVAILABLE > 5
+        #if (UARTS_AVAILABLE + LPUARTS_AVAILABLE) > 5
             case DMA_UART5_TX_CHANNEL:                                   // handle UART DMA transmission on UART 5
-                if (UART5_C5 & UART_C5_TDMAS) {                          // if DMA operation is enabled
+            #if UARTS_AVAILABLE == 5
+                if ((LPUART0_BAUD & LPUART_BAUD_TDMAE) != 0)             // if DMA operation is enabled
+            #else
+                if ((UART5_C5 & UART_C5_TDMAS) != 0)                     // if DMA operation is enabled
+            #endif
+                {
                     ptrCnt = (int *)argv[THROUGHPUT_UART5];
-                    if (*ptrCnt) {
+                    if (*ptrCnt != 0) {
                         if (--(*ptrCnt) == 0) {
                             iMasks |= ulChannel;                         // enough serial DMA transfers handled in this tick period
                         }
                         else {
                             iDMA &= ~ulChannel;
-                            if (fnSimulateDMA(iChannel) > 0) {           // process the trigger
+                            iNonPeripheralDMA &= ~ulChannel;             // peripheral DMA handled
+            #if UARTS_AVAILABLE == 5
+                            if (fnSimulateDMA(iChannel, DMAMUX0_CHCFG_SOURCE_LPUART0_TX) > 0)
+            #else
+                            if (fnSimulateDMA(iChannel, DMAMUX0_CHCFG_SOURCE_UART5_TX) > 0)
+            #endif
+                            {
                                 iDMA |= ulChannel;                       // further DMA triggers
                             }
                             else {
                                 fnUART_Tx_int(5);                        // handle possible pending interrupt after DMA completion
                             }
+            #if UARTS_AVAILABLE == 5
+                            fnLogTx5((unsigned char)LPUART0_DATA);
+            #else
 	                        fnLogTx5(UART5_D);
+            #endif
                             ulNewActions |= SEND_COM_5;
                         }
                     }
@@ -6670,15 +10000,355 @@ extern unsigned long fnSimDMA(char *argv[])
                 break;
         #endif
     #endif
-            default:
-                iDMA &= ~ulChannel;
-    #if !defined KINETIS_KL
-                if (fnSimulateDMA(iChannel) > 1) {                      // process the trigger
-                    iDMA |= ulChannel;                                  // further DMA triggers
-                }
-    #endif
+            default:                                                     // not a channel used by LPUART/UART
                 break;
             }
+    #if defined I2C_INTERFACE && LPI2C_AVAILABLE > 0 && defined I2C_DMA_SUPPORT
+        #if LPI2C_AVAILABLE > 0
+            if (((iDMA & ulChannel) != 0) && (iChannel == DMA_I2C0_RX_CHANNEL)) { // handle I2C DMA reception on I2C0
+                if ((LPI2C0_MDER & LPI2C_MDER_RDDE) != 0) {              // if reception DMA is enabled
+                    ptrCnt = (int *)argv[THROUGHPUT_I2C0];
+                    if (*ptrCnt != 0) {
+                        if (--(*ptrCnt) == 0) {
+                            iMasks |= ulChannel;                         // enough serial DMA transfers handled in this tick period
+                        }
+                        else {
+                            iDMA &= ~ulChannel;
+                            iNonPeripheralDMA &= ~ulChannel;             // peripheral DMA handled
+                            LPI2C0_MRDR = fnSimI2C_devices(0, I2C_RX_DATA, (unsigned char)(LPI2C0_MRDR));
+                            if (fnSimulateDMA(iChannel, DMAMUX0_CHCFG_SOURCE_LPI2C0_RX) > 0) {
+                                iDMA |= ulChannel;                       // further DMA triggers
+                            }
+                            else {
+                            }
+                        }
+                    }
+                }
+            }
+            if (((iDMA & ulChannel) != 0) && (iChannel == DMA_I2C0_TX_CHANNEL)) { // handle I2C DMA transmission on I2C0
+                if ((LPI2C0_MDER & LPI2C_MDER_TDDE) != 0) {             // if transmission DMA is enabled
+                    ptrCnt = (int *)argv[THROUGHPUT_I2C0];
+                    if (*ptrCnt != 0) {
+                        if (--(*ptrCnt) == 0) {
+                            iMasks |= ulChannel;                         // enough serial DMA transfers handled in this tick period
+                        }
+                        else {
+                            iDMA &= ~ulChannel;
+                            iNonPeripheralDMA &= ~ulChannel;             // peripheral DMA handled
+                            if (fnSimulateDMA(iChannel, DMAMUX0_CHCFG_SOURCE_LPI2C0_TX) > 0) {
+                                fnSimI2C_devices(0, I2C_TX_DATA, (unsigned char)(LPI2C0_MTDR));
+                                iDMA |= ulChannel;                       // further DMA triggers
+                            }
+                            else {
+                            }
+                        }
+                    }
+                }
+            }
+        #endif
+        #if LPI2C_AVAILABLE > 1
+            if (((iDMA & ulChannel) != 0) && (iChannel == DMA_I2C1_RX_CHANNEL)) { // handle I2C DMA reception on I2C1
+                if ((LPI2C1_MDER & LPI2C_MDER_RDDE) != 0) {             // if reception DMA is enabled
+                    ptrCnt = (int *)argv[THROUGHPUT_I2C1];
+                    if (*ptrCnt != 0) {
+                        if (--(*ptrCnt) == 0) {
+                            iMasks |= ulChannel;                         // enough serial DMA transfers handled in this tick period
+                        }
+                        else {
+                            iDMA &= ~ulChannel;
+                            iNonPeripheralDMA &= ~ulChannel;             // peripheral DMA handled
+                            LPI2C1_MRDR = fnSimI2C_devices(1, I2C_RX_DATA, (unsigned char)(LPI2C1_MRDR));
+                            if (fnSimulateDMA(iChannel, DMAMUX0_CHCFG_SOURCE_LPI2C1_RX) > 0) {
+                                iDMA |= ulChannel;                       // further DMA triggers
+                            }
+                            else {
+                            }
+                        }
+                    }
+                }
+            }
+            if (((iDMA & ulChannel) != 0) && (iChannel == DMA_I2C1_TX_CHANNEL)) { // handle I2C DMA transmission on I2C1
+                if ((LPI2C1_MDER & LPI2C_MDER_TDDE) != 0) {             // if transmission DMA is enabled
+                    ptrCnt = (int *)argv[THROUGHPUT_I2C1];
+                    if (*ptrCnt != 0) {
+                        if (--(*ptrCnt) == 0) {
+                            iMasks |= ulChannel;                         // enough serial DMA transfers handled in this tick period
+                        }
+                        else {
+                            iDMA &= ~ulChannel;
+                            iNonPeripheralDMA &= ~ulChannel;             // peripheral DMA handled
+                            if (fnSimulateDMA(iChannel, DMAMUX0_CHCFG_SOURCE_LPI2C1_TX) > 0) {
+                                fnSimI2C_devices(1, I2C_TX_DATA, (unsigned char)(LPI2C1_MTDR));
+                                iDMA |= ulChannel;                       // further DMA triggers
+                            }
+                            else {
+                            }
+                        }
+                    }
+                }
+            }
+        #endif
+        #if LPI2C_AVAILABLE > 2
+            if (((iDMA & ulChannel) != 0) && (iChannel == DMA_I2C2_RX_CHANNEL)) { // handle I2C DMA reception on I2C2
+                if ((LPI2C2_MDER & LPI2C_MDER_RDDE) != 0) {             // if reception DMA is enabled
+                    ptrCnt = (int *)argv[THROUGHPUT_I2C2];
+                    if (*ptrCnt != 0) {
+                        if (--(*ptrCnt) == 0) {
+                            iMasks |= ulChannel;                         // enough serial DMA transfers handled in this tick period
+                        }
+                        else {
+                            iDMA &= ~ulChannel;
+                            iNonPeripheralDMA &= ~ulChannel;             // peripheral DMA handled
+                            LPI2C2_MRDR = fnSimI2C_devices(2, I2C_RX_DATA, (unsigned char)(LPI2C2_MRDR));
+                            if (fnSimulateDMA(iChannel, DMAMUX0_CHCFG_SOURCE_LPI2C2_RX) > 0) {
+                                iDMA |= ulChannel;                       // further DMA triggers
+                            }
+                            else {
+                            }
+                        }
+                    }
+                }
+            }
+            if (((iDMA & ulChannel) != 0) && (iChannel == DMA_I2C2_TX_CHANNEL)) { // handle I2C DMA transmission on I2C2
+                if ((LPI2C2_MDER & LPI2C_MDER_TDDE) != 0) {             // if transmission DMA is enabled
+                    ptrCnt = (int *)argv[THROUGHPUT_I2C2];
+                    if (*ptrCnt != 0) {
+                        if (--(*ptrCnt) == 0) {
+                            iMasks |= ulChannel;                         // enough serial DMA transfers handled in this tick period
+                        }
+                        else {
+                            iDMA &= ~ulChannel;
+                            iNonPeripheralDMA &= ~ulChannel;             // peripheral DMA handled
+                            if (fnSimulateDMA(iChannel, DMAMUX0_CHCFG_SOURCE_LPI2C2_TX) > 0) {
+                                fnSimI2C_devices(2, I2C_TX_DATA, (unsigned char)(LPI2C2_MTDR));
+                                iDMA |= ulChannel;                       // further DMA triggers
+                            }
+                            else {
+                            }
+                        }
+                    }
+                }
+            }
+        #endif
+    #endif
+    #if defined I2C_INTERFACE && LPI2C_AVAILABLE == 0 && defined I2C_DMA_SUPPORT
+        #if I2C_AVAILABLE > 0
+            if (((iDMA & ulChannel) != 0) && (iChannel == DMA_I2C0_RX_CHANNEL)) { // handle I2C DMA reception on I2C0
+                if ((I2C0_C1 & (I2C_MTX | I2C_IIEN | I2C_IEN | I2C_DMAEN)) == (I2C_IIEN | I2C_IEN | I2C_DMAEN)) { // if DMA is enabled
+                    ptrCnt = (int *)argv[THROUGHPUT_I2C0];
+                    if (*ptrCnt != 0) {
+                        if (--(*ptrCnt) == 0) {
+                            iMasks |= ulChannel;                         // enough serial DMA transfers handled in this tick period
+                        }
+                        else {
+            #if defined DMAMUX0_CHCFG_SOURCE_I2C0
+                            unsigned char ucDMA_Trigger = DMAMUX0_CHCFG_SOURCE_I2C0;
+            #elif defined DMAMUX0_CHCFG_SOURCE_I2C0_3
+                            unsigned char ucDMA_Trigger = DMAMUX0_CHCFG_SOURCE_I2C0_3;
+            #endif
+                            iDMA &= ~ulChannel;
+                            iNonPeripheralDMA &= ~ulChannel;             // peripheral DMA handled
+                            I2C0_D = fnSimI2C_devices(0, I2C_RX_DATA, I2C0_D);
+                            if (fnSimulateDMA(iChannel, ucDMA_Trigger) > 0) {
+                                iDMA |= ulChannel;                       // further DMA triggers
+                            }
+                            else {
+                            }
+                        }
+                    }
+                }
+            }
+            if (((iDMA & ulChannel) != 0) && (iChannel == DMA_I2C0_TX_CHANNEL)) { // handle I2C DMA transmission on I2C0
+                if ((I2C0_C1 & (I2C_MTX | I2C_IIEN | I2C_IEN | I2C_DMAEN)) == (I2C_MTX | I2C_IIEN | I2C_IEN | I2C_DMAEN)) { // if DMA is enabled
+                    ptrCnt = (int *)argv[THROUGHPUT_I2C0];
+                    if (*ptrCnt != 0) {
+                        if (--(*ptrCnt) == 0) {
+                            iMasks |= ulChannel;                         // enough serial DMA transfers handled in this tick period
+                        }
+                        else {
+            #if defined DMAMUX0_CHCFG_SOURCE_I2C0
+                            unsigned char ucDMA_Trigger = DMAMUX0_CHCFG_SOURCE_I2C0;
+            #elif defined DMAMUX0_CHCFG_SOURCE_I2C0_3
+                            unsigned char ucDMA_Trigger = DMAMUX0_CHCFG_SOURCE_I2C0_3;
+            #endif
+                            iDMA &= ~ulChannel;
+                            iNonPeripheralDMA &= ~ulChannel;             // peripheral DMA handled
+                            if (fnSimulateDMA(iChannel, ucDMA_Trigger) > 0) {
+                                I2C0_D = fnSimI2C_devices(0, I2C_TX_DATA, I2C0_D);
+                                iDMA |= ulChannel;                       // further DMA triggers
+                            }
+                            else {
+                            }
+                        }
+                    }
+                }
+            }
+        #endif
+        #if I2C_AVAILABLE > 1
+            if (((iDMA & ulChannel) != 0) && (iChannel == DMA_I2C1_RX_CHANNEL)) { // handle I2C DMA reception on I2C1
+                if ((I2C1_C1 & (I2C_MTX | I2C_IIEN | I2C_IEN | I2C_DMAEN)) == (I2C_IIEN | I2C_IEN | I2C_DMAEN)) { // if DMA is enabled
+                    ptrCnt = (int *)argv[THROUGHPUT_I2C1];
+                    if (*ptrCnt != 0) {
+                        if (--(*ptrCnt) == 0) {
+                            iMasks |= ulChannel;                         // enough serial DMA transfers handled in this tick period
+                        }
+                        else {
+            #if defined DMAMUX0_CHCFG_SOURCE_I2C1
+                            unsigned char ucDMA_Trigger = DMAMUX0_CHCFG_SOURCE_I2C1;
+            #elif defined DMAMUX0_CHCFG_SOURCE_I2C1_2
+                            unsigned char ucDMA_Trigger = DMAMUX0_CHCFG_SOURCE_I2C1_2;
+            #endif
+                            iDMA &= ~ulChannel;
+                            iNonPeripheralDMA &= ~ulChannel;             // peripheral DMA handled
+                            I2C1_D = fnSimI2C_devices(1, I2C_RX_DATA, I2C1_D);
+                            if (fnSimulateDMA(iChannel, ucDMA_Trigger) > 0) {
+                                iDMA |= ulChannel;                       // further DMA triggers
+                            }
+                            else {
+                            }
+                        }
+                    }
+                }
+            }
+            if (((iDMA & ulChannel) != 0) && (iChannel == DMA_I2C1_TX_CHANNEL)) { // handle I2C DMA transmission on I2C1
+                if ((I2C1_C1 & (I2C_MTX | I2C_IIEN | I2C_IEN | I2C_DMAEN)) == (I2C_MTX | I2C_IIEN | I2C_IEN | I2C_DMAEN)) { // if DMA is enabled
+                    ptrCnt = (int *)argv[THROUGHPUT_I2C1];
+                    if (*ptrCnt != 0) {
+                        if (--(*ptrCnt) == 0) {
+                            iMasks |= ulChannel;                         // enough serial DMA transfers handled in this tick period
+                        }
+                        else {
+            #if defined DMAMUX0_CHCFG_SOURCE_I2C1
+                            unsigned char ucDMA_Trigger = DMAMUX0_CHCFG_SOURCE_I2C1;
+            #elif defined DMAMUX0_CHCFG_SOURCE_I2C1_2
+                            unsigned char ucDMA_Trigger = DMAMUX0_CHCFG_SOURCE_I2C1_2;
+            #endif
+                            iDMA &= ~ulChannel;
+                            iNonPeripheralDMA &= ~ulChannel;             // peripheral DMA handled
+                            if (fnSimulateDMA(iChannel, ucDMA_Trigger) > 0) {
+                                I2C1_D = fnSimI2C_devices(1, I2C_TX_DATA, I2C1_D);
+                                iDMA |= ulChannel;                       // further DMA triggers
+                            }
+                            else {
+                            }
+                        }
+                    }
+                }
+            }
+        #endif
+        #if I2C_AVAILABLE > 2
+            if (((iDMA & ulChannel) != 0) && (iChannel == DMA_I2C2_RX_CHANNEL)) { // handle I2C DMA reception on I2C2
+                if ((I2C2_C1 & (I2C_MTX | I2C_IIEN | I2C_IEN | I2C_DMAEN)) == (I2C_IIEN | I2C_IEN | I2C_DMAEN)) { // if DMA is enabled
+                    ptrCnt = (int *)argv[THROUGHPUT_I2C2];
+                    if (*ptrCnt != 0) {
+                        if (--(*ptrCnt) == 0) {
+                            iMasks |= ulChannel;                         // enough serial DMA transfers handled in this tick period
+                        }
+                        else {
+            #if defined DMAMUX0_CHCFG_SOURCE_I2C2
+                            unsigned char ucDMA_Trigger = DMAMUX0_CHCFG_SOURCE_I2C2;
+            #elif defined DMAMUX0_CHCFG_SOURCE_I2C1_2
+                            unsigned char ucDMA_Trigger = DMAMUX0_CHCFG_SOURCE_I2C1_2;
+            #endif
+                            iDMA &= ~ulChannel;
+                            iNonPeripheralDMA &= ~ulChannel;             // peripheral DMA handled
+                            I2C2_D = fnSimI2C_devices(2, I2C_RX_DATA, I2C2_D);
+                            if (fnSimulateDMA(iChannel, ucDMA_Trigger) > 0) {
+                                iDMA |= ulChannel;                       // further DMA triggers
+                            }
+                            else {
+                            }
+                        }
+                    }
+                }
+            }
+            if (((iDMA & ulChannel) != 0) && (iChannel == DMA_I2C2_TX_CHANNEL)) { // handle I2C DMA transmission on I2C2
+                if ((I2C2_C1 & (I2C_MTX | I2C_IIEN | I2C_IEN | I2C_DMAEN)) == (I2C_MTX | I2C_IIEN | I2C_IEN | I2C_DMAEN)) { // if DMA is enabled
+                    ptrCnt = (int *)argv[THROUGHPUT_I2C2];
+                    if (*ptrCnt != 0) {
+                        if (--(*ptrCnt) == 0) {
+                            iMasks |= ulChannel;                         // enough serial DMA transfers handled in this tick period
+                        }
+                        else {
+            #if defined DMAMUX0_CHCFG_SOURCE_I2C2
+                            unsigned char ucDMA_Trigger = DMAMUX0_CHCFG_SOURCE_I2C2;
+            #elif defined DMAMUX0_CHCFG_SOURCE_I2C1_2
+                            unsigned char ucDMA_Trigger = DMAMUX0_CHCFG_SOURCE_I2C1_2;
+            #endif
+                            iDMA &= ~ulChannel;
+                            iNonPeripheralDMA &= ~ulChannel;             // peripheral DMA handled
+                            if (fnSimulateDMA(iChannel, ucDMA_Trigger) > 0) {
+                                I2C2_D = fnSimI2C_devices(2, I2C_TX_DATA, I2C2_D);
+                                iDMA |= ulChannel;                       // further DMA triggers
+                            }
+                            else {
+                            }
+                        }
+                    }
+                }
+            }
+        #endif
+        #if I2C_AVAILABLE > 3
+            if (((iDMA & ulChannel) != 0) && (iChannel == DMA_I2C3_RX_CHANNEL)) { // handle I2C DMA reception on I2C3
+                if ((I2C3_C1 & (I2C_MTX | I2C_IIEN | I2C_IEN | I2C_DMAEN)) == (I2C_IIEN | I2C_IEN | I2C_DMAEN)) { // if DMA is enabled
+                    ptrCnt = (int *)argv[THROUGHPUT_I2C3];
+                    if (*ptrCnt != 0) {
+                        if (--(*ptrCnt) == 0) {
+                            iMasks |= ulChannel;                         // enough serial DMA transfers handled in this tick period
+                        }
+                        else {
+            #if defined DMAMUX0_CHCFG_SOURCE_I2C3
+                            unsigned char ucDMA_Trigger = DMAMUX0_CHCFG_SOURCE_I2C3;
+            #elif defined DMAMUX0_CHCFG_SOURCE_I2C0_3
+                            unsigned char ucDMA_Trigger = DMAMUX0_CHCFG_SOURCE_I2C0_3;
+            #endif
+                            iDMA &= ~ulChannel;
+                            iNonPeripheralDMA &= ~ulChannel;             // peripheral DMA handled
+                            I2C3_D = fnSimI2C_devices(3, I2C_RX_DATA, I2C3_D);
+                            if (fnSimulateDMA(iChannel, ucDMA_Trigger) > 0) {
+                                iDMA |= ulChannel;                       // further DMA triggers
+                            }
+                            else {
+                            }
+                        }
+                    }
+                }
+            }
+            if (((iDMA & ulChannel) != 0) && (iChannel == DMA_I2C3_TX_CHANNEL)) { // handle I2C DMA transmission on I2C3
+                if ((I2C3_C1 & (I2C_MTX | I2C_IIEN | I2C_IEN | I2C_DMAEN)) == (I2C_MTX | I2C_IIEN | I2C_IEN | I2C_DMAEN)) { // if DMA is enabled
+                    ptrCnt = (int *)argv[THROUGHPUT_I2C3];
+                    if (*ptrCnt != 0) {
+                        if (--(*ptrCnt) == 0) {
+                            iMasks |= ulChannel;                         // enough serial DMA transfers handled in this tick period
+                        }
+                        else {
+            #if defined DMAMUX0_CHCFG_SOURCE_I2C3
+                            unsigned char ucDMA_Trigger = DMAMUX0_CHCFG_SOURCE_I2C3;
+            #elif defined DMAMUX0_CHCFG_SOURCE_I2C0_3
+                            unsigned char ucDMA_Trigger = DMAMUX0_CHCFG_SOURCE_I2C0_3;
+            #endif
+                            iDMA &= ~ulChannel;
+                            iNonPeripheralDMA &= ~ulChannel;             // peripheral DMA handled
+                            if (fnSimulateDMA(iChannel, ucDMA_Trigger) > 0) {
+                                I2C3_D = fnSimI2C_devices(3, I2C_TX_DATA, I2C3_D);
+                                iDMA |= ulChannel;                       // further DMA triggers
+                            }
+                            else {
+                            }
+                        }
+                    }
+                }
+            }
+        #endif
+            if ((iNonPeripheralDMA & ulChannel & ~iMasks) != 0) {       // if not handled by a peripheral
+                iDMA &= ~ulChannel;
+        #if !defined KINETIS_KL || defined DEVICE_WITH_eDMA
+                if (fnSimulateDMA(iChannel, 0) > 1) {                   // process the trigger
+                    iDMA |= ulChannel;                                  // further DMA triggers
+                }
+        #endif
+            }
+    #endif
         }
         ulChannel <<= 1;
         iChannel++;
@@ -6702,7 +10372,7 @@ extern void fnSimulateLinkUp(void)
     fnSimulateInputChange(PHY_INTERRUPT_PORT, ucPortBit, CLEAR_INPUT);   // clear level sensitive interrupt input
     #endif
     fnUpdateIPConfig();                                                  // update display in simulator
-#elif defined USB_CDC_RNDIS
+#elif defined USB_CDC_RNDIS || defined USB_RNDIS_HOST || defined USE_PPP
     fnUpdateIPConfig();                                                  // update display in simulator
 #endif
 }
@@ -6711,7 +10381,7 @@ extern void fnSimulateLinkUp(void)
 extern void fec_txf_isr(void)
 {
     EIR |= (TXF | TXB);                                                  // set frame and buffer interrupt events
-    if (EIMR & TXF) {                                                    // if interrupt is enabled
+    if ((EIMR & TXF) != 0) {                                             // if interrupt is enabled
         VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
         ptrVect->processor_interrupts.irq_ETH_TX();                      // call the interrupt handler
 	}
@@ -6719,7 +10389,6 @@ extern void fec_txf_isr(void)
 #endif
 
 #if (defined SUPPORT_RTC && !defined KINETIS_WITHOUT_RTC) || defined SUPPORT_SW_RTC
-
 #define NTP_TO_1970_TIME 2208988800u
 #define LEAP_YEAR(year) ((year%4)==0)                                    // valid from 1970 to 2038
 static const unsigned char monthDays[]={31,28,31,30,31,30,31,31,30,31,30,31};
@@ -6741,7 +10410,7 @@ extern void fnInitInternalRTC(char *argv[])
 
     ulKinetisTime = ((RTC_YEAR - 1970) * 365);                           // years since reference time, represented in days without respecting leap years
     while (ulLeapYears <= RTC_YEAR) {                                    // {11}
-        if (LEAP_YEAR(ulLeapYears)) {                                    // count leap years
+        if (LEAP_YEAR(ulLeapYears) != 0) {                               // count leap years
             if (ulLeapYears == RTC_YEAR) {                               // presently in a leap year
                 if ((RTC_MONTH > 2) && (RTC_DOM > 28)) {                 // {27} past February 28 so count extra leap day in this year
                     ulKinetisTime++;
@@ -6763,7 +10432,7 @@ extern void fnInitInternalRTC(char *argv[])
     ulKinetisTime += RTC_MIN;                                            // add minutes in present hour
     ulKinetisTime *= 60;                                                 // convert minutes to seconds
     ulKinetisTime += RTC_SEC;                                            // add seconds in present minute
-    #if !defined KINETIS_WITHOUT_RTC && !defined KINETIS_KE
+    #if !defined KINETIS_WITHOUT_RTC && !(defined KINETIS_KE && !defined KINETIS_WITH_SRTC)
         #if defined KINETIS_KL && defined RTC_USES_LPO_1kHz
     RTC_TSR = ulKinetisTime;                                             // set the initial seconds count value (since 1970)
     *RTC_SECONDS_LOCATION = ulKinetisTime;                               // set time information to non-initialised ram
@@ -6788,16 +10457,25 @@ static void fnTriggerADC(int iADC, int iHW_trigger)
 {
     switch (iADC) {
     case 0:                                                              // ADC0
-        if (IS_POWERED_UP(6, SIM_SCGC6_ADC0) && ((ADC0_SC1A & ADC_SC1A_ADCH_OFF) != ADC_SC1A_ADCH_OFF)) { // ADC0 powered up and operating
+        if (IS_POWERED_UP(6, ADC0) && ((ADC0_SC1A & ADC_SC1A_ADCH_OFF) != ADC_SC1A_ADCH_OFF)) { // ADC0 powered up and operating
             if ((iHW_trigger != 0) || ((ADC0_SC2 & ADC_SC2_ADTRG_HW) == 0)) { // hardware or software trigger
                 fnSimADC(0);                                             // perform ADC conversion
                 if ((ADC0_SC1A & ADC_SC1A_COCO) != 0) {                  // {40} if conversion has completed
-                    fnHandleDMA_triggers(DMAMUX_CHCFG_SOURCE_ADC0, 0);   // handle DMA triggered on ADC0 conversion
+    #if !defined DEVICE_WITHOUT_DMA
+                    fnHandleDMA_triggers(DMAMUX0_CHCFG_SOURCE_ADC0, 0);  // handle DMA triggered on ADC0 conversion
+    #endif
                     if ((ADC0_SC1A & ADC_SC1A_AIEN) != 0) {              // end of conversion interrupt enabled
+    #if defined irq_ADCA_ID
+                        if (fnGenInt(irq_ADCA_ID) != 0) {                // if ADCA interrupt is not disabled
+                            VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
+                            ptrVect->processor_interrupts.irq_ADCA();    // call the interrupt handler
+                        }
+    #else
                         if (fnGenInt(irq_ADC0_ID) != 0) {                // if ADC0 interrupt is not disabled
                             VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
                             ptrVect->processor_interrupts.irq_ADC0();    // call the interrupt handler
                         }
+    #endif
                     }
                 }
             }
@@ -6805,16 +10483,28 @@ static void fnTriggerADC(int iADC, int iHW_trigger)
         break;
     #if ADC_CONTROLLERS > 1
     case 1:                                                              // ADC1
-        if (IS_POWERED_UP(3, SIM_SCGC3_ADC1) && ((ADC1_SC1A & ADC_SC1A_ADCH_OFF) != ADC_SC1A_ADCH_OFF)) { // ADC1 powered up and operating
-            if ((ADC1_SC2 & ADC_SC2_ADTRG_HW) == 0) {                    // software trigger mode
+        #if defined KINETIS_K22_SF7
+        if (IS_POWERED_UP(6, ADC1) && ((ADC1_SC1A & ADC_SC1A_ADCH_OFF) != ADC_SC1A_ADCH_OFF))
+        #else
+        if (IS_POWERED_UP(3, ADC1) && ((ADC1_SC1A & ADC_SC1A_ADCH_OFF) != ADC_SC1A_ADCH_OFF))
+        #endif
+        {                                                                // ADC1 powered up and operating
+            if ((iHW_trigger != 0) || ((ADC1_SC2 & ADC_SC2_ADTRG_HW) == 0)) { // hardware or software trigger mode
                 fnSimADC(1);                                             // perform ADC conversion
                 if ((ADC1_SC1A & ADC_SC1A_COCO) != 0) {                  // {40} if conversion has completed
-                    fnHandleDMA_triggers(DMAMUX_CHCFG_SOURCE_ADC1, 0);   // handle DMA triggered on ADC1 conversion
+                    fnHandleDMA_triggers(DMAMUX0_CHCFG_SOURCE_ADC1, 0);  // handle DMA triggered on ADC1 conversion
                     if ((ADC1_SC1A & ADC_SC1A_AIEN) != 0) {              // end of conversion interrupt enabled
+        #if defined irq_ADCB_ID
+                        if (fnGenInt(irq_ADCB_ID) != 0) {                // if ADCB interrupt is not disabled
+                            VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
+                            ptrVect->processor_interrupts.irq_ADCB();    // call the interrupt handler
+                        }
+        #else
                         if (fnGenInt(irq_ADC1_ID) != 0) {                // if ADC1 interrupt is not disabled
                             VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
                             ptrVect->processor_interrupts.irq_ADC1();    // call the interrupt handler
                         }
+        #endif
                     }
                 }
             }
@@ -6823,10 +10513,11 @@ static void fnTriggerADC(int iADC, int iHW_trigger)
     #endif
     #if ADC_CONTROLLERS > 2
     case 2:                                                              // ADC2
-        if ((SIM_SCGC6 & SIM_SCGC6_ADC2) && ((ADC2_SC1A & ADC_SC1A_ADCH_OFF) != ADC_SC1A_ADCH_OFF)) { // ADC2 powered up and operating
-            if ((ADC2_SC2 & ADC_SC2_ADTRG_HW) == 0) {                    // software trigger mode
+        if ((IS_POWERED_UP(6, ADC2)) && ((ADC2_SC1A & ADC_SC1A_ADCH_OFF) != ADC_SC1A_ADCH_OFF)) { // ADC2 powered up and operating
+            if ((iHW_trigger != 0) || ((ADC2_SC2 & ADC_SC2_ADTRG_HW) == 0)) { // hardware or software trigger mode
                 fnSimADC(2);                                             // perform ADC conversion
                 if ((ADC2_SC1A & ADC_SC1A_COCO) != 0) {                  // {40} if conversion has completed
+        #if !defined KINETIS_KE18                                        // to be done
                     fnHandleDMA_triggers(DMAMUX1_CHCFG_SOURCE_ADC2, 1);  // handle DMA triggered on ADC2 conversion
                     if ((ADC2_SC1A & ADC_SC1A_AIEN) != 0) {              // end of conversion interrupt enabled
                         if (fnGenInt(irq_ADC2_ID) != 0) {                // if ADC2 interrupt is not disabled
@@ -6834,6 +10525,7 @@ static void fnTriggerADC(int iADC, int iHW_trigger)
                             ptrVect->processor_interrupts.irq_ADC2();    // call the interrupt handler
                         }
                     }
+        #endif
                 }
             }
         }
@@ -6841,8 +10533,8 @@ static void fnTriggerADC(int iADC, int iHW_trigger)
     #endif
     #if ADC_CONTROLLERS > 3
     case 3:                                                              // ADC3
-        if ((SIM_SCGC3 & SIM_SCGC3_ADC3) && ((ADC3_SC1A & ADC_SC1A_ADCH_OFF) != ADC_SC1A_ADCH_OFF)) { // ADC3 powered up and operating
-            if ((ADC3_SC2 & ADC_SC2_ADTRG_HW) == 0) {                    // software trigger mode
+        if ((IS_POWERED_UP(3, ADC3)) && ((ADC3_SC1A & ADC_SC1A_ADCH_OFF) != ADC_SC1A_ADCH_OFF)) { // ADC3 powered up and operating
+            if ((iHW_trigger != 0) || ((ADC3_SC2 & ADC_SC2_ADTRG_HW) == 0)) { // hardware or software trigger mode
                 fnSimADC(3);                                             // perform ADC conversion
                 if ((ADC3_SC1A & ADC_SC1A_COCO) != 0) {                  // {40} if conversion has completed
                     fnHandleDMA_triggers(DMAMUX1_CHCFG_SOURCE_ADC3, 1);  // handle DMA triggered on ADC3 conversion
@@ -6861,11 +10553,19 @@ static void fnTriggerADC(int iADC, int iHW_trigger)
 }
 #endif
 
+
 // We can simulate timers during a tick here if required
 //
 extern int fnSimTimers(void)
 {
-#if !defined KINETIS_KL                                                  // {24}
+#if !defined BOOT_LOADER
+#if defined PIT_TCTRL_CHN
+    unsigned long ulPITinc = 0;
+#endif
+#if defined SERIAL_INTERFACE
+    int iUART = 0;
+#endif
+#if PDB_AVAILABLE > 0                                                    // {24}
     static int iPDB = 0;
     static int iPDB_interrupt_triggered = 0;
     static int iPDB_ch0_0_triggered = 0;
@@ -6879,12 +10579,38 @@ extern int fnSimTimers(void)
     fnSimCAN(0, 0, CAN_SIM_CHECK_RX);                                    // poll the CAN interface at the tick rate
 #endif
 
-    if (APPLICATION_INT_RESET_CTR_REG & SYSRESETREQ) {
+    if ((APPLICATION_INT_RESET_CTR_REG & SYSRESETREQ) != 0) {
         return RESET_SIM_CARD;                                           // commanded reset
     }
     // Watchdog
     //
-#if defined KINETIS_KL && !defined KINETIS_KL82                          // {24}
+#if defined KINETIS_WITH_WDOG32
+    if ((WDOG0_CS & WDOG_CS_EN) != 0) {                                  // if the watchdog is enabled
+    #if TICK_RESOLUTION >= 1000
+        #if defined KINETIS_KE15 || defined KINETIS_KE18
+        unsigned long ulCounter = ((128 * TICK_RESOLUTION)/1000);        // assume 128000Hz LPO clock
+        #else
+        unsigned long ulCounter = (TICK_RESOLUTION / 1000);              // assume 1000Hz LPO clock
+        #endif
+    #else
+        #if defined KINETIS_KE15 || defined KINETIS_KE18
+        unsigned long ulCounter = 128;                                   // assume 128000Hz LPO clock
+        #else
+        unsigned long ulCounter = 1;                                     // assume 1000Hz LPO clock
+        #endif
+    #endif
+        unsigned long ulWdogCnt = WDOG0_CNT;                             // present watchdog count value
+        unsigned long ulWdogTimeout = WDOG0_TOVAL;                       // timeout value
+        if ((WDOG0_CS & WDOG_CS_PRES_256) != 0) {                        // if the fixed 256 prescaler is enabled
+            ulCounter /= 256;
+        }
+        ulWdogCnt += ulCounter;                                          // next value
+        if (ulWdogCnt >= ulWdogTimeout) {
+            return RESET_CARD_WATCHDOG;                                  // watchdog reset
+        }
+        WDOG0_CNT = (unsigned short)ulWdogCnt;                           // new watchdog count value
+    }
+#elif defined KINETIS_WITH_COP // {24}
     if ((SIM_COPC & SIM_COPC_COPT_LONGEST) != SIM_COPC_COPT_DISABLED) {  // check only when COP is enabled 
         if (SIM_SRVCOP == SIM_SRVCOP_2) {                                // assume retriggered
             ulCOPcounter = 0;
@@ -6944,13 +10670,20 @@ extern int fnSimTimers(void)
         unsigned long ulWdogTimeout = ((WDOG_TOVALH << 8) | WDOG_TOVALL);// timeout value
         ulWdogCnt += ulCounter;                                          // next value
         if (ulWdogCnt >= ulWdogTimeout) {
-          //return RESET_CARD_WATCHDOG;                                  // watchdog reset
+            if ((WDOG_CS1 & WDOG_CS1_INT) != 0) {                        // if an interrupt is enabled we first call it
+                WDOG_CS2 |= WDOG_CS2_FLG;                                // set iterrupt flag
+                if (fnGenInt(irq_WDOG_ID) != 0) {                        // if watchdog interrupt is not disabled
+                    VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
+                    ptrVect->processor_interrupts.irq_WDOG0();           // call the interrupt handler (the wathdog unconditionally resets after 128 bus clocks)
+                }
+            }
+            return RESET_CARD_WATCHDOG;                                  // watchdog reset
         }
         WDOG_CNTH = (unsigned char)(ulWdogCnt >> 8);                     // new watchdog count value
         WDOG_CNTL = (unsigned char)(ulWdogCnt);
     }
 #else
-    if (WDOG_STCTRLH & WDOG_STCTRLH_WDOGEN) {                            // watchdog enabled
+    if ((WDOG_STCTRLH & WDOG_STCTRLH_WDOGEN) != 0) {                     // watchdog enabled
     #if TICK_RESOLUTION >= 1000
         unsigned long ulCounter = (TICK_RESOLUTION/1000);                // {28} assume 1000Hz LPO clock
     #else
@@ -6958,12 +10691,30 @@ extern int fnSimTimers(void)
     #endif
         unsigned long ulWatchdogCount = ((WDOG_TMROUTH << 16) | (WDOG_TMROUTL)); // present watchdog count
         unsigned long ulWatchdogTimeout = ((WDOG_TOVALH << 16) | (WDOG_TOVALL)); // watchdog timeout value        
-        if (WDOG_STCTRLH & WDOG_STCTRLH_CLKSRC) {                        // not sure which source is which at the moment
+        if ((WDOG_STCTRLH & WDOG_STCTRLH_CLKSRC) != 0) {                 // not sure which source is which at the moment
         }
         else {
             ulCounter /= (((WDOG_PRESC >> 8) & 0x7) + 1);                // {28} respect LPO clock presecaler
         }        
         if ((ulWatchdogCount + ulCounter) >= ulWatchdogTimeout) {
+            if ((WDOG_STCTRLH & WDOG_STCTRLH_IRQRSTEN) != 0) {           // if an interrupt is enabled we first call it
+                WDOG_STCTRLL |= WDOG_STCTRLL_INTFLG;
+    #if !defined irq_WDOG_ID && defined INTMUX0_AVAILABLE
+                if (fnGenInt(irq_INTMUX0_0_ID) != 0)                     // {46}
+    #elif defined irq_WDOG_EWM_ID
+                if (fnGenInt(irq_WDOG_EWM_ID) != 0)
+    #else
+                if (fnGenInt(irq_WDOG_ID) != 0)
+    #endif
+                {                                                        // if watchdog interrupt is not disabled
+                    VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
+    #if defined INTMUX0_AVAILABLE
+                    fnCallINTMUX(INTMUX_WDOG0, INTMUX0_PERIPHERAL_WDOG0_EWM, (unsigned char *)&ptrVect->processor_interrupts.irq_WDOG0);
+    #else
+                    ptrVect->processor_interrupts.irq_WDOG0();           // call the interrupt handler
+    #endif
+                }
+            }
             return RESET_CARD_WATCHDOG;                                  // watchdog reset
         }
         else {
@@ -6980,25 +10731,160 @@ extern int fnSimTimers(void)
         if ((SYSTICK_CSR & SYSTICK_CORE_CLOCK) != 0) {
             ulTickCount = (unsigned long)((unsigned long long)((unsigned long long)TICK_RESOLUTION * (unsigned long long)SYSTEM_CLOCK)/1000000); // count per tick period from internal clock
         }
-        if ((SYSTICK_CURRENT + 1) > ulTickCount) {
+        if (ulTickCount < SYSTICK_CURRENT) {
             SYSTICK_CURRENT -= ulTickCount;
         }
         else {
             SYSTICK_CURRENT = SYSTICK_RELOAD;
             if ((SYSTICK_CSR & SYSTICK_TICKINT) != 0) {                  // if interrupt enabled
-                INT_CONT_STATE_REG |= PENDSTSET;
-#if defined RUN_IN_FREE_RTOS
-                fnExecutePendingInterrupts(0);
-#else
+                INT_CONT_STATE_REG |= PENDSTSET;                         // set the systick as pending
                 if ((kinetis.CORTEX_M4_REGS.ulPRIMASK & INTERRUPT_MASKED) == 0) { // if global interrupts have been enabled, call interrupt handler
+#if defined RUN_IN_FREE_RTOS
+                    fnExecutePendingInterrupts(0);
+#else
                     ptrVect->ptrSysTick();                               // call the systick interrupt service routine
-                }
 #endif
+                }
             }
         }
     }
-
+    // PIT
+    //
 #if !defined KINETIS_WITHOUT_PIT
+    #if defined LPITS_AVAILABLE                                          // {47}
+    if (((PCC_LPIT0 & PCC_CGC) != 0) && ((LPIT0_MCR & (LPIT_MCR_M_CEN | LPIT_MCR_SW_RST)) == LPIT_MCR_M_CEN)) { // if the LPIT is enabled and not in reset state
+        unsigned long ulCount;
+        switch (PCC_LPIT0 & PCC_PCS_MASK) {
+        case PCC_PCS_SCGFIRCLK:
+            ulCount = (unsigned long)(((unsigned long long)TICK_RESOLUTION * (unsigned long long)FIRC_CLK) / 1000000); // count in a tick period
+            break;
+        case PCC_PCS_OSCCLK:
+        case PCC_PCS_SCGIRCLK:
+        case PCC_PCS_SCGPCLK:
+            _EXCEPTION("To do!");
+            break;
+        case PCC_PCS_CLOCK_OFF:
+        default:
+            _EXCEPTION("No LPIT clock!");
+            break;
+
+        }
+        if ((LPIT0_TCTRL0 & LPIT_TCTRL_T_EN) != 0) {                     // if channel 0 is enabled
+            if (LPIT0_CVAL0 <= ulCount) {
+                ulCount -= LPIT0_CVAL0;
+                LPIT0_CVAL0 = LPIT0_TVAL0;                               // reload
+                if (ulCount < LPIT0_TVAL0) {
+                    LPIT0_CVAL0 -= ulCount;
+                }
+                LPIT0_MSR |= LPIT_MSR_TIF0;                              // flag that a reload occurred
+                fnHandleDMA_triggers(DMAMUX0_DMA0_CHCFG_SOURCE_PIT0, 0); // handle DMA triggered on LPIT0
+                if ((LPIT0_MIER & LPIT_MIER_TIE0) != 0) {                // if PIT interrupt is enabled
+        #if defined irq_LPIT0_CH0_ID
+                    if (fnGenInt(irq_LPIT0_CH0_ID) != 0) {               // if PIT channel interrupt is not disabled
+                        VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
+                        ptrVect->processor_interrupts.irq_LPIT0_CH0();   // call the interrupt handler
+                    }
+        #else
+                    if (fnGenInt(irq_LPIT0_ID) != 0) {                   // if general PIT interrupt is not disabled
+                        VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
+                        ptrVect->processor_interrupts.irq_LPIT0();       // call the shared interrupt handler
+                    }
+        #endif
+                }
+            }
+            else {
+                LPIT0_CVAL0 -= ulCount;
+            }
+        }
+        if ((LPIT0_TCTRL1 & LPIT_TCTRL_T_EN) != 0) {                     // if channel 1 is enabled
+            if (LPIT0_CVAL1 <= ulCount) {
+                ulCount -= LPIT0_CVAL1;
+                LPIT0_CVAL1 = LPIT0_TVAL1;                               // reload
+                if (ulCount < LPIT0_TVAL1) {
+                    LPIT0_CVAL1 -= ulCount;
+                }
+                LPIT0_MSR |= LPIT_MSR_TIF1;                              // flag that a reload occurred
+        #if !defined KINETIS_KL82                                        // not yet supported
+                fnHandleDMA_triggers(DMAMUX0_DMA0_CHCFG_SOURCE_PIT1, 0); // handle DMA triggered on LPIT1
+        #endif
+                if ((LPIT0_MIER & LPIT_MIER_TIE1) != 0) {                // if PIT interrupt is enabled
+        #if defined irq_LPIT0_CH1_ID
+                    if (fnGenInt(irq_LPIT0_CH1_ID) != 0) {               // if PIT channel interrupt is not disabled
+                        VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
+                        ptrVect->processor_interrupts.irq_LPIT0_CH1();   // call the interrupt handler
+                    }
+        #else
+                    if (fnGenInt(irq_LPIT0_ID) != 0) {                   // if general PIT interrupt is not disabled
+                        VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
+                        ptrVect->processor_interrupts.irq_LPIT0();       // call the shared interrupt handler
+                    }
+        #endif
+                }
+            }
+            else {
+                LPIT0_CVAL1 -= ulCount;
+            }
+        }
+        if ((LPIT0_TCTRL2 & LPIT_TCTRL_T_EN) != 0) {                     // if channel 2 is enabled
+            if (LPIT0_CVAL2 <= ulCount) {
+                ulCount -= LPIT0_CVAL2;
+                LPIT0_CVAL2 = LPIT0_TVAL2;                               // reload
+                if (ulCount < LPIT0_TVAL2) {
+                    LPIT0_CVAL2 -= ulCount;
+                }
+                LPIT0_MSR |= LPIT_MSR_TIF2;                              // flag that a reload occurred
+        #if !defined KINETIS_KL82                                        // not yet supported
+                fnHandleDMA_triggers(DMAMUX0_DMA0_CHCFG_SOURCE_PIT2, 0); // handle DMA triggered on LPIT2
+        #endif
+                if ((LPIT0_MIER & LPIT_MIER_TIE2) != 0) {                // if PIT interrupt is enabled
+        #if defined irq_LPIT0_CH2_ID
+                    if (fnGenInt(irq_LPIT0_CH2_ID) != 0) {               // if PIT channel interrupt is not disabled
+                        VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
+                        ptrVect->processor_interrupts.irq_LPIT0_CH2();   // call the interrupt handler
+                    }
+        #else
+                    if (fnGenInt(irq_LPIT0_ID) != 0) {                   // if general PIT interrupt is not disabled
+                        VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
+                        ptrVect->processor_interrupts.irq_LPIT0();       // call the shared interrupt handler
+                    }
+        #endif
+                }
+            }
+            else {
+                LPIT0_CVAL2 -= ulCount;
+            }
+        }
+        if ((LPIT0_TCTRL3 & LPIT_TCTRL_T_EN) != 0) {                     // if channel 3 is enabled
+            if (LPIT0_CVAL3 <= ulCount) {
+                ulCount -= LPIT0_CVAL3;
+                LPIT0_CVAL3 = LPIT0_TVAL3;                               // reload
+                if (ulCount < LPIT0_TVAL3) {
+                    LPIT0_CVAL3 -= ulCount;
+                }
+                LPIT0_MSR |= LPIT_MSR_TIF3;                              // flag that a reload occurred
+        #if !defined KINETIS_KL82                                        // not yet supported
+                fnHandleDMA_triggers(DMAMUX0_DMA0_CHCFG_SOURCE_PIT3, 0); // handle DMA triggered on LPIT3
+        #endif
+                if ((LPIT0_MIER & LPIT_MIER_TIE3) != 0) {                // if PIT interrupt is enabled
+        #if defined irq_LPIT0_CH3_ID
+                    if (fnGenInt(irq_LPIT0_CH3_ID) != 0) {               // if PIT channel interrupt is not disabled
+                        VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
+                        ptrVect->processor_interrupts.irq_LPIT0_CH3();   // call the interrupt handler
+                    }
+        #else
+                    if (fnGenInt(irq_LPIT0_ID) != 0) {                   // if general PIT interrupt is not disabled
+                        VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
+                        ptrVect->processor_interrupts.irq_LPIT0();       // call the shared interrupt handler
+                    }
+        #endif
+                }
+            }
+            else {
+                LPIT0_CVAL3 -= ulCount;
+            }
+        }
+    }
+    #else
     if ((PIT_MCR & PIT_MCR_MDIS) == 0) {                                 // if PIT module is not disabled
         if ((PIT_TCTRL0 & PIT_TCTRL_TEN) != 0) {                         // if PIT0 is enabled
             unsigned long ulCount = (unsigned long)(((unsigned long long)TICK_RESOLUTION * (unsigned long long)BUS_CLOCK)/1000000); // count in a tick period
@@ -7008,16 +10894,21 @@ extern int fnSimTimers(void)
                     ulCount = 0;
                 }
                 PIT_CVAL0 = PIT_LDVAL0;                                  // reload
+    #if defined PIT_TCTRL_CHN
+                ulPITinc = 1;
+    #endif
                 PIT_CVAL0 -= ulCount;
                 PIT_TFLG0 = PIT_TFLG_TIF;                                // flag that a reload occurred
+    #if !defined KINETIS_KM && !defined DEVICE_WITHOUT_DMA
                 fnHandleDMA_triggers(DMAMUX0_DMA0_CHCFG_SOURCE_PIT0, 0); // handle DMA triggered on PIT0
+    #endif
     #if defined KINETIS_KE
                 if ((SIM_SOPT0 & SIM_SOPT_ADHWT_PIT0) != 0) {            // if PIT0 overflow is programmed to trigger ADC0 conversion
         #if defined SUPPORT_ADC
                     fnTriggerADC(0, 1);
         #endif
                 }
-    #else
+    #elif !defined KINETIS_WITH_PCC
                 switch ((SIM_SOPT7 & SIM_SOPT7_ADC0TRGSEL_CMP3)) {
                 case SIM_SOPT7_ADC0TRGSEL_PIT0:                          // if PIT0 is configured to trigger ADC0 conversion
         #if defined SUPPORT_ADC
@@ -7025,9 +10916,18 @@ extern int fnSimTimers(void)
         #endif
                     break;
                 }
+        #if ADC_CONTROLLERS > 1
+                switch ((SIM_SOPT7 & SIM_SOPT7_ADC1TRGSEL_CMP3)) {
+                case SIM_SOPT7_ADC1TRGSEL_PIT0:                          // if PIT0 is configured to trigger ADC1 conversion
+            #if defined SUPPORT_ADC
+                    fnTriggerADC(1, 1);
+            #endif
+                    break;
+                }
+        #endif
     #endif
                 if ((PIT_TCTRL0 & PIT_TCTRL_TIE) != 0) {                 // if PIT interrupt is enabled
-    #if defined KINETIS_KL && !defined KINETIS_KE                        // {24}
+    #if defined PIT_SINGLE_INTERRUPT
                     if (fnGenInt(irq_PIT_ID) != 0) {                     // if general PIT interrupt is not disabled
                         VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
                         ptrVect->processor_interrupts.irq_PIT();         // call the shared interrupt handler
@@ -7045,17 +10945,33 @@ extern int fnSimTimers(void)
             }
         }
         if ((PIT_TCTRL1 & PIT_TCTRL_TEN) != 0) {                         // if PIT1 is enabled
-            unsigned long ulCount = (unsigned long)(((unsigned long long)TICK_RESOLUTION * (unsigned long long)BUS_CLOCK)/1000000); // count in a tick period
+    #if defined PIT_TCTRL_CHN
+            unsigned long ulCount;
+            if ((PIT_TCTRL1 & PIT_TCTRL_CHN) != 0) {                     // if operating in chained mode
+                ulCount = ulPITinc;                                      // increment only when the previous PIT channel reloaded
+            }
+            else {
+                ulCount = (unsigned long)(((unsigned long long)TICK_RESOLUTION * (unsigned long long)BUS_CLOCK) / 1000000); // count in a tick period
+            }
+            ulPITinc = 0;
+    #else
+            unsigned long ulCount = (unsigned long)(((unsigned long long)TICK_RESOLUTION * (unsigned long long)BUS_CLOCK) / 1000000); // count in a tick period
+    #endif
             if (PIT_CVAL1 <= ulCount) {
                 ulCount -= PIT_CVAL1;
                 if (ulCount >= PIT_LDVAL1) {
                     ulCount = 0;
                 }
                 PIT_CVAL1 = PIT_LDVAL1;                                  // reload
+    #if defined PIT_TCTRL_CHN
+                ulPITinc = 1;
+    #endif
                 PIT_CVAL1 -= ulCount;
                 PIT_TFLG1 = PIT_TFLG_TIF;                                // flag that a reload occurred
+    #if !defined DEVICE_WITHOUT_DMA && !defined KINETIS_KL28 && !defined KINETIS_KL82 && !defined KINETIS_KM // not yet supported
                 fnHandleDMA_triggers(DMAMUX0_DMA0_CHCFG_SOURCE_PIT1, 0); // handle DMA triggered on PIT1
-    #if !defined KINETIS_KE
+    #endif
+    #if !defined KINETIS_KE && !defined KINETIS_WITH_PCC
                 switch ((SIM_SOPT7 & SIM_SOPT7_ADC0TRGSEL_CMP3)) {
                 case SIM_SOPT7_ADC0TRGSEL_PIT1:                          // if PIT1 is configured to trigger ADC0 conversion
         #if defined SUPPORT_ADC
@@ -7063,9 +10979,18 @@ extern int fnSimTimers(void)
         #endif
                     break;
                 }
+        #if ADC_CONTROLLERS > 1
+                switch ((SIM_SOPT7 & SIM_SOPT7_ADC1TRGSEL_CMP3)) {
+                case SIM_SOPT7_ADC1TRGSEL_PIT1:                          // if PIT1 is configured to trigger ADC1 conversion
+            #if defined SUPPORT_ADC
+                    fnTriggerADC(1, 1);
+            #endif
+                    break;
+                }
+        #endif
     #endif
                 if ((PIT_TCTRL1 & PIT_TCTRL_TIE) != 0) {                 // if PIT interrupt is enabled
-    #if defined KINETIS_KL && !defined KINETIS_KE                        // {24}
+    #if defined PIT_SINGLE_INTERRUPT
                     if (fnGenInt(irq_PIT_ID) != 0) {                     // if general PIT interrupt is not disabled
                         VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
                         ptrVect->processor_interrupts.irq_PIT();         // call the shared interrupt handler
@@ -7082,7 +11007,7 @@ extern int fnSimTimers(void)
                 PIT_CVAL1 -= ulCount;
             }
         }
-    #if !defined KINETIS_KL && !defined KINETIS_KE                       // {24}
+    #if !defined KINETIS_KL && !defined KINETIS_KW3X && !defined KINETIS_KW4X && !defined KINETIS_KE && !defined KINETIS_KM // {24}
         if ((PIT_TCTRL2 & PIT_TCTRL_TEN) != 0) {                         // if PIT2 is enabled
             unsigned long ulCount = (unsigned long)(((unsigned long long)TICK_RESOLUTION * (unsigned long long)BUS_CLOCK)/1000000); // count in a tick period
             if (PIT_CVAL2 <= ulCount) {
@@ -7143,30 +11068,163 @@ extern int fnSimTimers(void)
         }
     #endif
     }
+    #endif
 #endif
-#if !defined KINETIS_WITHOUT_RTC && !defined KINETIS_KE
+#if defined HS_USB_AVAILABLE && defined USB_HOST_SUPPORT
+    // HS USB general purpose timers
+    //
+    #if defined KINETIS_WITH_USBPHY
+    if (IS_POWERED_UP(3, USBHS))
+    #else
+    if (IS_POWERED_UP(6, USBHS))
+    #endif
+    {
+        if ((USBHS0_GPTIMER0CTL & USBHS_GPTIMERCTL_RUN) != 0) {           // if timer 0 is running
+            unsigned long ulPresentCount = (USBHS0_GPTIMER0CTL & USBHS_GPTIMERCTL_GPTCNT_MASK);
+            if (ulPresentCount != 0) {                                   // if it hasn't yet counted down to zero
+                unsigned long ulCounter = TICK_RESOLUTION;               // us in a tick period
+                if (ulCounter >= ulPresentCount) {
+                    if ((USBHS0_GPTIMER0CTL & USBHS_GPTIMERCTL_MODE_REPEAT) != 0) { // if in repeat mode
+                        ulPresentCount = USBHS0_GPTIMER0LD;              // reload the counter value again
+                    }
+                    else {
+                        ulPresentCount = 0;
+                    }
+                    USBHS0_GPTIMER0CTL &= ~(USBHS_GPTIMERCTL_GPTCNT_MASK);
+                    USBHS0_GPTIMER0CTL |= (ulPresentCount);
+                    USBHS0_USBSTS |= USBHS_USBINTR_TIE0;                 // set timeout flag
+                    if ((USBHS0_USBINTR & USBHS_USBINTR_TIE0) != 0) {    // if interrupt is enabled on counter timeout
+                        if (fnGenInt(irq_USB_HS_ID) != 0) {              // if HS USB interrupt is not disabled
+                            VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
+                            ptrVect->processor_interrupts.irq_USB_HS();  // call the interrupt handler
+                        }
+                    }
+                }
+                else {
+                    ulPresentCount -= ulCounter;
+                    USBHS0_GPTIMER0CTL &= ~(USBHS_GPTIMERCTL_GPTCNT_MASK);
+                    USBHS0_GPTIMER0CTL |= (ulPresentCount);
+                }
+            }
+        }
+        if ((USBHS0_GPTIMER1CTL & USBHS_GPTIMERCTL_RUN) != 0) {          // if timer 1 is running
+            unsigned long ulPresentCount = (USBHS0_GPTIMER1CTL & USBHS_GPTIMERCTL_GPTCNT_MASK);
+            if (ulPresentCount != 0) {                                   // if it hasn't yet counted down to zero
+                unsigned long ulCounter = TICK_RESOLUTION;               // us in a tick period
+                if (ulCounter >= ulPresentCount) {
+                    if ((USBHS0_GPTIMER1CTL & USBHS_GPTIMERCTL_MODE_REPEAT) != 0) { // if in repeat mode
+                        ulPresentCount = USBHS0_GPTIMER0LD;               // reload the counter value again
+                    }
+                    else {
+                        ulPresentCount = 0;
+                    }
+                    USBHS0_GPTIMER1CTL &= ~(USBHS_GPTIMERCTL_GPTCNT_MASK);
+                    USBHS0_GPTIMER1CTL |= (ulPresentCount);
+                    USBHS0_USBSTS |= USBHS_USBINTR_TIE1;                 // set timeout flag
+                    if ((USBHS0_USBINTR & USBHS_USBINTR_TIE1) != 0) {    // if interrupt is enabled on counter timeout
+                        if (fnGenInt(irq_USB_HS_ID) != 0) {              // if HS USB interrupt is not disabled
+                            VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
+                            ptrVect->processor_interrupts.irq_USB_HS();  // call the interrupt handler
+                        }
+                    }
+                }
+                else {
+                    ulPresentCount -= ulCounter;
+                    USBHS0_GPTIMER1CTL &= ~(USBHS_GPTIMERCTL_GPTCNT_MASK);
+                    USBHS0_GPTIMER1CTL |= (ulPresentCount);
+                }
+            }
+        }
+        // HS USB periodic scheduler                                     // {53}
+        //
+        if ((USBHS0_USBCMD & USBHS_USBCMD_PSE) != 0) {                   // if the periodic schedule is enabled
+            int iPeriodListLength = 0;
+            int iThisPeriodListLength;
+            unsigned long ulMicroFrames = (TICK_RESOLUTION/125);         // microframes in a tick period
+            if (USBHS0_PERIODICLISTBASE != 0) {
+                iPeriodListLength = fnGetPeriodicListLength(USBHS0_USBCMD);
+                iThisPeriodListLength = iPeriodListLength;
+                while (ulMicroFrames-- != 0) {                           // for each microframe in the tick period
+                    if ((USBHS0_FRINDEX & 0x7) == 0) {                   // if a ms increment has taken place
+                        KINETIS_USBHS_HOST_ENDPOINT_QUEUE_HEADER *ptrHostHead = fnGetPeriodicEntry(USBHS0_FRINDEX, iPeriodListLength);
+                        if (ptrHostHead != 0) {
+                            if ((ptrHostHead->host_transfer_overlay.ulControl & HOST_OVERLAY_CONTROL_STATUS_ACTIVE) != 0) {
+                                if ((ptrHostHead->host_transfer_overlay.ulControl & HOST_OVERLAY_CONTROL_PID_CODE_MASK) == HOST_OVERLAY_CONTROL_PID_CODE_IN) {
+                                    unsigned char ucEndpoint = ((ptrHostHead->ulHostCharacteristics & HOST_CHARACTERISTICS_ENDPOINT_MASK) >> HOST_CHARACTERISTICS_ENDPOINT_SHIFT);
+                                    fnUSBHostModel(ucEndpoint, IN_PID, 0, 0, 1); // allow the host model to inject frames
+                                }
+                            }
+                        }
+                        if (--iThisPeriodListLength == 0) {
+                            USBHS0_FRINDEX = ((USBHS0_FRINDEX + 1) & 0x00003fff);
+                            break;
+                        }
+                    }
+                    USBHS0_FRINDEX = ((USBHS0_FRINDEX + 1) & 0x00003fff);
+                }
+            }
+        }
+    }
+#endif
+    // RTC
+    //
+#if defined SUPPORT_RTC && !defined KINETIS_WITHOUT_RTC && !(defined KINETIS_KE && !defined KINETIS_WITH_SRTC)
     if ((RTC_SR & RTC_SR_TCE) != 0) {                                    // RTC is enabled
         if ((RTC_SR & RTC_SR_TIF) == 0) {                                // if invalid flag not set
             unsigned long ulCounter;
+    #if defined KINETIS_WITH_SRTC
+            if ((RTC_CR & RTC_CR_LPOS_LPO) != 0) {
+        #if TICK_RESOLUTION >= 1000
+                ulCounter = ((TICK_RESOLUTION/1000));                    // approximately 1kHz clock pulses in a TICK period (128kHz LPO divided by 128)
+        #else
+                ulCounter = 1;
+        #endif
+                ulCounter *= 32;                                         // {54} increments by 32 on each edge
+                RTC_TPR &= ~(0x1f);                                      // these bits are ignored in this mode
+            }
+            else {
+                switch (SIM_CHIPCTL & SIM_CHIPCTL_RTC32CLKSEL_MASK) {
+                case SIM_CHIPCTL_RTC32CLKSEL_OSC32:                      // RTC32CLK input selected from OSC32 clock output
+                case SIM_CHIPCTL_RTC32CLKSEL_RTC_CLKIN:                  // RTC32CLK input selected from RTC_CLKIN pin
+                    ulCounter = (unsigned long)(((unsigned long long)TICK_RESOLUTION * (unsigned long long)32768) / 1000000); // 32kHz clock pulses in a TICK period
+                    break;
+                default:
+                    _EXCEPTION("Invalid RTC clock selection!");
+                    break;
+                }
+            }
+    #else
             switch (SIM_SOPT1 & SIM_SOPT1_OSC32KSEL_MASK) {
-            case SIM_SOPT1_OSC32KSEL_SYS_OSC:
-                ulCounter = (unsigned long)(((unsigned long long)TICK_RESOLUTION * (unsigned long long)32000)/1000000); // approximately 32kHz clock pulses in a TICK period
+            case SIM_SOPT1_OSC32KSEL_SYS_OSC:                            // 32kHz oscillator
+                if (((RTC_CR & RTC_CR_OSCE) != 0)
+        #if defined OSC_CR_OSCEN
+                    || ((OSC0_CR & OSC_CR_OSCEN) != 0)
+        #else
+                    || ((OSC0_CR & OSC_CR_ERCLKEN) != 0)
+        #endif
+                    ) {                                                  // if oscillator is enabled [either override in RTC or OSC circuit]
+                    ulCounter = (unsigned long)(((unsigned long long)TICK_RESOLUTION * (unsigned long long)32768) / 1000000); // 32kHz clock pulses in a TICK period
+                }
+                else {
+                    ulCounter = 0;                                       // no clock
+                }
                 break;
             case SIM_SOPT1_OSC32KSEL_LPO_1kHz:
-    #if TICK_RESOLUTION >= 1000
+        #if TICK_RESOLUTION >= 1000
                 ulCounter = ((TICK_RESOLUTION/1000));                    // approximately 1kHz clock pulses in a TICK period
-    #else
+        #else
                 ulCounter = 1;
-    #endif
+        #endif
                 break;
-    #if defined KINETIS_KL
+        #if defined KINETIS_KL && !defined KINETIS_WITH_RTC_CRYSTAL
             case SIM_SOPT1_OSC32KSEL_RTC_CLKIN:                          // 32kHz clock input assumed
-    #else
+        #else
             case SIM_SOPT1_OSC32KSEL_32k:
-    #endif
+        #endif
                 ulCounter = (unsigned long)(((unsigned long long)TICK_RESOLUTION * (unsigned long long)32768)/1000000); // 32kHz clock pulses in a TICK period
                 break;
             }
+    #endif
             RTC_TPR += ulCounter;
             if (RTC_TPR >= 32768) {
                 RTC_TPR = (RTC_TPR - 32768);                             // handle second overflow
@@ -7181,21 +11239,30 @@ extern int fnSimTimers(void)
                 if (RTC_TAR == RTC_TSR) {                                // alarm match
                     RTC_TSR = (RTC_TSR + 1);
                     RTC_SR |= RTC_SR_TAF;
-                    if (RTC_IER & RTC_IER_TAIE) {                        // interrupt on alarm enabled
-                        if (fnGenInt(irq_RTC_ALARM_ID) != 0) {           // if RTC interrupt is not disabled
+                    if ((RTC_IER & RTC_IER_TAIE) != 0) {                 // interrupt on alarm enabled
+    #if !defined irq_RTC_ALARM_ID && defined INTMUX0_AVAILABLE
+                        if (fnGenInt(irq_INTMUX0_0_ID + INTMUX_RTC_ALARM) != 0) // {46}
+    #else
+                        if (fnGenInt(irq_RTC_ALARM_ID) != 0)            // if RTC interrupt is not disabled
+    #endif
+                        {
                             VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
+    #if !defined irq_RTC_ALARM_ID && defined INTMUX0_AVAILABLE
+                            fnCallINTMUX(INTMUX_RTC_ALARM, INTMUX0_PERIPHERAL_RTC_ALARM, (unsigned char *)&ptrVect->processor_interrupts.irq_RTC_Alarm);
+    #else
                             ptrVect->processor_interrupts.irq_RTC_ALARM(); // call the interrupt handler
+    #endif
                         }
                     }
                 }
                 else {
-                    RTC_TSR = (RTC_TSR + 1);
+                    RTC_TSR = (RTC_TSR + 1);                             // increment the seconds count value
                 }
             }
         }
     }
 #endif
-#if defined KINETIS_KE
+#if defined KINETIS_KE && !defined KINETIS_WITH_SRTC
     if ((SIM_SCGC & SIM_SCGC_RTC) != 0) {
         unsigned long ulCount = 0;
         switch (RTC_SC & RTC_SC_RTCLKS_BUS) {                            // RTC clock source
@@ -7281,6 +11348,9 @@ extern int fnSimTimers(void)
                 ulCount /= 1000;
                 break;
             }
+            if (ulCount == 0) {
+                ulCount = 1;
+            }
             break;
         case RTC_SC_RTCLKS_BUS:                                          // bus clock
             ulCount = (unsigned long)(((unsigned long long)TICK_RESOLUTION * (unsigned long long)BUS_CLOCK)/1000000);
@@ -7324,27 +11394,39 @@ extern int fnSimTimers(void)
             RTC_CNT = ulCount;
         }
     }
-#elif defined SUPPORT_LPTMR                                              // {35}
-    if (((SIM_SCGC5 & SIM_SCGC5_LPTIMER) != 0) && ((LPTMR0_CSR & LPTMR_CSR_TEN) != 0)) { // if the low power timer is enabled and running
+#endif
+#if defined SUPPORT_LPTMR && (LPTMR_AVAILABLE > 0)                       // {35}
+    #if defined KINETIS_KM
+    if (((IS_POWERED_UP(6, LPTMR0)) != 0) && ((LPTMR0_CSR & LPTMR_CSR_TEN) != 0))
+    #else
+    if (((IS_POWERED_UP(5, LPTMR0)) != 0) && ((LPTMR0_CSR & LPTMR_CSR_TEN) != 0))
+    #endif
+    {                                                                    // if the low power timer is enabled and running
         unsigned long ulCount = 0;                                       // count in a tick period
         switch (LPTMR0_PSR & LPTMR_PSR_PCS_OSC0ERCLK) {
-        case LPTMR_PSR_PCS_LPO:
+        case LPTMR_PSR_PCS_LPO:                                          // LPO source
     #if TICK_RESOLUTION >= 1000
-            ulCount = (TICK_RESOLUTION/1000);
+            ulCount = (TICK_RESOLUTION/1000);                            // counts in a tick interval
     #else
             ulCount = 1;
     #endif
             break;
+    #if defined KINETIS_WITH_SCG
+        case LPTMR_PSR_PCS_SIRCCLK:
+            _EXCEPTION("To add");
+            break;
+    #else
         case LPTMR_PSR_PCS_MCGIRCLK:
-            if ((MCG_C2 & MCG_C2_IRCS) != 0) {
+            if ((MCG_C2 & MCG_C2_IRCS) != 0) {                           // using 4MHz RC
                 ulCount = (TICK_RESOLUTION * (4000000/1000000));
             }
             else {
-                ulCount = (unsigned long)(((unsigned long long)TICK_RESOLUTION * (unsigned long long)35000)/1000000);
+                ulCount = (unsigned long)(((unsigned long long)TICK_RESOLUTION * (unsigned long long)35000)/1000000); // using 35kHz RC
             }
             break;
+    #endif
         case LPTMR_PSR_PCS_ERCLK32K:
-            ulCount = (TICK_RESOLUTION * 32768);
+            ulCount = ((TICK_RESOLUTION * 32768)/1000000);               // counts in a tick interval
             break;
         case LPTMR_PSR_PCS_OSC0ERCLK:
     #if defined _EXTERNAL_CLOCK
@@ -7367,10 +11449,17 @@ extern int fnSimTimers(void)
                     }
                 }
                 if ((LPTMR0_CSR & LPTMR_CSR_TIE) != 0) {                 // if LPTMR interrupt is enabled
-                    if (fnGenInt(irq_LPT_ID) != 0) {                     // if LPTMR interrupt is not disabled
+    #if defined irq_LPTMR_PWT_ID
+                    if (fnGenInt(irq_LPTMR_PWT_ID) != 0) {                  // if LPTMR interrupt is not disabled
                         VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
-                        ptrVect->processor_interrupts.irq_LPT();         // call the interrupt handler
+                        ptrVect->processor_interrupts.irq_LPTMR_PWT();      // call the interrupt handler
                     }
+    #else
+                    if (fnGenInt(irq_LPTMR0_ID) != 0) {                  // if LPTMR interrupt is not disabled
+                        VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
+                        ptrVect->processor_interrupts.irq_LPTMR0();      // call the interrupt handler
+                    }
+    #endif
                 }
             }
         }
@@ -7382,9 +11471,83 @@ extern int fnSimTimers(void)
         }
         LPTMR0_CNR = ulCount;
     }
+    #if LPTMR_AVAILABLE > 1
+        if (((IS_POWERED_UP(5, LPTMR1)) != 0) && ((LPTMR1_CSR & LPTMR_CSR_TEN) != 0)) { // if the low power timer is enabled and running
+        unsigned long ulCount = 0;                                       // count in a tick period
+        switch (LPTMR1_PSR & LPTMR_PSR_PCS_OSC0ERCLK) {
+        case LPTMR_PSR_PCS_LPO:
+    #if TICK_RESOLUTION >= 1000
+            ulCount = (TICK_RESOLUTION/1000);                            // counts in a tick interval
+    #else
+            ulCount = 1;
+    #endif
+            break;
+    #if defined KINETIS_WITH_SCG
+        case LPTMR_PSR_PCS_SIRCCLK:
+            _EXCEPTION("To add");
+            break;
+    #else
+        case LPTMR_PSR_PCS_MCGIRCLK:
+            if ((MCG_C2 & MCG_C2_IRCS) != 0) {
+                ulCount = (TICK_RESOLUTION * (4000000/1000000));
+            }
+            else {
+                ulCount = (unsigned long)(((unsigned long long)TICK_RESOLUTION * (unsigned long long)35000)/1000000);
+            }
+            break;
+    #endif
+        case LPTMR_PSR_PCS_ERCLK32K:
+            ulCount = ((TICK_RESOLUTION * 32768)/1000000);               // counts in a tick interval
+            break;
+        case LPTMR_PSR_PCS_OSC0ERCLK:
+    #if defined _EXTERNAL_CLOCK
+            ulCount = (unsigned long)(((unsigned long long)TICK_RESOLUTION * (unsigned long long)_EXTERNAL_CLOCK)/1000000); // external clocks in a tick period (assuming no pre-scaler)
+    #else
+            _EXCEPTION("no external clock defined so this selection should not be used");
+    #endif
+            break;
+        }
+        if ((LPTMR1_PSR & LPTMR_PSR_PBYP) == 0) {                        // if the prescaler bypass hasn't been disabled
+            ulCount >>= (((LPTMR1_PSR & LPTMR_PSR_PRESCALE_MASK) >> LPTMR_PSR_PRESCALE_SHIFT) + 1);
+        }
+        if (LPTMR1_CNR <= LPTMR1_CMR) {                                  // timer count has not yet reached the match value
+            ulCount = (LPTMR1_CNR + ulCount);                            // the next count value
+            if (ulCount > LPTMR1_CMR) {
+                if ((LPTMR1_CSR & LPTMR_CSR_TFC_FREERUN) == 0) {
+                    ulCount = (ulCount - LPTMR1_CMR);
+                    if (ulCount > LPTMR1_CMR) {
+                        ulCount = LPTMR1_CMR;
+                    }
+                }
+                if ((LPTMR1_CSR & LPTMR_CSR_TIE) != 0) {                 // if LPTMR interrupt is enabled
+        #if !defined irq_LPTMR1_ID && defined INTMUX0_AVAILABLE
+                    if (fnGenInt(irq_INTMUX0_0_ID + INTMUX_LPTMR1) != 0)
+        #else
+                    if (fnGenInt(irq_LPTMR1_ID) != 0)
+        #endif
+                    {                                                    // if LPTMR interrupt is not disabled
+                        VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
+        #if !defined irq_LPTMR1_ID
+                        fnCallINTMUX(INTMUX_LPTMR1, INTMUX0_PERIPHERAL_LPTMR1, (unsigned char *)&ptrVect->processor_interrupts.irq_LPTMR1);
+        #else
+                        ptrVect->processor_interrupts.irq_LPTMR1();      // call the interrupt handler
+        #endif
+                    }
+                }
+            }
+        }
+        else {
+            ulCount = (LPTMR1_CNR + ulCount);
+        }
+        if (ulCount > 0xffff) {
+            ulCount = (ulCount - 0xffff);
+        }
+        LPTMR1_CNR = ulCount;
+    }
+    #endif
 #endif
-#if !defined KINETIS_KL && !defined KINETIS_KE                           // {24}
-    if (((SIM_SCGC6 & SIM_SCGC6_PDB) != 0) && ((PDB0_SC & PDB_SC_PDBEN) != 0)) { // {16} PDB powered and enabled
+#if PDB_AVAILABLE > 0 && !defined KINETIS_KE15 && !defined KINETIS_KE18  // {24}
+    if ((IS_POWERED_UP(6, PDB0)) && ((PDB0_SC & PDB_SC_PDBEN) != 0)) {   // {16} PDB powered and enabled
         if ((PDB0_SC & PDB_SC_TRGSEL_SW) == PDB_SC_TRGSEL_SW) {          // software triggered
             if ((PDB0_SC & PDB_SC_SWTRIG) != 0) {
                 PDB0_SC &= ~(PDB_SC_SWTRIG);                             // clear the software trigger
@@ -7393,8 +11556,8 @@ extern int fnSimTimers(void)
             }
         }
         if (iPDB != 0) {                                                 // if running
-            unsigned long ulPDB_count = (unsigned long)(((unsigned long long)TICK_RESOLUTION * (unsigned long long)BUS_CLOCK)/1000000);
-            switch (PDB0_SC & PDB_SC_MULT_40) {
+            unsigned long ulPDB_count = (unsigned long)(((unsigned long long)TICK_RESOLUTION * (unsigned long long)BUS_CLOCK)/1000000); // the count in a tick period (with no prescaer)
+            switch (PDB0_SC & PDB_SC_MULT_40) {                          // respect the pre-scaler multiplier
             case PDB_SC_MULT_1:
                 break;
             case PDB_SC_MULT_10:
@@ -7407,7 +11570,7 @@ extern int fnSimTimers(void)
                 ulPDB_count /= 40;
                 break;
             }
-            switch (PDB0_SC & PDB_SC_PRESCALER_128) {
+            switch (PDB0_SC & PDB_SC_PRESCALER_128) {                    // respect the pre-scaler
             case PDB_SC_PRESCALER_1:
                 break;
             case PDB_SC_PRESCALER_2:
@@ -7434,26 +11597,36 @@ extern int fnSimTimers(void)
             }
             ulPDB_count += PDB0_CNT;                                     // new count value
             if ((iPDB_interrupt_triggered == 0) && (ulPDB_count >= (PDB0_IDLY & 0xffff))) { // interrupt trigger reached
-                VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
                 iPDB_interrupt_triggered = 1;
-                if ((PDB0_SC & PDB_SC_PDBIE) != 0) {                     // if interrupt is enabled
+                if ((PDB0_SC & PDB_SC_PDBIE) != 0) {                     // if period interrupt is enabled
                     PDB0_SC |= PDB_SC_PDBIF;                             // set the interrupt flag
-                    if (fnGenInt(irq_PDB_ID) != 0) {
-                        ptrVect->processor_interrupts.irq_PDB();         // call the interrupt handler
+                    if (fnGenInt(irq_PDB0_ID) != 0) {
+                        VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
+                        ptrVect->processor_interrupts.irq_PDB0();        // call the interrupt handler
                     }
                 }
             }
             if ((iPDB_ch0_0_triggered == 0) && (ulPDB_count >= (PDB0_CH0DLY0 & 0xffff))) { // channel 0 delay 0 trigger reached
                 iPDB_ch0_0_triggered = 1;
                 if ((PDB0_CH0C1 & PDB_C1_EN_0) != 0) {                   // if pre-trigger enabled
-                    if ((PDB0_CH0C1 & PDB_C1_TOS_0) != 0) {              // if ADC0 trigger is enabled
+                    if ((PDB0_CH0C1 & PDB_C1_TOS_0) != 0) {              // if ADC0 A trigger is enabled
+                        // ADC0 A conversion is triggered
+                        //
+    #if defined SUPPORT_ADC
+                        fnTriggerADC(0, 1);
+    #endif
                     }
                 }
             }
             if ((iPDB_ch0_1_triggered == 0) && (ulPDB_count >= (PDB0_CH0DLY1 & 0xffff))) { // channel 0 delay 1 trigger reached
                 iPDB_ch0_1_triggered = 1;
                 if ((PDB0_CH0C1 & PDB_C1_EN_1) != 0) {                   // if pre-trigger enabled
-                    if ((PDB0_CH0C1 & PDB_C1_TOS_1) != 0) {              // if ADC1 trigger is enabled
+                    if ((PDB0_CH0C1 & PDB_C1_TOS_1) != 0) {              // if ADC0 B trigger is enabled
+                        // ADC0 B conversion is triggered
+                        //
+    #if defined SUPPORT_ADC
+                        fnTriggerADC(0, 1);
+    #endif
                     }
                 }
             }
@@ -7461,19 +11634,28 @@ extern int fnSimTimers(void)
             if ((iPDB_ch1_0_triggered == 0) && (ulPDB_count >= (PDB0_CH1DLY0 & 0xffff))) { // channel 1 delay 0 trigger reached
                 iPDB_ch1_0_triggered = 1;
                 if ((PDB0_CH1C1 & PDB_C1_EN_0) != 0) {                   // if pre-trigger enabled
-                    if ((PDB0_CH1C1 & PDB_C1_TOS_1) != 0) {              // if ADC1 trigger is enabled
+                    if ((PDB0_CH1C1 & PDB_C1_TOS_0) != 0) {              // if ADC1 A trigger is enabled
+                        // ADC1 A conversion is triggered
+                        //
+        #if defined SUPPORT_ADC
+                        fnTriggerADC(1, 1);
+        #endif
                     }
                 }
             }
             if ((iPDB_ch1_1_triggered == 0) && (ulPDB_count >= (PDB0_CH1DLY1 & 0xffff))) { // channel 1 delay 1 trigger reached
                 iPDB_ch1_1_triggered = 1;
                 if ((PDB0_CH1C1 & PDB_C1_EN_1) != 0) {                   // if pre-trigger enabled
-                    if ((PDB0_CH1C1 & PDB_C1_TOS_1) != 0) {              // if ADC1 trigger is enabled
+                    if ((PDB0_CH1C1 & PDB_C1_TOS_1) != 0) {              // if ADC1 B trigger is enabled
+                        // ADC1 B conversion is triggered
+                        //
+        #if defined SUPPORT_ADC
+                        fnTriggerADC(1, 1);
+        #endif
                     }
                 }
             }
     #endif
-            
             if (ulPDB_count >= (PDB0_MOD & 0xffff)) {                    // cycle complete
                 iPDB_interrupt_triggered = 0;
                 iPDB_ch0_0_triggered = 0;
@@ -7482,7 +11664,7 @@ extern int fnSimTimers(void)
                 iPDB_ch1_1_triggered = 0;
                 PDB0_CNT = 0;
                 if ((PDB0_SC & PDB_SC_CONT) == 0) {                      // single shot
-                    iPDB = 0;
+                    iPDB = 0;                                            // stop the operation
                 }
             }
             else {
@@ -7494,7 +11676,6 @@ extern int fnSimTimers(void)
         iPDB = 0;
     }
 #endif
-
 #if defined SUPPORT_ADC                                                  // {2}
     fnTriggerADC(0, 0);                                                  // handle software triggered ADC0
     #if ADC_CONTROLLERS > 1
@@ -7507,281 +11688,104 @@ extern int fnSimTimers(void)
     fnTriggerADC(3, 0);                                                  // handle software triggered ADC3
     #endif
 #endif
-#if defined SUPPORT_TIMER                                                // {29}
-    if (IS_POWERED_UP(6, SIM_SCGC6_FTM0) &&((FTM0_SC & (FTM_SC_CLKS_EXT | FTM_SC_CLKS_SYS)) != 0)) { // if the FlexTimer is powered and clocked
-    #if defined KINETIS_KL
-        unsigned long ulCountIncrease;
-        switch (SIM_SOPT2 & SIM_SOPT2_TPMSRC_MCGIRCLK) {                 // {38}
-        case SIM_SOPT2_TPMSRC_MCGIRCLK:
-            ulCountIncrease = (unsigned long)(((unsigned long long)TICK_RESOLUTION * (unsigned long long)MCGIRCLK)/1000000); // bus clocks in a period
-            if ((MCG_C2 & MCG_C2_IRCS) != 0) {                           // if fast clock
-                int prescaler = ((MCG_SC >> 1) & 0x7);                   // FCRDIV value
-                while (prescaler-- != 0) {
-                    ulCountIncrease /= 2;                                // FCRDIV prescale
-                }
-            }
-            break;
-        case SIM_SOPT2_TPMSRC_OSCERCLK:
-        #if defined OSCERCLK
-            ulCountIncrease= (unsigned long)(((unsigned long long)TICK_RESOLUTION * (unsigned long long)OSCERCLK)/1000000); // bus clocks in a period
+#if defined SUPPORT_TIMER && !defined KINETIS_KM                         // {29}
+    if ((fnFlexTimerPowered(0) != 0) && ((FTM0_SC & (FTM_SC_CLKS_EXT | FTM_SC_CLKS_SYS)) != 0)) { // if the TPM/FlexTimer is powered and clocked
+        #if defined KINETIS_KL || defined KINETIS_KE
+        int iTPM_Type = 1;
         #else
-            _EXCEPTION("No OSCERCLK available");
+        int iTPM_Type = 0;
         #endif
-            break;
-        case SIM_SOPT2_TPMSRC_MCG:
-        #if defined FLL_FACTOR
-            ulCountIncrease= (unsigned long)(((unsigned long long)TICK_RESOLUTION * (unsigned long long)MCGFLLCLK)/1000000); // bus clocks in a period
-        #else
-            ulCountIncrease= (unsigned long)(((unsigned long long)TICK_RESOLUTION * (unsigned long long)(MCGPLLCLK/2))/1000000); // bus clocks in a period
-        #endif
-            break;
-        }
-    #elif defined KINETIS_KE
-        unsigned long ulCountIncrease = (unsigned long)(((unsigned long long)TICK_RESOLUTION * (unsigned long long)BUS_CLOCK)/1000000); // bus clocks in a period (assume clocked from bus clock)
-    #else
-        unsigned long ulCountIncrease = (unsigned long)(((unsigned long long)TICK_RESOLUTION * (unsigned long long)BUS_CLOCK)/1000000); // bus clocks in a period (assume clocked from bus clock)
-    #endif
-        ulCountIncrease /= (1 << (FTM0_SC & FTM_SC_PS_128));             // apply pre-scaler
-        ulCountIncrease += FTM0_CNT;                                     // new counter value (assume up counting)
-        if (ulCountIncrease >= FTM0_MOD) {                               // match/overflow
-    #if defined KINETIS_KL || defined KINETIS_KE
-            FTM0_SC |= FTM_SC_TOF;                                       // set overflow flag
-            ulCountIncrease -= FTM0_MOD;
-    #else
-            FTM0_CNT = FTM0_CNTIN;
-            FTM0_SC |= FTM_SC_TOF;                                       // set overflow flag
-            if (ulCountIncrease > (0xffff + (FTM0_MOD - FTM0_CNTIN))) {
-                ulCountIncrease = (0xffff + (FTM0_MOD - FTM0_CNTIN));
-            }
-            while (ulCountIncrease >= FTM0_MOD) {
-                ulCountIncrease -= (FTM0_MOD - FTM0_CNTIN);
-            }
-    #endif
-        }
-        FTM0_CNT = ulCountIncrease;                                      // new counter value
-        if (((FTM0_SC & FTM_SC_TOIE) != 0) && ((FTM0_SC & FTM_SC_TOF) != 0)) { // if overflow occurred and interrupt enabled
-    #if defined KINETIS_KL
-            if (fnGenInt(irq_TPM0_ID) != 0) {                            // if timer/PWM module 0 interrupt is not disabled
-                VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
-                ptrVect->processor_interrupts.irq_TPM0();                // call the interrupt handler
-            }
-    #else
-            if (fnGenInt(irq_FTM0_ID) != 0) {                            // if FlexTimer 0 interrupt is not disabled
-                VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
-                ptrVect->processor_interrupts.irq_FTM0();                // call the interrupt handler
-            }
-    #endif
+        int iTimerInterrupt = fnHandleFlexTimer(0, (FLEX_TIMER_MODULE *)FTM_BLOCK_0, FLEX_TIMERS_0_CHANNELS, iTPM_Type);
+        if (iTimerInterrupt != 0) {
+            fnExecuteTimerInterrupt(0);
         }
     }
     #if FLEX_TIMERS_AVAILABLE > 1
-    if (IS_POWERED_UP(6, SIM_SCGC6_FTM1) && ((FTM1_SC & (FTM_SC_CLKS_EXT | FTM_SC_CLKS_SYS)) != 0)) { // if the FlexTimer is powered and clocked
-        #if defined KINETIS_KL
-        unsigned long ulCountIncrease;
-        switch (SIM_SOPT2 & SIM_SOPT2_TPMSRC_MCGIRCLK) {                 // {38}
-        case SIM_SOPT2_TPMSRC_MCGIRCLK:
-            ulCountIncrease = (unsigned long)(((unsigned long long)TICK_RESOLUTION * (unsigned long long)MCGIRCLK)/1000000); // bus clocks in a period
-            if (MCG_C2 & MCG_C2_IRCS) {                                  // if fast clock
-                int prescaler = ((MCG_SC >> 1) & 0x7);                   // FCRDIV value
-                while (prescaler--) {
-                    ulCountIncrease /= 2;                                // FCRDIV prescale
-                }
-            }
-            break;
-        case SIM_SOPT2_TPMSRC_OSCERCLK:
-        #if defined OSCERCLK
-            ulCountIncrease = (unsigned long)((unsigned long long)TICK_RESOLUTION * (unsigned long long)OSCERCLK)/1000000; // bus clocks in a period
-        #else
-            _EXCEPTION("No OSCERCLK available");
-        #endif
-            break;
-        case SIM_SOPT2_TPMSRC_MCG:
-        #if defined FLL_FACTOR
-            ulCountIncrease = (unsigned long)(((unsigned long long)TICK_RESOLUTION * (unsigned long long)MCGFLLCLK)/1000000); // bus clocks in a period
-        #else
-            ulCountIncrease = (unsigned long)(((unsigned long long)TICK_RESOLUTION * (unsigned long long)(MCGPLLCLK/2))/1000000); // bus clocks in a period
-        #endif
-            break;
-        }
-        #elif defined KINETIS_KE
-        unsigned long ulCountIncrease = (unsigned long)(((unsigned long long)TICK_RESOLUTION * (unsigned long long)BUS_CLOCK)/1000000); // bus clocks in a period (assume clocked from bus clock)
-        #else
-        unsigned long ulCountIncrease = (unsigned long)(((unsigned long long)TICK_RESOLUTION * (unsigned long long)BUS_CLOCK)/1000000); // bus clocks in a period (assume clocked from bus clock)
-        #endif
-        ulCountIncrease /= (1 << (FTM1_SC & FTM_SC_PS_128));             // apply pre-scaler
-        ulCountIncrease += FTM1_CNT;                                     // new counter value (assume up counting)
-        if (ulCountIncrease >= FTM1_MOD) {                               // match
+    if ((fnFlexTimerPowered(1) != 0) && ((FTM1_SC & (FTM_SC_CLKS_EXT | FTM_SC_CLKS_SYS)) != 0)) { // if the TPM/FlexTimer is powered and clocked
         #if defined KINETIS_KL || defined KINETIS_KE
-            FTM1_SC |= FTM_SC_TOF;                                       // set overflow flag
-            ulCountIncrease -= FTM1_MOD;
+        int iTPM_Type = 1;
         #else
-            FTM1_CNT = FTM1_CNTIN;
-            FTM1_SC |= FTM_SC_TOF;                                       // set overflow flag
-            if (ulCountIncrease > (0xffff + (FTM1_MOD - FTM1_CNTIN))) {
-                ulCountIncrease = (0xffff + (FTM1_MOD - FTM1_CNTIN));
-            }
-            while (ulCountIncrease >= FTM1_MOD) {
-                ulCountIncrease -= (FTM1_MOD - FTM1_CNTIN);
-            }
+        int iTPM_Type = 0;
         #endif
+        int iTimerInterrupt = fnHandleFlexTimer(1, (FLEX_TIMER_MODULE *)FTM_BLOCK_1, FLEX_TIMERS_1_CHANNELS, iTPM_Type);
+        if (iTimerInterrupt != 0) {
+            fnExecuteTimerInterrupt(1);
         }
-        FTM1_CNT = ulCountIncrease;                                      // new counter value
-        if (((FTM1_SC & FTM_SC_TOIE) != 0) && ((FTM1_SC & FTM_SC_TOF) != 0)) { // if overflow occurred and interrupt enabled
-        #if defined KINETIS_KL
-            if (fnGenInt(irq_TPM1_ID) != 0) {                            // if timer/PWM module 1 interrupt is not disabled
-                VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
-                ptrVect->processor_interrupts.irq_TPM1();                // call the interrupt handler
-            }
-        #else
-            if (fnGenInt(irq_FTM1_ID) != 0) {                            // if FlexTimer 1 interrupt is not disabled
-                VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
-                ptrVect->processor_interrupts.irq_FTM1();                // call the interrupt handler
-            }
-        #endif
-        }
-        #if defined KINETIS_KL
+        #if defined KINETIS_KL && defined SUPPORT_ADC && !defined KINETIS_WITH_PCC
         // Check for ADC triggers
         //
         if ((SIM_SOPT7 & SIM_SOPT7_ADC0ALTTRGEN) == 0) {                 // if the default hardware trigger source is used
-            #if defined SUPPORT_ADC
             if (FTM1_CNT >= FTM0_C0V) {                                  // TPM1 channel 0 can trigger ADC0 input A
                 fnTriggerADC(0, 1);
             }
             if (FTM1_CNT >= FTM0_C1V) {                                  // TPM1 channel 1 can trigger ADC0 input B
                 fnTriggerADC(0, 1);
             }
-            #endif
         }
         #endif
     }
     #endif
     #if FLEX_TIMERS_AVAILABLE > 2
-        #if defined KINETIS_KL
-    if ((SIM_SCGC6 & SIM_SCGC6_FTM2) &&((FTM2_SC & (FTM_SC_CLKS_EXT | FTM_SC_CLKS_SYS)) != 0))  // if the timer/PWM module is powered and clocked
+        #if defined KINETIS_KL || defined KINETIS_K22_SF7 || defined KINETIS_K64 || defined KINETIS_K65 || defined KINETIS_K66
+    if ((fnFlexTimerPowered(2) != 0) &&((FTM2_SC & (FTM_SC_CLKS_EXT | FTM_SC_CLKS_SYS)) != 0)) // if the timer/PWM module is powered and clocked
         #else
-    if (IS_POWERED_UP(3, SIM_SCGC3_FTM2) &&((FTM2_SC & FTM_SC_CLKS_EXT) != 0))  // if the FlexTimer is powered and clocked
+    if ((fnFlexTimerPowered(2) != 0) &&((FTM2_SC & FTM_SC_CLKS_EXT) != 0)) // if the FlexTimer 2 is powered and clocked
         #endif
     {
-        #if defined KINETIS_KL
-        unsigned long ulCountIncrease;
-        switch (SIM_SOPT2 & SIM_SOPT2_TPMSRC_MCGIRCLK) {                 // {38}
-        case SIM_SOPT2_TPMSRC_MCGIRCLK:
-            ulCountIncrease = (unsigned long)(((unsigned long long)TICK_RESOLUTION * (unsigned long long)MCGIRCLK)/1000000); // bus clocks in a period
-            if ((MCG_C2 & MCG_C2_IRCS) != 0) {                           // if fast clock
-                int prescaler = ((MCG_SC >> 1) & 0x7);                   // FCRDIV value
-                while (prescaler-- != 0) {
-                    ulCountIncrease /= 2;                                // FCRDIV prescale
-                }
-            }
-            break;
-        case SIM_SOPT2_TPMSRC_OSCERCLK:
-            #if defined OSCERCLK
-            ulCountIncrease= (unsigned long)(((unsigned long long)TICK_RESOLUTION * (unsigned long long)OSCERCLK)/1000000); // bus clocks in a period
-            #else
-            _EXCEPTION("No OSCERCLK available!!");
-            #endif
-            break;
-        case SIM_SOPT2_TPMSRC_MCG:
-        #if defined FLL_FACTOR
-            ulCountIncrease = (unsigned long)(((unsigned long long)TICK_RESOLUTION * (unsigned long long)MCGFLLCLK)/1000000); // bus clocks in a period
-        #else
-            ulCountIncrease = (unsigned long)(((unsigned long long)TICK_RESOLUTION * (unsigned long long)(MCGPLLCLK/2))/1000000); // bus clocks in a period
-        #endif
-            break;
-        }
-        #elif defined KINETIS_KE
-        unsigned long ulCountIncrease = (unsigned long)(((unsigned long long)TICK_RESOLUTION * (unsigned long long)BUS_CLOCK)/1000000); // bus clocks in a period (assume clocked from bus clock)
-        #else
-        unsigned long ulCountIncrease = (unsigned long long)(((unsigned long long)TICK_RESOLUTION * (unsigned long long)BUS_CLOCK)/1000000); // bus clocks in a period (assume clocked from bus clock)
-        #endif
-        ulCountIncrease /= (1 << (FTM2_SC & FTM_SC_PS_128));             // apply pre-scaler
-        ulCountIncrease += FTM2_CNT;                                     // new counter value (assume up counting)
-        if (ulCountIncrease >= FTM2_MOD) {                               // match
         #if defined KINETIS_KL || defined KINETIS_KE
-            FTM2_SC |= FTM_SC_TOF;                                       // set overflow flag
-            ulCountIncrease -= FTM2_MOD;
+        int iTPM_Type = 1;
         #else
-            FTM2_CNT = FTM2_CNTIN;
-            FTM2_SC |= FTM_SC_TOF;                                       // set overflow flag
-            if (ulCountIncrease > (0xffff + (FTM2_MOD - FTM2_CNTIN))) {
-                ulCountIncrease = (0xffff + (FTM2_MOD - FTM2_CNTIN));
-            }
-            while (ulCountIncrease >= FTM2_MOD) {
-                ulCountIncrease -= (FTM2_MOD - FTM2_CNTIN);
-            }
+        int iTPM_Type = 0;
         #endif
-        }
-        FTM2_CNT = ulCountIncrease;                                      // new counter value
-        if ((FTM2_SC & FTM_SC_TOIE) && (FTM2_SC & FTM_SC_TOF)) {         // if overflow occurred and interrupt enabled
-        #if defined KINETIS_KL
-            if (fnGenInt(irq_TPM2_ID) != 0) {                            // if timer/PWM module 2 interrupt is not disabled
-                VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
-                ptrVect->processor_interrupts.irq_TPM2();                // call the interrupt handler
-            }
-        #else
-            if (fnGenInt(irq_FTM2_ID) != 0) {                            // if FlexTimer 2 interrupt is not disabled
-                VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
-                ptrVect->processor_interrupts.irq_FTM2();                // call the interrupt handler
-            }
-        #endif
+        int iTimerInterrupt = fnHandleFlexTimer(2, (FLEX_TIMER_MODULE *)FTM_BLOCK_2, FLEX_TIMERS_2_CHANNELS, iTPM_Type);
+        if (iTimerInterrupt != 0) {
+            fnExecuteTimerInterrupt(2);
         }
     }
     #endif
-    #if FLEX_TIMERS_AVAILABLE > 3
-    if (((SIM_SCGC3 & SIM_SCGC3_FTM3) != 0) && ((FTM3_SC & (FTM_SC_CLKS_EXT | FTM_SC_CLKS_SYS)) != 0)) { // if the FlexTimer is powered and clocked
-        #if defined KINETIS_KL
-        unsigned long ulCountIncrease;
-        switch ((SIM_SOPT2 & SIM_SOPT2_TPMSRC_MCGIRCLK) != 0) {          // {38}
-        case SIM_SOPT2_TPMSRC_MCGIRCLK:
-            ulCountIncrease = (unsigned long)(((unsigned long long)TICK_RESOLUTION * (unsigned long long)MCGIRCLK)/1000000); // bus clocks in a period
-            if (MCG_C2 & MCG_C2_IRCS) {                                  // if fast clock
-                int prescaler = ((MCG_SC >> 1) & 0x7);                   // FCRDIV value
-                while (prescaler--) {
-                    ulCountIncrease /= 2;                                // FCRDIV prescale
-                }
-            }
-            break;
-        case SIM_SOPT2_TPMSRC_OSCERCLK:
-            ulCountIncrease = (unsigned long)(((unsigned long long)TICK_RESOLUTION * (unsigned long long)OSCERCLK)/1000000); // bus clocks in a period
-            break;
-        case SIM_SOPT2_TPMSRC_MCG:
-        #if defined FLL_FACTOR
-            ulCountIncrease = (unsigned long)(((unsigned long long)TICK_RESOLUTION * (unsigned long long)MCGFLLCLK)/1000000); // bus clocks in a period
-        #else
-            ulCountIncrease = (unsigned long)(((unsigned long long)TICK_RESOLUTION * (unsigned long long)(MCGPLLCLK/2))/1000000); // bus clocks in a period
-        #endif
-            break;
-        }
-        #elif defined KINETIS_KE
-        unsigned long ulCountIncrease = (unsigned long)(((unsigned long long)TICK_RESOLUTION * (unsigned long long)BUS_CLOCK)/1000000); // bus clocks in a period (assume clocked from bus clock)
-        #else
-        unsigned long ulCountIncrease = (unsigned long)(((unsigned long long)TICK_RESOLUTION * (unsigned long long)BUS_CLOCK)/1000000); // bus clocks in a period (assume clocked from bus clock)
-        #endif
-        ulCountIncrease /= (1 << (FTM3_SC & FTM_SC_PS_128));             // apply pre-scaler
-        ulCountIncrease += FTM3_CNT;                                     // new counter value (assume up counting)
-        if (ulCountIncrease >= FTM3_MOD) {                               // match
+    #if FLEX_TIMERS_AVAILABLE > 3 && !defined KINETIS_KE18
+    if ((fnFlexTimerPowered(3) != 0) && ((FTM3_SC & (FTM_SC_CLKS_EXT | FTM_SC_CLKS_SYS)) != 0)) { // if the FlexTimer 3 is powered and clocked
         #if defined KINETIS_KL || defined KINETIS_KE
-            FTM3_SC |= FTM_SC_TOF;                                       // set overflow flag
-            ulCountIncrease -= FTM3_MOD;
+        int iTPM_Type = 1;
         #else
-            FTM3_CNT = FTM3_CNTIN;
-            FTM3_SC |= FTM_SC_TOF;                                       // set overflow flag
-            if (ulCountIncrease > (0xffff + (FTM3_MOD - FTM3_CNTIN))) {
-                ulCountIncrease = (0xffff + (FTM3_MOD - FTM3_CNTIN));
-            }
-            while (ulCountIncrease >= FTM3_MOD) {
-                ulCountIncrease -= (FTM3_MOD - FTM3_CNTIN);
-            }
+        int iTPM_Type = 0;
         #endif
-        }
-        FTM3_CNT = ulCountIncrease;                                      // new counter value
-        if (((FTM3_SC & FTM_SC_TOIE) != 0) && ((FTM3_SC & FTM_SC_TOF) != 0)) { // if overflow occurred and interrupt enabled
-            if (fnGenInt(irq_FTM3_ID) != 0) {                            // if FlexTimer 2 interrupt is not disabled
-                VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
-                ptrVect->processor_interrupts.irq_FTM3();                // call the interrupt handler
-            }
+        int iTimerInterrupt = fnHandleFlexTimer(3, (FLEX_TIMER_MODULE *)FTM_BLOCK_3, FLEX_TIMERS_3_CHANNELS, iTPM_Type);
+        if (iTimerInterrupt != 0) {
+            fnExecuteTimerInterrupt(3);
         }
     }
     #endif
+    #if FLEX_TIMERS_AVAILABLE > 4 && defined TPMS_AVAILABLE_TOO          // TPM1
+    if ((fnFlexTimerPowered(4) != 0) && ((FTM4_SC & (FTM_SC_CLKS_EXT | FTM_SC_CLKS_SYS)) != 0)) { // if the FlexTimer 4 (TPM1) is powered and clocked
+        int iTimerInterrupt = fnHandleFlexTimer(4, (FLEX_TIMER_MODULE *)FTM_BLOCK_4, FLEX_TIMERS_4_CHANNELS, 1);
+        if (iTimerInterrupt != 0) {
+            fnExecuteTimerInterrupt(4);
+        }
+    }
+    #endif
+    #if FLEX_TIMERS_AVAILABLE > 5 && defined TPMS_AVAILABLE_TOO          // TPM2
+    if ((fnFlexTimerPowered(5) != 0) && ((FTM5_SC & (FTM_SC_CLKS_EXT | FTM_SC_CLKS_SYS)) != 0)) { // if the FlexTimer 5 (TPM2) is powered and clocked
+        int iTimerInterrupt = fnHandleFlexTimer(5, (FLEX_TIMER_MODULE *)FTM_BLOCK_5, FLEX_TIMERS_5_CHANNELS, 1);
+        if (iTimerInterrupt != 0) {
+            fnExecuteTimerInterrupt(5);
+        }
+    }
+    #endif
+#endif
+#if defined SERIAL_INTERFACE
+    // Idle line detection on UARTs
+    //
+    while (iUART < (LPUARTS_AVAILABLE + UARTS_AVAILABLE)) {
+        if (iUART_rx_Active[iUART] != 0) {                               // if the UART's input has been active
+            if (iUART_rx_Active[iUART] == 1) {                           // detect idle line
+                fnSimulateSerialIn(iUART, 0, 0);                         // simulate idle line event
+            }
+            iUART_rx_Active[iUART]--;
+        }
+        iUART++;
+    }
+#endif
 #endif
     return 0;
 }
@@ -7815,7 +11819,6 @@ extern void fnExecutePendingInterrupts(int iRecursive)
     iExecuting = 0;
 }
 #endif
-
 
 extern unsigned char *fnGetSimTxBufferAdd(void)
 {
@@ -7950,7 +11953,7 @@ extern void fnSimulateKeyChange(int *intTable)
             iKeyPadInputs[iCol][iRow] = *intTable++;                     // new value
             if (iChange != iKeyPadInputs[iCol][iRow]) {
     #if defined KEY_POLARITY_POSITIVE
-                if (iChange)
+                if (iChange == 0)
     #else
                 if (iChange != 0)                                        // generally a key press is a '0' 
     #endif
@@ -8265,12 +12268,12 @@ static unsigned long lcd_wf63to60 = 0;
 extern void fnSimulateSLCD(void)
 {
     #if defined SLCD_FILE
-        #if defined KINETIS_KL || defined KINETIS_KL43
-    if ((!(SIM_SCGC5 & SIM_SCGC5_SLCD)) || (!(LCD_GCR & LCD_GCR_LCDEN))) { // if SLCD controller not enabled
+        #if defined KINETIS_KL || defined KINETIS_KL33 || defined KINETIS_KL43
+    if (((SIM_SCGC5 & SIM_SCGC5_SLCD) == 0) || ((LCD_GCR & LCD_GCR_LCDEN) == 0)) { // if SLCD controller not enabled
         return;
     }
         #else
-    if ((!(SIM_SCGC3 & SIM_SCGC3_SLCD)) || (!(LCD_GCR & LCD_GCR_LCDEN))) { // if SLCD controller not enabled
+    if (((SIM_SCGC3 & SIM_SCGC3_SLCD) == 0) || ((LCD_GCR & LCD_GCR_LCDEN) == 0)) { // if SLCD controller not enabled
         return;
     }
         #endif
@@ -8356,7 +12359,7 @@ extern int fnPutBatteryRAMContent(unsigned char ucData, unsigned long ulReferenc
 }
 #endif
 
-#if defined CAN_INTERFACE
+#if (NUMBER_OF_CAN_INTERFACES > 0) && defined CAN_INTERFACE
 static int iLastTxBuffer;
 
 
@@ -8382,19 +12385,24 @@ static void fnBufferSent(int iBuffer, int iRemote)
     KINETIS_CAN_CONTROL *ptrCAN_control;
 
     iBuffer &= 0x00ffffff;                                               // remove channel number
-    #if NUMBER_OF_CAN_INTERFACES > 1
-    if (iChannel != 0) {
-        ptrMessageBuffer = MBUFF0_ADD_1;
-        ptrCAN_control = (KINETIS_CAN_CONTROL *)CAN1_BASE_ADD;
-    }
-    else {
+    switch (iChannel) {
+    case 0:
         ptrMessageBuffer = MBUFF0_ADD_0;
         ptrCAN_control = (KINETIS_CAN_CONTROL *)CAN0_BASE_ADD;
-    }
-    #else
-    ptrMessageBuffer = MBUFF0_ADD_0;
-    ptrCAN_control = (KINETIS_CAN_CONTROL *)CAN0_BASE_ADD;
+        break;
+    #if NUMBER_OF_CAN_INTERFACES > 1
+    case 1:
+        ptrMessageBuffer = MBUFF0_ADD_1;
+        ptrCAN_control = (KINETIS_CAN_CONTROL *)CAN1_BASE_ADD;
+        break;
     #endif
+    #if NUMBER_OF_CAN_INTERFACES > 2
+    case 2:
+        ptrMessageBuffer = MBUFF0_ADD_2;
+        ptrCAN_control = (KINETIS_CAN_CONTROL *)CAN2_BASE_ADD;
+        break;
+    #endif
+    }
     ptrMessageBuffer += iBuffer;
 
     switch (iRemote) {        
@@ -8412,19 +12420,29 @@ static void fnBufferSent(int iBuffer, int iRemote)
             for (x = 0; x < MAX_TX_CAN_TRIES; x++) {                     // simulate frame transmission failing
                 ptrCAN_control->CAN_ESR1 |= (CAN_ACK_ERR | TXWRN | CAN_BUS_IDLE | CAN_ERROR_PASSIVE | ERRINT);
                 if (ptrCAN_control->CAN_CTRL1 & ERRMSK) {                // only generate interrupt when interrupt is enabled
-                    if (iChannel != 0) {
-    #if NUMBER_OF_CAN_INTERFACES > 1
-                        if (fnGenInt(irq_CAN1_ERROR_ID) != 0) {          // if CAN1 error interrupt is not disabled
-                            VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
-                            ptrVect->processor_interrupts.irq_CAN1_ERROR(); // call the interrupt handler
-                        }
-    #endif
-                    }
-                    else {
+                    switch (iChannel) {
+                    case 0:
                         if (fnGenInt(irq_CAN0_ERROR_ID) != 0) {          // if CAN0 error interrupt is not disabled
                             VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
                             ptrVect->processor_interrupts.irq_CAN0_ERROR(); // call the interrupt handler
                         }
+                        break;
+                    #if NUMBER_OF_CAN_INTERFACES > 1
+                    case 1:
+                        if (fnGenInt(irq_CAN1_ERROR_ID) != 0) {          // if CAN1 error interrupt is not disabled
+                            VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
+                            ptrVect->processor_interrupts.irq_CAN1_ERROR(); // call the interrupt handler
+                        }
+                        break;
+                    #endif
+                    #if NUMBER_OF_CAN_INTERFACES > 2
+                    case 2:
+                        if (fnGenInt(irq_CAN2_ERROR_ID) != 0) {          // if CAN2 error interrupt is not disabled
+                            VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
+                            ptrVect->processor_interrupts.irq_CAN2_ERROR(); // call the interrupt handler
+                        }
+                        break;
+                    #endif
                     }
                 }
             }
@@ -8453,19 +12471,29 @@ static void fnBufferSent(int iBuffer, int iRemote)
     case 15:
         ptrCAN_control->CAN_IFLAG1 |= (1 << iBuffer);                    // set interrupt flag for the buffer
         if (ptrCAN_control->CAN_IMASK1 & (1 << iBuffer)) {               // check whether the interrupt is enabled on this buffer
-            if (iChannel != 0) {
-    #if NUMBER_OF_CAN_INTERFACES > 1
-                if (fnGenInt(irq_CAN1_MESSAGE_ID) != 0) {                // if CAN1 message interrupt is not disabled
-                    VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
-                    ptrVect->processor_interrupts.irq_CAN1_MESSAGE();    // call the interrupt handler
-                }
-    #endif
-            }
-            else {
+            switch (iChannel) {
+            case 0:
                 if (fnGenInt(irq_CAN0_MESSAGE_ID) != 0) {                // if CAN0 message interrupt is not disabled
                     VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
                     ptrVect->processor_interrupts.irq_CAN0_MESSAGE();    // call the interrupt handler
                 }
+                break;
+    #if NUMBER_OF_CAN_INTERFACES > 1
+            case 1:
+                if (fnGenInt(irq_CAN1_MESSAGE_ID) != 0) {                // if CAN1 message interrupt is not disabled
+                    VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
+                    ptrVect->processor_interrupts.irq_CAN1_MESSAGE();    // call the interrupt handler
+                }
+                break;
+    #endif
+    #if NUMBER_OF_CAN_INTERFACES > 2
+            case 2:
+                if (fnGenInt(irq_CAN2_MESSAGE_ID) != 0) {                // if CAN2 message interrupt is not disabled
+                    VECTOR_TABLE *ptrVect = (VECTOR_TABLE *)VECTOR_TABLE_OFFSET_REG;
+                    ptrVect->processor_interrupts.irq_CAN2_MESSAGE();    // call the interrupt handler
+                }
+                break;
+    #endif
             }
         }
         break;
@@ -8475,7 +12503,7 @@ static void fnBufferSent(int iBuffer, int iRemote)
 #endif
 }
 
-    #if !defined _LOCAL_SIMULATION && defined SIM_KOMODO
+    #if !defined _LOCAL_SIMULATION
 // Komodo has received something on the CAN bus
 //
 static void fnCAN_reception(int iChannel, unsigned char ucDataLength, unsigned char *ptrData, unsigned long ulId, int iExtendedAddress, int iRemodeRequest, unsigned short usTimeStamp, Komodo km)
@@ -8488,33 +12516,44 @@ static void fnCAN_reception(int iChannel, unsigned char ucDataLength, unsigned c
     int iRxAvailable = 0;
     int iOverrun = 0;
     unsigned char ucBuffer;
+    unsigned long ulRxFilter = 0xffffffff;
     if ((ucDataLength == 0) && (iRemodeRequest == 0)) {
         return;                                                          // ignore when reception without data
     }
-    #if NUMBER_OF_CAN_INTERFACES > 1
-    if (iChannel != 0) {
-        ptrCAN_control = (KINETIS_CAN_CONTROL *)CAN1_BASE_ADD;
-        ptrMessageBuffer = MBUFF0_ADD_1;                                 // the first of 16 message buffers in the FlexCan module
-    }
-    else {
+    switch (iChannel) {
+    case 0:
+        ptrMessageBuffer = MBUFF0_ADD_0;
         ptrCAN_control = (KINETIS_CAN_CONTROL *)CAN0_BASE_ADD;
-        ptrMessageBuffer = MBUFF0_ADD_0;                                 // the first of 16 message buffers in the FlexCan module
-    }
-    #else
-    ptrCAN_control = (KINETIS_CAN_CONTROL *)CAN0_BASE_ADD;
-    ptrMessageBuffer = MBUFF0_ADD_0;                                 // the first of 16 message buffers in the FlexCan module
+        break;
+    #if NUMBER_OF_CAN_INTERFACES > 1
+    case 1:
+        ptrMessageBuffer = MBUFF0_ADD_1;
+        ptrCAN_control = (KINETIS_CAN_CONTROL *)CAN1_BASE_ADD;
+        break;
     #endif
+    #if NUMBER_OF_CAN_INTERFACES > 2
+    case 2:
+        ptrMessageBuffer = MBUFF0_ADD_2;
+        ptrCAN_control = (KINETIS_CAN_CONTROL *)CAN2_BASE_ADD;
+        break;
+    #endif
+    }
 
     if (iExtendedAddress == 0) {
         ulId <<= CAN_STANDARD_SHIFT;
         ulId &= CAN_STANDARD_BITMASK;
     }
+    else {
+        ulId = iExtendedAddress;
+    }
+    ulRxFilter = ptrCAN_control->CAN_RXGMASK;                            // filter mask used for all buffers apart from final two
 
     while (i < NUMBER_CAN_MESSAGE_BUFFERS) {
-        if (ptrMessageBuffer->ulID == ulId) {
+        if ((((ptrMessageBuffer->ulCode_Len_TimeStamp & IDE) != 0) == (iExtendedAddress != 0)) && (ptrMessageBuffer->ulID & ulRxFilter) == (ulId & ulRxFilter)) {
             iRxAvailable++;
             if (iRemodeRequest != 0) {                                   // remote request being received
                 if ((ptrMessageBuffer->ulCode_Len_TimeStamp & CAN_CODE_FIELD) == MB_TX_SEND_ON_REQ) { // remote message waiting to be sent
+    #if defined SIM_KOMODO
                     int iResult;
                     km_can_packet_t pkt;
                     unsigned long arb_count = 0;
@@ -8571,6 +12610,7 @@ static void fnCAN_reception(int iChannel, unsigned char ucDataLength, unsigned c
                         break;
                     }
                     return;
+    #endif
                 }
             }
             else if ((ptrMessageBuffer->ulCode_Len_TimeStamp & CAN_CODE_FIELD) == MB_RX_EMPTY) {
@@ -8579,24 +12619,37 @@ static void fnCAN_reception(int iChannel, unsigned char ucDataLength, unsigned c
             }
         }
         ptrMessageBuffer++;
-        i++;
+        switch (++i) {
+        case 14:
+            ulRxFilter = ptrCAN_control->CAN_RX14MASK;
+            break;
+        case 15:
+            ulRxFilter = ptrCAN_control->CAN_RX15MASK;
+            break;
+        }
     }
 
-    #if NUMBER_OF_CAN_INTERFACES > 1
-    if (iChannel != 0) {
-        ptrMessageBuffer = MBUFF0_ADD_1;
-    }
-    else {
+    switch (iChannel) {
+    case 0:
         ptrMessageBuffer = MBUFF0_ADD_0;
-    }
-    #else
-    ptrMessageBuffer = MBUFF0_ADD_0;
+        break;
+    #if NUMBER_OF_CAN_INTERFACES > 1
+    case 1:
+        ptrMessageBuffer = MBUFF0_ADD_1;
+        break;
     #endif
+    #if NUMBER_OF_CAN_INTERFACES > 2
+    case 2:
+        ptrMessageBuffer = MBUFF0_ADD_2;
+        break;
+    #endif
+    }
 
     if (iRxAvailable != 0) {
+        ulRxFilter = ptrCAN_control->CAN_RXGMASK;
         i = 0;
         while (i < NUMBER_CAN_MESSAGE_BUFFERS) {
-            if (ptrMessageBuffer->ulID == ulId) {
+            if ((((ptrMessageBuffer->ulCode_Len_TimeStamp & IDE) != 0) == (iExtendedAddress != 0)) && (ptrMessageBuffer->ulID & ulRxFilter) == (ulId & ulRxFilter)) {
                 if ((ptrMessageBuffer->ulCode_Len_TimeStamp & CAN_CODE_FIELD) == (MB_RX_FULL)) {
                     ucBuffer = (unsigned char)i;                         // we use this buffer for reception - it will set overrun...
                     iOverrun = 1;
@@ -8604,23 +12657,35 @@ static void fnCAN_reception(int iChannel, unsigned char ucDataLength, unsigned c
                 }
             }
             ptrMessageBuffer++;
-            i++;
+            switch (++i) {
+            case 14:
+                ulRxFilter = ptrCAN_control->CAN_RX14MASK;
+                break;
+            case 15:
+                ulRxFilter = ptrCAN_control->CAN_RX15MASK;
+                break;
+            }
         }
     }
     else {
         return;                                                          // no reception buffer found so ignore
     }
 
-    #if NUMBER_OF_CAN_INTERFACES > 1
-    if (iChannel != 0) {
-        ptrMessageBuffer = MBUFF0_ADD_1;
-    }
-    else {
+    switch (iChannel) {
+    case 0:
         ptrMessageBuffer = MBUFF0_ADD_0;
-    }
-    #else
-    ptrMessageBuffer = MBUFF0_ADD_0;
+        break;
+    #if NUMBER_OF_CAN_INTERFACES > 1
+    case 1:
+        ptrMessageBuffer = MBUFF0_ADD_1;
+        break;
     #endif
+    #if NUMBER_OF_CAN_INTERFACES > 2
+    case 2:
+        ptrMessageBuffer = MBUFF0_ADD_2;
+        break;
+    #endif
+    }
     ptrMessageBuffer += ucBuffer;                                        // set the local simulate buffer correspondingly
 
     if (iOverrun != 0) {
@@ -8643,6 +12708,22 @@ static void fnCAN_reception(int iChannel, unsigned char ucDataLength, unsigned c
 #endif
 }
     #endif
+
+#if defined CAN_INTERFACE
+extern void fnSimulateCanIn(int iChannel, unsigned long ilID, int iRTR, unsigned char *ptrData, unsigned char ucDLC)
+{
+    static unsigned short usTimeStamp = 0;
+    unsigned long ilID_extended;
+    if ((ilID & 0x80000000) != 0) {
+        ilID_extended = ilID & ~0x80000000;
+        ilID = 0;
+    }
+    else {
+        ilID_extended = 0;
+    }
+    fnCAN_reception(iChannel, ucDLC, ptrData, ilID, ilID_extended, iRTR, usTimeStamp++, 0);
+}
+#endif
 
 extern void fnSimCAN(int iChannel, int iBufferNumber, int iSpecial)
 {
@@ -8691,19 +12772,24 @@ extern void fnSimCAN(int iChannel, int iBufferNumber, int iSpecial)
         return;
     }
     #endif
-    #if NUMBER_OF_CAN_INTERFACES > 1
-    if (iChannel != 0) {
-        ptrCAN_control = (KINETIS_CAN_CONTROL *)CAN1_BASE_ADD;
-        ptrMessageBuffer = MBUFF0_ADD_1;                                 // the first of 16 message buffers in the FlexCan module
-    }
-    else {
+    switch (iChannel) {
+    case 0:
         ptrCAN_control = (KINETIS_CAN_CONTROL *)CAN0_BASE_ADD;
         ptrMessageBuffer = MBUFF0_ADD_0;                                 // the first of 16 message buffers in the FlexCan module
-    }
-    #else
-    ptrCAN_control = (KINETIS_CAN_CONTROL *)CAN0_BASE_ADD;
-    ptrMessageBuffer = MBUFF0_ADD_0;                                     // the first of 16 message buffers in the FlexCan module
+        break;
+    #if NUMBER_OF_CAN_INTERFACES > 1
+    case 1:
+        ptrCAN_control = (KINETIS_CAN_CONTROL *)CAN1_BASE_ADD;
+        ptrMessageBuffer = MBUFF0_ADD_1;                                 // the first of 16 message buffers in the FlexCan module
+        break;
     #endif
+    #if NUMBER_OF_CAN_INTERFACES > 2
+    case 2:
+        ptrCAN_control = (KINETIS_CAN_CONTROL *)CAN2_BASE_ADD;
+        ptrMessageBuffer = MBUFF0_ADD_2;                                 // the first of 16 message buffers in the FlexCan module
+        break;
+    #endif
+    }
 
     // Configuration changes
     //
@@ -8799,7 +12885,7 @@ extern void fnSimCAN(int iChannel, int iBufferNumber, int iSpecial)
         // fall through
     #endif
     case MB_TX_SEND_ONCE:                                           
-        if (ptrMessageBuffer->ulCode_Len_TimeStamp & RTR) {              // remote frame is to be transmitted
+        if ((ptrMessageBuffer->ulCode_Len_TimeStamp & RTR) != 0) {       // remote frame is to be transmitted
     #if defined _LOCAL_SIMULATION
         #if defined _TX_OK
             // The buffer converts automatically to a receive buffer
@@ -8987,6 +13073,7 @@ _rx_int:
                 }
                 km_can_async_submit(km, iChannel, KM_CAN_ONE_SHOT, &pkt, ucTxDataLength, (const unsigned char *)ucData); // send
                 iResult = km_can_async_collect(km, 10, &arb_count);      // collect the result of the last transmission
+iResult = KM_OK;
                 switch (iResult) {
                 case KM_OK:
                     fnBufferSent(((iChannel << 24) | iLastTxBuffer), SIM_CAN_TX_OK);
@@ -9026,6 +13113,11 @@ static int iPenDown = 0;
         #define MAX_X_TOUCH          0x0e90
         #define MIN_Y_TOUCH          0x03c5
         #define MAX_Y_TOUCH          0x0d30
+    #elif defined TOUCH_FT5406
+        #define MIN_X_TOUCH          0x0230                              // tuned values - for calibration these should be taken from parameters
+        #define MAX_X_TOUCH          0x0e90
+        #define MIN_Y_TOUCH          0x03c5
+        #define MAX_Y_TOUCH          0x0d30
     #elif defined TOUCH_FT6206
         #define MIN_X_TOUCH          0x0230                              // tuned values - for calibration these should be taken from parameters
         #define MAX_X_TOUCH          0x0e90
@@ -9033,20 +13125,20 @@ static int iPenDown = 0;
         #define MAX_Y_TOUCH          0x0d30
     #endif
 
-extern void fnPenPressed(int iX, int iY)
+extern void fnPenPressed(int iX, int iY, int iPenRef)
 {
     iPenLocationX = (iX - 6);
     iPenLocationY = (iY - 3);
     iPenDown = 1;
 }
 
-extern void fnPenMoved(int iX, int iY)
+extern void fnPenMoved(int iX, int iY, int iPenRef)
 {
     iPenLocationX = (iX - 6);
     iPenLocationY = (iY - 3);
 }
 
-extern void fnPenLifted(void)
+extern void fnPenLifted(int iPenRef)
 {
     iPenLocationX = 0;
     iPenLocationY = 0;
@@ -9066,6 +13158,164 @@ extern void fnGetPenSamples(unsigned short *ptrX, unsigned short *ptrY)
         *ptrX = (MIN_X_TOUCH + ((iPenLocationX * ((MAX_X_TOUCH - MIN_X_TOUCH)))/GLCD_X));
         *ptrY = (MIN_Y_TOUCH + ((iPenLocationY * ((MAX_Y_TOUCH - MIN_Y_TOUCH)))/GLCD_Y));
     }
+}
+#endif
+
+// Calculate a bit-banded peripheral address back to its original register and bit - then set the bit in the register
+//
+extern void fnSetBitBandPeripheralValue(unsigned long *bit_band_address)
+{
+    unsigned long ulRegAddress;
+    unsigned long ulBit;
+    ulRegAddress = ((unsigned long)bit_band_address - 0x42000000);
+    ulBit = ((ulRegAddress / 4) % 32);
+    ulBit = (1 << ulBit);
+    ulRegAddress /= 32;
+    ulRegAddress &= ~0x3;
+    *(unsigned long *)ulRegAddress |= ulBit;
+}
+
+// Calculate a bit-banded peripheral address back to its original register and bit - then clear the bit in the register
+//
+extern void fnClearBitBandPeripheralValue(unsigned long *bit_band_address)
+{
+    unsigned long ulRegAddress;
+    unsigned long ulBit;
+    ulRegAddress = ((unsigned long)bit_band_address - 0x42000000);
+    ulBit = ((ulRegAddress / 4) % 32);
+    ulBit = (1 << ulBit);
+    ulRegAddress /= 32;
+    ulRegAddress &= ~0x3;
+    *(unsigned long *)ulRegAddress &= ~ulBit;
+}
+
+// Calculate a bit-banded peripheral address back to its original register and bit - then check the bit in the register
+//
+extern int fnCheckBitBandPeripheralValue(unsigned long *bit_band_address)
+{
+    unsigned long ulRegAddress;
+    unsigned long ulBit;
+    ulRegAddress = ((unsigned long)bit_band_address - 0x42000000);
+    ulBit = ((ulRegAddress / 4) % 32);
+    ulBit = (1 << ulBit);
+    ulRegAddress /= 32;
+    ulRegAddress &= ~0x3;
+    return ((*(unsigned long *)ulRegAddress & ulBit) != 0);
+}
+
+#if defined KINETIS_WITH_PCC
+
+static unsigned long fnGetPCC_source(unsigned long ulPCC_setting)
+{
+    unsigned long ulClockSpeed = 0;
+    if ((ulPCC_setting & PCC_CGC) == 0) {
+        return 0;                                                        // clocks to the module are not enabled
+    }
+    switch (ulPCC_setting & PCC_PCS_MASK) {
+    case PCC_PCS_CLOCK_OFF:
+        return 0;                                                        // no clock source is selected
+    case PCC_PCS_SCGPCLK:                                                // system PLL clock
+    case PCC_PCS_OSCCLK:                                                 // system oscillator bus clock
+    case PCC_PCS_SCGIRCLK:                                               // slow IRC clock
+        _EXCEPTION("To add!");
+        break;
+    case PCC_PCS_SCGFIRCLK:                                              // fast IRC clock
+        if ((SCG_FIRCCSR & SCG_FIRCCSR_FIRCEN) == 0) {                   // check that the fast IRC is enabled
+            return 0;                                                    // no clock source enabled
+        }
+        else {
+            unsigned long ulSourceDivider;
+            switch (SCG_FIRCCFG) {
+            case SCG_FIRCCFG_RANGE_60MHz:
+                ulClockSpeed = 60000000;
+                break;
+            case SCG_FIRCCFG_RANGE_56MHz:
+                ulClockSpeed = 56000000;
+                break;
+            case SCG_FIRCCFG_RANGE_52MHz:
+                ulClockSpeed = 52000000;
+                break;
+            case SCG_FIRCCFG_RANGE_48MHz:
+                ulClockSpeed = 48000000;
+                break;
+            default:
+                _EXCEPTION("Invalid FIRC selected!");
+                break;
+            }
+            ulSourceDivider = ((SCG_FIRCDIV >> PERIPHERAL_CLOCK_DIV_SHIFT) & 0x7);
+            switch (ulSourceDivider) {
+            case 0:
+                return 0;                                            // peripheral clock source enabled
+            case 1:                                                  // divide by 1
+                break;
+            case 2:                                                  // divide by 2
+                ulClockSpeed /= 2;
+                break;
+            case 3:                                                  // divide by 4
+                ulClockSpeed /= 4;
+                break;
+            case 4:                                                  // divide by 8
+                ulClockSpeed /= 8;
+                break;
+            case 5:                                                  // divide by 16
+                ulClockSpeed /= 16;
+                break;
+            case 6:                                                  // divide by 32
+                ulClockSpeed /= 32;
+                break;
+            case 7:                                                  // divide by 64
+                ulClockSpeed /= 64;
+                break;
+            }
+        }
+        break;
+    default:
+        _EXCEPTION("Invalid clock source!");
+        break;
+    }
+    return ulClockSpeed;
+}
+
+// Calculate the selected clock speed at a peripheral connected by PCC
+//
+extern unsigned long fnGetPCC_clock(int iReference)
+{
+    unsigned long ulClockSpeed = 0;
+    switch (iReference) {
+    #if defined PCC_ADC0
+    case KINETIS_PERIPHERAL_ADC0:
+        return fnGetPCC_source(PCC_ADC0);
+    #endif
+    #if defined PCC_ADC1
+    case KINETIS_PERIPHERAL_ADC1:
+        return fnGetPCC_source(PCC_ADC1);
+    #endif
+    #if defined PCC_ADC2
+    case KINETIS_PERIPHERAL_ADC2:
+        return fnGetPCC_source(PCC_ADC2);
+    #endif
+    #if defined PCC_ADC3
+    case KINETIS_PERIPHERAL_ADC3:
+        return fnGetPCC_source(PCC_ADC3);
+    #endif
+    #if defined PCC_FTM0
+    case KINETIS_PERIPHERAL_FTM0:
+        return fnGetPCC_source(PCC_FTM0);
+    #endif
+    #if defined PCC_FTM1
+    case KINETIS_PERIPHERAL_FTM1:
+        return fnGetPCC_source(PCC_FTM1);
+    #endif
+    #if defined PCC_FTM2
+    case KINETIS_PERIPHERAL_FTM2:
+        return fnGetPCC_source(PCC_FTM2);
+    #endif
+    #if defined PCC_FTM3
+    case KINETIS_PERIPHERAL_FTM3:
+        return fnGetPCC_source(PCC_FTM3);
+    #endif
+    }
+    return ulClockSpeed;
 }
 #endif
 
@@ -9109,6 +13359,9 @@ extern void fnUpdateOperatingDetails(void)
 #if !defined NO_STATUS_BAR
     extern void fnPostOperatingDetails(char *ptrDetails);
     unsigned long ulBusClockSpeed;
+    #if defined FLEXBUS_AVAILABLE && defined MCGOUTCLK && defined SIM_CLKDIV1
+    unsigned long ulFlexbusClockSpeed;
+    #endif
     #if !defined BUS_FLASH_CLOCK_SHARED
     unsigned long ulFlashClockSpeed;
     #endif
@@ -9116,7 +13369,7 @@ extern void fnUpdateOperatingDetails(void)
     CHAR *ptrBuffer = cOperatingDetails;
     ptrBuffer = uStrcpy(ptrBuffer, "FLASH = ");
     ptrBuffer = fnBufferDec((SIZE_OF_FLASH/1024), 0, ptrBuffer);
-    #if defined HIGH_SPEED_RUN_MODE_AVAILABLE && defined HIGH_SPEED_RUN_MODE_REQUIRED
+    #if defined HIGH_SPEED_RUN_MODE_AVAILABLE && defined HIGH_SPEED_RUN_MODE_REQUIRED && !defined AUTO_RUN_MODE_ON_FLASH
     if ((SMC_PMCTRL & SMC_PMCTRL_RUNM_HSRUN) == SMC_PMCTRL_RUNM_HSRUN) {
         ptrBuffer = uStrcpy(ptrBuffer, "k (read-only), SRAM");
     }
@@ -9132,14 +13385,25 @@ extern void fnUpdateOperatingDetails(void)
     #else
     ptrBuffer = uStrcpy(ptrBuffer, "k, BUS CLOCK = ");
     #endif
-    #if defined KINETIS_KL
+    #if defined KINETIS_WITH_SCG
+    ulBusClockSpeed = (DIVSLOW_CLK);                                     // flash and bus clock
+    #elif defined KINETIS_KL
         #if defined BUS_FLASH_CLOCK_SHARED
     ulBusClockSpeed = (SYSTEM_CLOCK/(((SIM_CLKDIV1 >> 16) & 0xf) + 1));
         #else
     ulBusClockSpeed = (MCGOUTCLK / (((SIM_CLKDIV1 >> 24) & 0xf) + 1));
         #endif
-    #elif defined KINETIS_KV10
+    #elif defined KINETIS_KM
+    if ((SIM_CLKDIV1 & SIM_CLKDIV1_SYSCLKMODE) != 0) {
+        ulBusClockSpeed = (SYSTEM_CLOCK / 2);
+    }
+    else {
+        ulBusClockSpeed = (SYSTEM_CLOCK);
+    }
+    #elif defined KINETIS_KV10 || defined KINETIS_KV11
     ulBusClockSpeed = (SYSTEM_CLOCK/(((SIM_CLKDIV1 >> 16) & 0x7) + 1));
+    #elif defined KINETIS_KV40
+    ulBusClockSpeed = (MCGOUTCLK/(((SIM_CLKDIV1 >> 16) & 0xf) + 1));
     #elif defined KINETIS_KE
         #if defined SIM_CLKDIV
 	ulBusClockSpeed = ICSOUT_CLOCK;
@@ -9160,7 +13424,7 @@ extern void fnUpdateOperatingDetails(void)
         ulBusClockSpeed /= 2;
     }
         #else
-    if (SIM_BUSDIV & SIM_BUSDIVBUSDIV) {
+    if ((SIM_BUSDIV & SIM_BUSDIVBUSDIV) != 0) {
         ulBusClockSpeed = (SYSTEM_CLOCK/2);
     }
     else {
@@ -9176,15 +13440,19 @@ extern void fnUpdateOperatingDetails(void)
         ptrBuffer = uStrcpy(ptrBuffer, " [HS-RUN]");
     }
     #endif
-    #if !defined BUS_FLASH_CLOCK_SHARED                                  // in these devices the bus and flash clock are the same
+    #if !defined BUS_FLASH_CLOCK_SHARED                                   // in these devices the bus and flash clock are independent
     ptrBuffer = uStrcpy(ptrBuffer, ", FLASH CLOCK = ");
     ulFlashClockSpeed = (MCGOUTCLK/(((SIM_CLKDIV1 >> 16) & 0xf) + 1));
     ptrBuffer = fnBufferDec(ulFlashClockSpeed, 0, ptrBuffer);
     #endif
     #if defined FLEXBUS_AVAILABLE && defined MCGOUTCLK && defined SIM_CLKDIV1
     ptrBuffer = uStrcpy(ptrBuffer, ", FLEXBUS CLOCK = ");
-    ulFlashClockSpeed = (MCGOUTCLK/(((SIM_CLKDIV1 >> 20) & 0xf) + 1));
-    ptrBuffer = fnBufferDec(ulFlashClockSpeed, 0, ptrBuffer);
+    ulFlexbusClockSpeed = (MCGOUTCLK/(((SIM_CLKDIV1 >> 20) & 0xf) + 1));
+    ptrBuffer = fnBufferDec(ulFlexbusClockSpeed, 0, ptrBuffer);
+    #endif
+    #if defined FAST_PERIPHERAL_CLOCK_DIVIDE
+    ptrBuffer = uStrcpy(ptrBuffer, ", FAST PERIPHERAL CLOCK = ");
+    ptrBuffer = fnBufferDec((MCGOUTCLK/(((SIM_CLKDIV1 >> 24) & 0xf) + 1)), 0, ptrBuffer);
     #endif
     fnPostOperatingDetails(cOperatingDetails);
 #endif

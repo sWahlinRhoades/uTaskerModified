@@ -11,9 +11,10 @@
     File:      can_drv.c 
     Project:   Single Chip Embedded Internet
     ---------------------------------------------------------------------
-    Copyright (C) M.J.Butcher Consulting 2004..2016
+    Copyright (C) M.J.Butcher Consulting 2004..2020
     *********************************************************************
     04.12.2011 Pass channel to fnCAN_tx() and fnCAN_get_rx()             {1}
+    06.02.2020 Add flush support                                         {2}
 
 */
 
@@ -68,15 +69,15 @@ static QUEUE_TRANSFER entry_can(unsigned char channel, unsigned char *ptBuffer, 
 
     switch (ucCallType) {
     case CALL_DRIVER:                                                    // request changes and return status
-        if ((CAST_POINTER_ARITHMETIC)ptBuffer & MODIFY_TX) {
+        if (((CAST_POINTER_ARITHMETIC)ptBuffer & MODIFY_TX) != 0) {
             ptTTYQue = (struct stTTYQue *)(que_ids[DriverID].output_buffer_control); // tx state
         }
         else {
             ptTTYQue = (struct stTTYQue *)(que_ids[DriverID].input_buffer_control); // rx state
         }
 
-        if (Counter) {                                                   // modify driver  state
-            if (Counter & MODIFY_WAKEUP) {
+        if (Counter != 0) {                                              // modify driver  state
+            if ((Counter & MODIFY_WAKEUP) != 0) {
                 ptTTYQue->wake_task = (unsigned char)((CAST_POINTER_ARITHMETIC)ptBuffer & 0x7f);
             }
         }
@@ -101,7 +102,11 @@ static QUEUE_TRANSFER entry_can(unsigned char channel, unsigned char *ptBuffer, 
     case CALL_READ:                                                      // read a waiting CAN message
         rtn_val = fnCAN_get_rx(que_ids[DriverID].qHandle, (QUEUE_HANDLE)(DriverID + 1), ptBuffer, Counter); // {1}
         break;
-
+#if defined SUPPORT_FLUSH                                                // {2}
+    case CALL_FLUSH:
+        rtn_val = fnCAN_tx(que_ids[DriverID].qHandle, (QUEUE_HANDLE)(DriverID + 1), 0, SPECIFIED_ID);
+        break;
+#endif
     default:
         break;
     }

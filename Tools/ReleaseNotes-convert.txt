@@ -60,9 +60,9 @@ Version V1.10 02-10-2015
 ========================
 Version 1.10 protect against motorola to raw binary conversion when (invalid) 0xffffffff length block is found
 
-Version V1.11 06-11--2018
-=========================
-Version V1.11 adds AES256 encryption:
+Version V1.11 06-11-2018
+========================
+Version V1.11 adds AES256-CBC encryption:
 
 Usage 1: uTaskerConvert.exe uTaskerV1.4_BM.bin aes256_coded.bin $"aes256 secret key" $"initial vector"
 $"aes256 secret key" is a AES256 encryption key string that can be up to 32 characters long
@@ -71,11 +71,49 @@ $"initial vector" is the AES256' initial vector value, which is up to 16 charact
 This string is optional and when not present a reset (all 0) initial vector is used.
 
 Usage 2: uTaskerConvert.exe uTaskerV1.4_BM.bin aes256_coded.bin +"8d5E5f42ffs4a9000135f2" +"001122f354e4b8"
-+"8d5E5f42ffs4a9000135f2" is a hex AES256 encryption key string that can be up to 32 characters long.
+is a hex AES256 encryption key string that can be up to 32 characters long.
 If shorter than 32 bytes it is extended to 32 bytes in length by adding 'X' characters.
 +"001122f354e4b8" is the AES256' initial vector value, which is up to bytes long (padded with 'X's when shorter).
 This string is optional and when not present a reset (all 0) initial vector is used.
 
 The length of the encrypted file is always divisible by 32 and so may be up to 31 bytes longer than the input file.
 
+
+Version V1.12 18-07-2020
+=========================
+Version V1.12 adds AES128-CTR encryption option.
+
+Usage 1: uTaskerConvert.exe uTaskerV1.4_BM.bin aes256_coded.bin E=128 $"aes256 secret key" $"initial vector"
+Usage 2: uTaskerConvert.exe uTaskerV1.4_BM.bin aes256_coded.bin E=128 +"8d5E5f42ffs4a9000135f2" +"001122f354e4b8"
+Note the new E=128 (before the secret key)
+
+The AES256 option can be used as default as in version V1.11 or shown more clearly with 
+uTaskerConvert.exe uTaskerV1.4_BM.bin aes256_coded.bin E=256 $"aes256 secret key" $"initial vector"
+Note the new E=256 (before the secret key)
+The length of the encrypted file is always divisible by 16 and so may be up to 16 bytes longer than the input file.
+
+
+Version V1.13 27-07-2020
+=========================
+
+Modified iv (nonce counter) format of AES128-CTR for i.MX RT on-the-fly compatibility and added BEE mode
+Encyrption address added as parameter (defaults to 0x60020110 when no parameter passed).
+New usage
+OTFAD mode (i.MX RT 1011)
+Usage 1: uTaskerConvert.exe uTaskerV1.4_BM.bin aes256_coded.bin E=128-60020110 $"aes256 secret key" $"initial vector"
+Usage 2: uTaskerConvert.exe uTaskerV1.4_BM.bin aes256_coded.bin E=128-60020110 +"8d5E5f42ffs4a9000135f2" +"001122f354e4b8"
+
+BEE mode (other i.MX RT parts' with Bus Encryption Engine)
+Usage 1: uTaskerConvert.exe uTaskerV1.4_BM.bin aes256_coded.bin E=128B-60020110 $"aes256 secret key" $"initial vector"
+Usage 2: uTaskerConvert.exe uTaskerV1.4_BM.bin aes256_coded.bin E=128B-60020110 +"8d5E5f42ffs4a9000135f2" +"001122f354e4b8"
+(note E=128B rather than E=128)
+
+
+Version V1.14 05-09-2020
+=========================
+
+Option to insert a boot header after the header.
+Example:
+input.bin output.bin +boot_header.txt -0x2123 -a748b6531124
+The content (hex values) in boot_header.txt is inserted between the header and the input.bin content and included in the checksum
 

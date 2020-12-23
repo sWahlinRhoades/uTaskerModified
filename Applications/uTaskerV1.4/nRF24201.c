@@ -11,12 +11,12 @@
     File:      nRF24201.c
     Project:   uTasker project
     ---------------------------------------------------------------------
-    Copyright (C) M.J.Butcher Consulting 2004..2018
+    Copyright (C) M.J.Butcher Consulting 2004..2020
     *********************************************************************
     This file contains application operation of nRF24201 (primary or secondary).
     It is intended as a temporary project file to be later incorporated in networking software.
 
-    30.03.2018 Added FRDM-K66F target an publish MQTT message on reception {1}
+    30.03.2018 Added FRDM-K66F target and publish MQTT message on reception {1}
 
 */
 
@@ -62,7 +62,7 @@
                                  _CONFIG_PERIPHERAL(D, 5, (PD_5_SPI1_SCK  | PORT_DSE_HIGH | PORT_PS_UP_ENABLE | PORT_SRE_FAST))
     #endif
 
-    #define CONFIGURE_nRF24L01_SPI_MODE() POWER_UP(6, SIM_SCGC6_SPI1); \
+    #define CONFIGURE_nRF24L01_SPI_MODE() POWER_UP_ATOMIC(6, SPI1); \
                                  SPI1_MCR = (SPI_MCR_MSTR | SPI_MCR_DCONF_SPI | SPI_MCR_CLR_RXF | SPI_MCR_CLR_TXF | SPI_MCR_PCSIS_CS0 | SPI_MCR_PCSIS_CS1 | SPI_MCR_PCSIS_CS2 | SPI_MCR_PCSIS_CS3 | SPI_MCR_PCSIS_CS4 | SPI_MCR_PCSIS_CS5);\
                                  SPI1_CTAR0 = (SPI_CTAR_ASC_10 | SPI_CTAR_PBR_3 | SPI_CTAR_DBR | SPI_CTAR_FMSZ_8 | SPI_CTAR_PDT_7 | /*SPI_CTAR_BR_4*/SPI_CTAR_BR_2048 /*| SPI_CTAR_CPHA | SPI_CTAR_CPOL*/); // for 120MHz system, 10MHz speed
 
@@ -101,7 +101,7 @@
                                  _CONFIG_PERIPHERAL(A, 17, (PA_17_SPI0_SIN | PORT_PS_UP_ENABLE)); \
                                  _CONFIG_DRIVE_PORT_OUTPUT_VALUE(A, nRF24L01P_CS, nRF24L01P_CS, (PORT_SRE_FAST | PORT_DSE_HIGH)); \
 
-    #define CONFIGURE_nRF24L01_SPI_MODE() POWER_UP(4, SIM_SCGC4_SPI0); \
+    #define CONFIGURE_nRF24L01_SPI_MODE() POWER_UP_ATOMIC(4, SPI0); \
                                   SPI0_C1 = (/*SPI_C1_CPHA | SPI_C1_CPOL | */SPI_C1_MSTR | SPI_C1_SPE); \
                                   SPI0_BR = (SPI_BR_SPPR_PRE_1 | SPI_BR_SPR_DIV_2); \
                                   (unsigned char)SPI0_S; (unsigned char)SPI0_D
@@ -141,7 +141,7 @@
                                  _CONFIG_PERIPHERAL(E, 3, (PE_3_SPI1_MISO | PORT_PS_UP_ENABLE)); \
                                  _CONFIG_DRIVE_PORT_OUTPUT_VALUE(E, nRF24L01P_CS, nRF24L01P_CS, (PORT_SRE_FAST | PORT_DSE_HIGH)); \
 
-    #define CONFIGURE_nRF24L01_SPI_MODE() POWER_UP(4, SIM_SCGC4_SPI1); \
+    #define CONFIGURE_nRF24L01_SPI_MODE() POWER_UP_ATOMIC(4, SPI1); \
                                   SPI1_C1 = (/*SPI_C1_CPHA | SPI_C1_CPOL | */SPI_C1_MSTR | SPI_C1_SPE); \
                                   SPI1_BR = (SPI_BR_SPPR_PRE_1 | SPI_BR_SPR_DIV_4); \
                                   (unsigned char)SPI1_S; (unsigned char)SPI1_D
@@ -180,7 +180,7 @@
                                  _CONFIG_PERIPHERAL(D, 6, (PD_6_SPI1_MOSI | PORT_SRE_FAST | PORT_DSE_HIGH)); \
                                  _CONFIG_PERIPHERAL(D, 7, (PD_7_SPI1_MISO | PORT_PS_UP_ENABLE));
 
-    #define CONFIGURE_nRF24L01_SPI_MODE() POWER_UP(4, SIM_SCGC4_SPI1); \
+    #define CONFIGURE_nRF24L01_SPI_MODE() POWER_UP_ATOMIC(4, SPI1); \
                                  _CONFIG_DRIVE_PORT_OUTPUT_VALUE_FAST_HIGH(B, nRF24L01P_TX_ENABLE, 0, (PORT_SRE_SLOW | PORT_DSE_LOW));\
                                  _CONFIG_DRIVE_PORT_OUTPUT_VALUE_FAST_HIGH(B, nRF24L01P_CS, nRF24L01P_CS, (PORT_SRE_FAST | PORT_DSE_LOW));\
                                   _CONFIG_PERIPHERAL(D, 5,  PD_5_SPI1_SCK); \
@@ -222,7 +222,7 @@
                                  _CONFIG_PERIPHERAL(A, 7, (PA_7_SPI0_MOSI | PORT_SRE_FAST | PORT_DSE_HIGH)); \
                                  _CONFIG_PERIPHERAL(A, 6, (PA_6_SPI0_MISO | PORT_PS_UP_ENABLE));
 
-    #define CONFIGURE_nRF24L01_SPI_MODE() POWER_UP(4, SIM_SCGC4_SPI0); \
+    #define CONFIGURE_nRF24L01_SPI_MODE() POWER_UP_ATOMIC(4, SPI0); \
                                   SPI0_C1 = (SPI_C1_MSTR | SPI_C1_SPE); \
                                   SPI0_BR = (SPI_BR_SPPR_PRE_1 | SPI_BR_SPR_DIV_4); \
                                   (unsigned char)SPI0_S; (unsigned char)SPI0_D
@@ -261,7 +261,7 @@
                                  _CONFIG_PERIPHERAL(D, 3, (PD_3_SPI0_SIN | PORT_PS_UP_ENABLE));\
                                  _CONFIG_PERIPHERAL(D, 1, (PD_1_SPI0_SCK  | PORT_DSE_HIGH | PORT_PS_UP_ENABLE | PORT_SRE_FAST))
 
-    #define CONFIGURE_nRF24L01_SPI_MODE() POWER_UP(6, SIM_SCGC6_SPI0); \
+    #define CONFIGURE_nRF24L01_SPI_MODE() POWER_UP_ATOMIC(6, SPI0); \
                                  SPI0_MCR = (SPI_MCR_MSTR | SPI_MCR_DCONF_SPI | SPI_MCR_CLR_RXF | SPI_MCR_CLR_TXF | SPI_MCR_PCSIS_CS0 | SPI_MCR_PCSIS_CS1 | SPI_MCR_PCSIS_CS2 | SPI_MCR_PCSIS_CS3 | SPI_MCR_PCSIS_CS4 | SPI_MCR_PCSIS_CS5);\
                                  SPI0_CTAR0 = (SPI_CTAR_ASC_10 | SPI_CTAR_PBR_3 | SPI_CTAR_DBR | SPI_CTAR_FMSZ_8 | SPI_CTAR_PDT_7 | /*SPI_CTAR_BR_4*/SPI_CTAR_BR_2048 /*| SPI_CTAR_CPHA | SPI_CTAR_CPOL*/); // for 120MHz system, 10MHz speed
 
@@ -871,13 +871,6 @@ extern void fnInit_nRF24L01(void)
         #endif
     #endif
     fnConfigureInterrupt((void *)&interrupt_setup);                      // configure interrupt
-}
-
-// Configure the hardware lines immediately after reset so that the device has stabilised by the time the initialisation is called
-//
-extern void fnPrepare_nRF24L01_signals(void)
-{
-    CONFIGURE_INTERFACE_nRF24L01();                                      // configure hardware lines to default states
 }
 
 

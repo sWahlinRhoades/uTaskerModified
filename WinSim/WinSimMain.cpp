@@ -11,7 +11,7 @@
     File:      WinSimMain.cpp
     Project:   uTasker project
     ---------------------------------------------------------------------
-    Copyright (C) M.J.Butcher Consulting 2004..2019
+    Copyright (C) M.J.Butcher Consulting 2004..2020
     *********************************************************************
     18.01.2007 Correct array size                                        {1}
     26.01.2007 Increase ucDoList[10000]; to ensure no overrun {2} and OVERLAPPED data structure in fnSendSerialMessage
@@ -124,7 +124,7 @@
     28.06.2015 Add VYBRID
     27.07.2015 Add TIVA
     03.10.2016 Always update NIC when a setting changes                  {105}
-    07.11.2016 Add software version to window title (if avaiable)        {106}
+    07.11.2016 Add software version to window title (if available)       {106}
     15.11.2016 Pass complete change state in fnInjectInputChange()       {107}
     24.12.2016 Add fnInjectI2C()                                         {108}
     02.02.2017 Allow sub-ms tick setting                                 {109}
@@ -134,6 +134,14 @@
     06.10.2018 Allow display of mixed port widths for processor and external ports {113}
     25.12.2018 Only update processor image when its rectangle has been invalidated {114}
     26.12.2018 Add iMX                                                   {115}
+    18.02.2019 Add CAN frame injection                                   {116}
+    14.03.2019 Add Crystal Fontz UART display simulation [CRYSTAL_FONTZ_UART_LCD_SIMULATION]
+    04.04.2019 Add single UART<->UART internal loop back option [USER_INTERNALLY_CONNECTED_UART_A and USER_INTERNALLY_CONNECTED_UART_B]
+    06.05.2019 Redraw keypad, followed by LCD when LCD is over keypad each time the window is resized // {117}
+    02.10.2019 Add BT800_EMULATOR support with multiple display capability {118}
+    30.03.2020 When editing the status buffer first add a 0 terminator to ensure that it doesn't shift data beyond its end location {119}
+    07.06.2020 Allow toggling active USB interface by clicking on the corresponding USB symbol {120}
+    23.10.2020 Improve efficiency of first LCD draw                      {121}
 
     */
 
@@ -148,6 +156,12 @@
 #include <windows.h>
 #include <process.h>
 
+#if !defined USBS_AVAILABLE
+    #define USBS_AVAILABLE     1
+#endif
+
+#define LAN_LED_FLASH_DURATION (50000/TICK_RESOLUTION)
+
 #define _WITH_STATUS_BAR
 #define BUFSSIZE        512
 #if defined _WITH_STATUS_BAR                                             // {84}
@@ -155,6 +169,13 @@
     #define IDC_STATUS_BAR_1  1
     static HWND hStatus;
     static unsigned long keypad_x = 0, keypad_y = 0;
+    #if defined SUPPORT_TOUCH_SCREEN
+    extern RECT rectTouch;
+    static int iDisplayTouchCoord = 0;
+    static unsigned char ucTouchPenHeld = 0;                             // flags for each pen presently held down
+    static unsigned char ucTouchPenPressed = 0;                          // flags for each pen presently pressed down
+    static int iActivePen = 0;                                           // the pen presently being controlled by the mouse
+    #endif
     static int iDisplayCoord = 0;
     static char cOperatingDetails[BUFSSIZE] = {0};
 #endif
@@ -177,12 +198,24 @@
 #endif
 
 #if defined nRF24L01_INTERFACE || defined ENC424J600_INTERFACE
-#pragma comment(lib, "Ws2_32.lib")
+    #pragma comment(lib, "Ws2_32.lib")
     static void fnUDP_socket(PVOID pvoid);
 #endif
 
-#if (defined FT800_GLCD_MODE && defined FT800_EMULATOR)
+#if (defined FT800_GLCD_MODE && (defined FT800_EMULATOR || defined BT800_EMULATOR))
     static void fnInitFT800_emulator(void);
+#endif
+
+#if defined PRINTER_INTERFACE
+    extern void fnInitPrinter(RECT &rt, int iOrigWidth, int iMaxTop);
+    extern void DisplayPrinter(HWND hwnd, RECT rect, RECT refresh_rect);
+#endif
+
+#if defined USB_INTERFACE && (USBS_AVAILABLE > 1)                        // {120}
+    #if !defined _KINETIS || (defined USB_HS_INTERFACE && defined USB_FS_INTERFACE)
+        #define ALLOW_SWITCHING_USB
+    #endif
+    static int fnUSB_Interface_Toggle(int x, int y);
 #endif
 
 // Global variables
@@ -191,10 +224,18 @@ HINSTANCE hInst;                                                         // pres
 TCHAR szTitle[MAX_LOADSTRING];
 TCHAR szWindowClass[MAX_LOADSTRING];
 HWND ghWnd = NULL;
+#if defined LCD_ON_KEYPAD
+    int iRefreshKeyPad = 0;
+#endif
 
 extern "C"
 {
     int catchKey = 0;
+#if defined _KINETIS && (defined USB_HS_INTERFACE && (USBS_AVAILABLE > 1) && !defined USB_FS_INTERFACE)
+    int iActiveUSB_interface = 1;
+#else
+    int iActiveUSB_interface = 0;
+#endif
 }
 
 // Prototypes
@@ -212,7 +253,7 @@ LRESULT CALLBACK    CardWatchdogReset( HWND, UINT, WPARAM, LPARAM );
 #include "WinSim.h"
 #include "Fcntl.h"
 #include "io.h"
-#if defined SUPPORT_LCD || defined SUPPORT_GLCD || defined SUPPORT_OLED || defined SUPPORT_TFT || defined GLCD_COLOR || defined SLCD_FILE // {35}{65}
+#if defined SUPPORT_LCD || defined CRYSTAL_FONTZ_UART_LCD_SIMULATION || defined SUPPORT_GLCD || defined SUPPORT_OLED || defined SUPPORT_TFT || defined GLCD_COLOR || defined SLCD_FILE // {35}{65}
     #include "lcd/lcd.h"
 #endif
 
@@ -238,7 +279,10 @@ static HBRUSH hGrayBrush;
 #endif
 
 #if defined SUPPORT_TOUCH_SCREEN                                         // {56}
-    extern int fnPenDown(int x, int y, int iPenState);
+    extern int fnPenDown(int x, int y, int iPenState, int iPenRef);
+#endif
+#if defined CRYSTAL_FONTZ_UART_LCD_SIMULATION
+    extern void fnRxCrystalFontz(unsigned char *ptrInput, DWORD dwCount);
 #endif
 
 #include <commdlg.h>                                                     // {18}
@@ -267,7 +311,7 @@ static int iPrevPort = -1;
 static int iLastBit;
 static int iPrevBit = -1;
 
-#if defined SUPPORT_LCD || defined SUPPORT_GLCD  || defined SUPPORT_OLED || defined SUPPORT_TFT || defined GLCD_COLOR // {104}
+#if defined SUPPORT_LCD || defined CRYSTAL_FONTZ_UART_LCD_SIMULATION || defined SUPPORT_GLCD  || defined SUPPORT_OLED || defined SUPPORT_TFT || defined GLCD_COLOR // {104}
     static HDC clientDeviceContext = 0;
     static HDC lcd_device_context = 0;
     unsigned long *pPixels = 0;
@@ -640,7 +684,7 @@ static int iPrevBit = -1;
             #endif
             #define PORT_FIRST_LINE     320
             #define PORT_DISPLAY_LEFT   154
-        #elif defined _STM32F4XX                                         // {76}
+        #elif defined _STM32F4XX || defined _STM32H7XX                   // {76}
             #if defined _EXE
                 #define CHIP_PACKAGE "stm32f407.bmp"
             #else
@@ -884,7 +928,7 @@ static int iPrevBit = -1;
     #define BLANK_PROCESSOR_PORTS 0
 #endif
 
-#if defined SUPPORT_LCD || defined SUPPORT_GLCD || defined SUPPORT_OLED || defined SUPPORT_TFT || defined GLCD_COLOR || defined SLCD_FILE // {35}
+#if defined SUPPORT_LCD || defined CRYSTAL_FONTZ_UART_LCD_SIMULATION || defined SUPPORT_GLCD || defined SUPPORT_OLED || defined SUPPORT_TFT || defined GLCD_COLOR || defined SLCD_FILE // {35}
     #define DEVICE_X_POS 9
 #else
     #define DEVICE_X_POS 2
@@ -908,7 +952,16 @@ static int iPrevBit = -1;
     #endif
     static DWORD fnCheckRx(HANDLE m_hComm, unsigned char *pData);
     static DWORD fnSendSerialMessage(HANDLE m_hComm, const void* lpBuf, DWORD dwCount);
-    static void fnProcessRx(unsigned char *ptrData, unsigned short usLength, int iPort);
+    extern void fnProcessRx(unsigned char *ptrData, unsigned short usLength, int iPort);
+    #if defined CRYSTAL_FONTZ_UART_LCD_SIMULATION
+    static HANDLE m_hComm_crystalFontz = INVALID_HANDLE_VALUE;
+    #endif
+    #if defined USER_INTERNALLY_CONNECTED_UART_A
+    static HANDLE m_hComm_user_uart_A = INVALID_HANDLE_VALUE;
+    #endif
+    #if defined USER_INTERNALLY_CONNECTED_UART_B
+    static HANDLE m_hComm_user_uart_B = INVALID_HANDLE_VALUE;
+    #endif
 #endif
 static void fnProcessKeyChange(void);
 static void fnProcessInputChange(void);
@@ -916,7 +969,7 @@ static void fnSimPortInputToggle(int iPort, int iPortBit);
 
 #define UTASKER_WIN_WIDTH  500
 
-#if defined SUPPORT_LCD || defined SUPPORT_GLCD || defined SUPPORT_OLED || defined SUPPORT_TFT || defined GLCD_COLOR || defined SLCD_FILE // {35}
+#if defined SUPPORT_LCD || defined CRYSTAL_FONTZ_UART_LCD_SIMULATION || defined SUPPORT_GLCD || defined SUPPORT_OLED || defined SUPPORT_TFT || defined GLCD_COLOR || defined SLCD_FILE // {35}
     #define UTASKER_WIN_LCD_WIDTH (22 * LCD_CHARACTERS)
 #else
     #define UTASKER_WIN_LCD_WIDTH 0
@@ -1109,7 +1162,7 @@ static void fnDisplayPorts(HDC hdc)
         #endif
     #endif
 #endif
-#if defined KINETIS_K00 || defined KINETIS_K20 || defined KINETIS_K60 || defined KINETIS_K61 || defined KINETIS_K64 || defined KINETIS_K64 || defined KINETIS_K70 || defined KINETIS_K80 || defined KINETIS_KL || defined KINETIS_KE || defined KINETIS_KV || defined KINETIS_KM || defined KINETIS_KW2X || (defined KINETIS_K12 && (PIN_COUNT == PIN_COUNT_48_PIN)) // {74}{82}{92}{96}
+#if defined _iMX || defined KINETIS_K00 || defined KINETIS_K20 || defined KINETIS_K60 || defined KINETIS_K61 || defined KINETIS_K64 || defined KINETIS_K64 || defined KINETIS_K70 || defined KINETIS_K80 || defined KINETIS_KL || defined KINETIS_KE || defined KINETIS_KV || defined KINETIS_KM || defined KINETIS_KW2X || defined KINETIS_KW3X || defined KINETIS_KW4X || (defined KINETIS_K12 && (PIN_COUNT == PIN_COUNT_48_PIN)) // {74}{82}{92}{96}
     #undef PORT_NAME_LENGTH
     #define PORT_NAME_LENGTH 9
     unsigned long ulMSB = (1 << (PORT_WIDTH - 1));
@@ -1517,7 +1570,7 @@ static void fnDisplayPorts(HDC hdc)
         }
     #endif
 #endif
-#if defined _KINETIS && !(defined KINETIS_K00 || defined KINETIS_K20 || defined KINETIS_K60 || defined KINETIS_K61 || defined KINETIS_K64 || defined KINETIS_K70 || defined KINETIS_K80 || defined KINETIS_KL || defined KINETIS_KE || defined KINETIS_KV || defined KINETIS_KM || defined KINETIS_KW2X) && !(defined KINETIS_K12 && (PIN_COUNT == PIN_COUNT_48_PIN)) // {70}{74}{82}{92}{96}
+#if defined _KINETIS && !(defined KINETIS_K00 || defined KINETIS_K20 || defined KINETIS_K60 || defined KINETIS_K61 || defined KINETIS_K64 || defined KINETIS_K70 || defined KINETIS_K80 || defined KINETIS_KL || defined KINETIS_KE || defined KINETIS_KV || defined KINETIS_KM || defined KINETIS_KW2X || defined KINETIS_KW3X || defined KINETIS_KW4X) && !(defined KINETIS_K12 && (PIN_COUNT == PIN_COUNT_48_PIN)) // {70}{74}{82}{92}{96}
         if (i >= (_PORTS_AVAILABLE - 1)) {                               // {91}
     #if defined _EXT_PORT_32_BIT
             ulPortMask = 0x00000000;
@@ -2273,6 +2326,14 @@ _jump_entry:
         cPorts[1]++;
     #elif defined _iMX
         cPorts[4]++;                                                     // ports 1,2..
+        #if defined FAST_GPIO_AVAILABLE
+        if ((cPorts[4] >= '6') && (cPorts[4] <= '9')) {
+            cPorts[5] = 'F';                                             // fast ports
+        }
+        else {
+            cPorts[5] = ' ';
+        }
+        #endif
     #else
         cPorts[5]++;                                                     // ports A and B
     #endif
@@ -2347,9 +2408,15 @@ static int fnToggleInput(int x, int y, int iCheck)
     }
 #endif
 
+#if defined USB_INTERFACE && (USBS_AVAILABLE > 1) && defined ALLOW_SWITCHING_USB
+    if ((TOGGLE_PORT == iCheck) && (fnUSB_Interface_Toggle(x, y) != 0)) {// {120}
+        return 0;
+    }
+#endif
+
     x -= (PORT_TEXT_LENGTH * Port_tm.tmAveCharWidth);
 
-    if (x < (START_PORTS_X - (BLANK_PROCESSOR_PORTS * Port_tm.tmAveCharWidth / 2))) {             // check whether the mouse was on a port
+    if (x < (START_PORTS_X - (BLANK_PROCESSOR_PORTS * Port_tm.tmAveCharWidth / 2))) { // check whether the mouse was on a port
         iLastPort = -1;
         return 0;
     }
@@ -2489,7 +2556,7 @@ static void fnDisplayLAN_LEDs(HDC hdc, RECT refresh_rect)
 
 
 #if defined USB_INTERFACE                                                // {14}
-static int iUSBEnumerated = 0;
+static int iUSBEnumerated[USBS_AVAILABLE] = {0};
 static int iUSB_state_changed = 0;
 
 #if defined USER_CHIP_PACKAGE                                            // {95}
@@ -2505,8 +2572,9 @@ static int iUSB_state_changed = 0;
 #else
     #define USB_CIRCLE_RADIUS   4
 #endif
-#define _USB_TOP    (USB_TOP + (18 * (IP_NETWORK_COUNT - 1)))
-#define _USB_BOTTOM (USB_BOTTOM + (18 * (IP_NETWORK_COUNT - 1)))
+#define _USB_TOP                    (USB_TOP + (18 * (IP_NETWORK_COUNT - 1)))
+#define _USB_BOTTOM                 (USB_BOTTOM + (18 * (IP_NETWORK_COUNT - 1)))
+#define USB_SECOND_SYMBOL_Y_OFFSET  ((3 * (_USB_BOTTOM - _USB_TOP) / 2))
 const POINT lUSB[] = {
     {(USB_LEFT + USB_CIRCLE_RADIUS), (_USB_TOP + (_USB_BOTTOM - _USB_TOP)/2)},
     {USB_RIGHT, (_USB_TOP + (_USB_BOTTOM - _USB_TOP)/2)},
@@ -2522,24 +2590,36 @@ const POINT lUSB2[] = {
     {(USB_LEFT + (2 * ((USB_RIGHT - USB_LEFT)/5))), (_USB_TOP + USB_CIRCLE_RADIUS/2)},
     {(USB_LEFT + (3 * ((USB_RIGHT - USB_LEFT)/5))), (_USB_TOP + USB_CIRCLE_RADIUS/2)},
 };
-const POINT lCheck[] = {
-    {USB_LEFT, _USB_TOP},
-    {USB_RIGHT,_USB_TOP},
-    {USB_RIGHT,_USB_BOTTOM},
-    {USB_LEFT, _USB_BOTTOM},
-    {USB_LEFT, _USB_TOP},
-};
 
-static const RECT rect_USB_sign = {USB_LEFT, _USB_TOP, USB_RIGHT, _USB_BOTTOM};
+#if (USBS_AVAILABLE > 1)
+    static const RECT rect_USB_sign = {(USB_LEFT - 20), _USB_TOP, USB_RIGHT, _USB_BOTTOM};
+#else
+    static const RECT rect_USB_sign = {USB_LEFT, _USB_TOP, USB_RIGHT, _USB_BOTTOM};
+#endif
 
-extern "C" void fnChangeUSBState(int iNewState)
+static void fnRefreshUSB(int iController)
 {
-    iUSBEnumerated = iNewState;
     iUSB_state_changed = 1;                                              // ensure sign is refreshed
-    InvalidateRect(ghWnd, &rect_USB_sign, FALSE);
+    if (iController == 0) {
+        InvalidateRect(ghWnd, &rect_USB_sign, FALSE);
+    }
+    else {
+        RECT area;
+        memcpy(&area, &rect_USB_sign, sizeof(area));
+        area.top += ((3 * (_USB_BOTTOM - _USB_TOP) / 2));
+        area.bottom += ((3 * (_USB_BOTTOM - _USB_TOP) / 2));
+        InvalidateRect(ghWnd, &area, FALSE);
+    }
 }
 
-
+extern "C" void fnChangeUSBState(int iNewState, int iController)
+{
+#if defined _KINETIS && (defined USB_HS_INTERFACE && (USBS_AVAILABLE > 1) && !defined USB_FS_INTERFACE)
+    iController = 1;
+#endif
+    iUSBEnumerated[iController] = iNewState;
+    fnRefreshUSB(iController);
+}
 
 static void fnDisplayUSB(HDC hdc, RECT refresh_rect)                     // {14}
 {
@@ -2549,12 +2629,12 @@ static void fnDisplayUSB(HDC hdc, RECT refresh_rect)                     // {14}
         }
     }
     iUSB_state_changed = 0;
-    if (iUSBEnumerated != 0) {                                           // draw a USB sign
-        SelectObject(hdc, hRedPen);
+    if (iUSBEnumerated[0] != 0) {                                        // draw a USB sign
+        SelectObject(hdc, hRedPen);                                      // red indicates enumerated
         SelectObject(hdc, hRedBrush);
     }
     else {
-        SelectObject(hdc, hGrayPen);
+        SelectObject(hdc, hGrayPen);                                     // gray indicates not enumerated
         SelectObject(hdc, hGrayBrush);
     }
     RoundRect(hdc, USB_LEFT, ((_USB_TOP + ((_USB_BOTTOM - _USB_TOP)/2)) - USB_CIRCLE_RADIUS), (USB_LEFT + (2 * USB_CIRCLE_RADIUS)), ((_USB_TOP + ((_USB_BOTTOM - _USB_TOP)/2)) + USB_CIRCLE_RADIUS), (2 * USB_CIRCLE_RADIUS), (2 * USB_CIRCLE_RADIUS));
@@ -2563,7 +2643,80 @@ static void fnDisplayUSB(HDC hdc, RECT refresh_rect)                     // {14}
 
     Polyline(hdc, lUSB, (sizeof(lUSB)/sizeof(POINT)));
     Polyline(hdc, lUSB2, (sizeof(lUSB2)/sizeof(POINT)));
+
+    #if defined USBS_AVAILABLE && (USBS_AVAILABLE > 1)                   // draw second USB symbol
+    {
+        int i;
+        POINT _lUSB[(sizeof(lUSB) / sizeof(POINT))];
+        POINT _lUSB2[(sizeof(lUSB2) / sizeof(POINT))];
+        memcpy(_lUSB, lUSB, sizeof(_lUSB));
+        memcpy(_lUSB2, lUSB2, sizeof(_lUSB2));
+        for (i = 0; i < (sizeof(lUSB) / sizeof(POINT)); i++) {
+            _lUSB[i].y += USB_SECOND_SYMBOL_Y_OFFSET;
+        }
+        for (i = 0; i < (sizeof(lUSB2) / sizeof(POINT)); i++) {
+            _lUSB2[i].y += USB_SECOND_SYMBOL_Y_OFFSET;
+        }
+        if (iUSBEnumerated[1] != 0) {                                    // draw a USB sign
+            SelectObject(hdc, hRedPen);                                  // red indicates enumerated
+            SelectObject(hdc, hRedBrush);
+        }
+        else {
+            SelectObject(hdc, hGrayPen);                                 // gray indicates not enumerated
+            SelectObject(hdc, hGrayBrush);
+        }
+        Polyline(hdc, _lUSB, (sizeof(_lUSB) / sizeof(POINT)));
+        Polyline(hdc, _lUSB2, (sizeof(_lUSB2) / sizeof(POINT)));
+
+        RoundRect(hdc, USB_LEFT, ((_USB_TOP + ((_USB_BOTTOM - _USB_TOP) / 2) + ((3 * (_USB_BOTTOM - _USB_TOP)) / 2)) - USB_CIRCLE_RADIUS), (USB_LEFT + (2 * USB_CIRCLE_RADIUS)), ((_USB_TOP + ((_USB_BOTTOM - _USB_TOP) / 2)) + USB_CIRCLE_RADIUS + ((3 * (_USB_BOTTOM - _USB_TOP)) / 2)), (2 * USB_CIRCLE_RADIUS), (2 * USB_CIRCLE_RADIUS));
+        RoundRect(hdc, (USB_LEFT + (3 * ((USB_RIGHT - USB_LEFT) / 5))), (_USB_TOP + ((3 * (_USB_BOTTOM - _USB_TOP)) / 2)), (USB_LEFT + USB_CIRCLE_RADIUS + (3 * ((USB_RIGHT - USB_LEFT) / 5))), (_USB_TOP + USB_CIRCLE_RADIUS + ((3 * (_USB_BOTTOM - _USB_TOP)) / 2)), (USB_CIRCLE_RADIUS), (USB_CIRCLE_RADIUS));
+        Rectangle(hdc, (USB_LEFT + (4 * (USB_RIGHT - USB_LEFT) / 5)), (_USB_BOTTOM + ((3 * (_USB_BOTTOM - _USB_TOP)) / 2)), ((USB_LEFT + (4 * (USB_RIGHT - USB_LEFT) / 5)) + USB_CIRCLE_RADIUS), (_USB_BOTTOM - USB_CIRCLE_RADIUS + ((3 * (_USB_BOTTOM - _USB_TOP)) / 2)));
+
+        if (iActiveUSB_interface == 0) {
+            SelectObject(hdc, hRedPen);                                  // red indicates selected
+            SelectObject(hdc, hRedBrush);
+        }
+        else {
+            SelectObject(hdc, hGrayPen);                                 // gray indicates not selected
+            SelectObject(hdc, hGrayBrush);
+        }
+        RoundRect(hdc, (USB_LEFT - 10), ((_USB_TOP + ((_USB_BOTTOM - _USB_TOP) / 2)) - USB_CIRCLE_RADIUS), ((USB_LEFT - 10) + (2 * USB_CIRCLE_RADIUS)), ((_USB_TOP + ((_USB_BOTTOM - _USB_TOP) / 2)) + USB_CIRCLE_RADIUS), (2 * USB_CIRCLE_RADIUS), (2 * USB_CIRCLE_RADIUS));
+
+        if (iActiveUSB_interface != 0) {
+            SelectObject(hdc, hRedPen);                                  // red indicates selected
+            SelectObject(hdc, hRedBrush);
+        }
+        else {
+            SelectObject(hdc, hGrayPen);                                 // gray indicates not selected
+            SelectObject(hdc, hGrayBrush);
+        }
+        RoundRect(hdc, (USB_LEFT - 10), (((_USB_TOP + USB_SECOND_SYMBOL_Y_OFFSET) + ((_USB_BOTTOM - _USB_TOP) / 2)) - USB_CIRCLE_RADIUS), ((USB_LEFT - 10) + (2 * USB_CIRCLE_RADIUS)), (((_USB_TOP + USB_SECOND_SYMBOL_Y_OFFSET) + ((_USB_BOTTOM - _USB_TOP) / 2)) + USB_CIRCLE_RADIUS), (2 * USB_CIRCLE_RADIUS), (2 * USB_CIRCLE_RADIUS));
+    }
+    #endif
 }
+
+    #if defined USB_INTERFACE && (USBS_AVAILABLE > 1) && defined ALLOW_SWITCHING_USB
+static int fnUSB_Interface_Toggle(int x, int y)                          // {120}
+{
+    if ((x < USB_LEFT) || (x > USB_RIGHT)) {
+        return 0;
+    }
+    if ((y >= _USB_TOP) && (y <= _USB_BOTTOM)) {
+        iActiveUSB_interface = 0;
+        fnRefreshUSB(0);
+        fnRefreshUSB(1);
+        return 1;
+    }
+    y -= USB_SECOND_SYMBOL_Y_OFFSET;
+    if ((y >= _USB_TOP) && (y <= _USB_BOTTOM)) {
+        iActiveUSB_interface = 1;
+        fnRefreshUSB(0);
+        fnRefreshUSB(1);
+        return 1;
+    }
+    return 0;
+}
+    #endif
 #endif
 
 #if defined SDCARD_SUPPORT && !defined NAND_FLASH_FAT                    // {77}
@@ -2807,7 +2960,7 @@ static void fnDoDraw(HWND hWnd, HDC hdc, PAINTSTRUCT ps, RECT &rect)
 #if (defined SUPPORT_KEY_SCAN || defined KEYPAD || defined BUTTON_KEY_DEFINITIONS) && defined LCD_ON_KEYPAD
     DisplayKeyPad(hWnd, rt, rect);                                       // draw the keypad if needed
 #endif
-#if (defined SUPPORT_LCD || defined SUPPORT_GLCD || defined SUPPORT_OLED || defined SUPPORT_TFT || defined GLCD_COLOR || defined SLCD_FILE) && !(defined FT800_GLCD_MODE && defined FT800_EMULATOR) // {35}
+#if (defined SUPPORT_LCD || defined CRYSTAL_FONTZ_UART_LCD_SIMULATION || defined SUPPORT_GLCD || defined SUPPORT_OLED || defined SUPPORT_TFT || defined GLCD_COLOR || defined SLCD_FILE) && !(defined FT800_GLCD_MODE && (defined FT800_EMULATOR || defined BT800_EMULATOR)) // {35}
     #if defined LCD_ON_KEYPAD
     DisplayLCD(hWnd, rect);                                              // re-draw the LCD if needed
     #else
@@ -2825,6 +2978,9 @@ static void fnDoDraw(HWND hWnd, HDC hdc, PAINTSTRUCT ps, RECT &rect)
 #if (defined SUPPORT_KEY_SCAN || defined KEYPAD || defined BUTTON_KEY_DEFINITIONS) && !defined LCD_ON_KEYPAD // {83}
     rt.top += 16;                                                        // {86} add space between the display and keypad/panel
     DisplayKeyPad(hWnd, rt, rect);
+#endif
+#if defined PRINTER_INTERFACE
+    DisplayPrinter(hWnd, rt, rect);
 #endif
 #if defined _WITH_STATUS_BAR                                             // {100}
     #if (defined SUPPORT_KEY_SCAN || defined KEYPAD || defined BUTTON_KEY_DEFINITIONS)
@@ -3067,7 +3223,7 @@ static void fnPortDisplay(unsigned long ulPortValue, unsigned long ulPortDirecti
         ulPortStates[ucPortNumber] = ulPortValue;
         ulPortPeripheral[ucPortNumber] = ulPeripheral;
         ulPortFunction[ucPortNumber] = ulPortDirection;
-#if defined SUPPORT_LCD ||  defined SUPPORT_GLCD || defined SUPPORT_OLED || defined SUPPORT_TFT || defined GLCD_COLOR // {35}
+#if defined SUPPORT_LCD || defined CRYSTAL_FONTZ_UART_LCD_SIMULATION ||  defined SUPPORT_GLCD || defined SUPPORT_OLED || defined SUPPORT_TFT || defined GLCD_COLOR // {35}
         present_ports_rect.right = (UTASKER_WIN_WIDTH - 68);             // don't cause LCD update (when LCD is to the right of the ports)
 #endif
         InvalidateRect(ghWnd, &present_ports_rect, FALSE);
@@ -3079,7 +3235,7 @@ unsigned long fnGetValue(unsigned char *ptr, int iLen)
 {
     unsigned long ulValue = 0;
 
-    while (iLen--) {
+    while (iLen-- != 0) {
         ulValue <<= 8;
         ulValue |= *ptr++;
     }
@@ -3235,7 +3391,7 @@ static void fnInsertUART_entry(char *ptrString, char *ptrNewString)
                     int iShiftLength = 0;
                     ptrMatchStart += iMatchLength;                       // shift remaining string to make space
                     ptrString = (ptrMatchStart + (iNewLength - iMatchLength));
-                    while (*ptrMatchStart != 0) {                        // move to the end of the string to be shfter
+                    while (*ptrMatchStart != 0) {                        // move to the end of the string to be shifter
                         ptrMatchStart++;
                         iShiftLength++;
                     } 
@@ -3298,6 +3454,7 @@ static void fnUART_string(int iUART, int iCOM, DWORD com_port_speed, UART_MODE_C
         SPRINTF(ptrString, " {UART%i %in%i %son COM%i}", iUART, com_port_speed, bits, par, iCOM);
     #endif
     }
+    cOperatingDetails[sizeof(cOperatingDetails) - 1] = 0;                // {119} add a zero to the end of teh buffer since the safe strcat routine fills the buffer with 0xfe, rather than leaving it with its orignal zero padding (without it it can shift content beyond the end of the buffer and cause corruption to following data)
     fnInsertUART_entry(cOperatingDetails, ptrString);                    // {102} add or overwrite the UART entry
 }
 #endif
@@ -3340,11 +3497,11 @@ extern int APIENTRY WinMain(HINSTANCE hInstance,
     STRCAT(szTitle, " / SW-Version ");
     STRCAT(szTitle, SOFTWARE_VERSION);
 #endif
-#if defined SUPPORT_LCD
+#if defined SUPPORT_LCD || defined CRYSTAL_FONTZ_UART_LCD_SIMULATION
     LCDinit(LCD_LINES, LCD_CHARACTERS);
 #elif defined SUPPORT_GLCD || defined SUPPORT_OLED || defined SUPPORT_TFT || defined GLCD_COLOR || defined SLCD_FILE // {35}{65}
-    #if (defined FT800_GLCD_MODE && defined FT800_EMULATOR)
-    fnInitFT800_emulator();
+    #if (defined FT800_GLCD_MODE && (defined FT800_EMULATOR || defined BT800_EMULATOR))
+    fnInitFT800_emulator();                                              // start FT800 emulator thread
     #else
     LCDinit(0, 0);
     #endif
@@ -3362,7 +3519,7 @@ extern int APIENTRY WinMain(HINSTANCE hInstance,
     fnLoadUserFiles();                                                    // {19}
 
     while (iQuit == 0) {                                                  // main message loop
-        if(::PeekMessage(&msg, NULL, 0,0,PM_NOREMOVE)) {
+        if (::PeekMessage(&msg, NULL, 0, 0, PM_NOREMOVE) != 0) {
             GetMessage(&msg, NULL, 0, PM_NOREMOVE);
             TranslateMessage(&msg);
             DispatchMessage(&msg);
@@ -3696,12 +3853,19 @@ extern int APIENTRY WinMain(HINSTANCE hInstance,
                             CloseHandle(sm_hComm0);                          // if we have an open port we want to reconfigure it - so close it
                         }
                         sm_hComm0 = fnConfigureSerialInterface(SERIAL_PORT_0, ulSpeed, Mode); // try to open com since the embedded system wants to use it
-                        if (sm_hComm0 >= 0) {
-                            fnUART_string(0, SERIAL_PORT_0, ulSpeed, Mode); // {101} create a UART string that can be displayed on the status bar
+                        if (sm_hComm0 == INVALID_HANDLE_VALUE) {
+                            sm_hComm0 = ((HANDLE)(LONG_PTR)-(2 + 0));
                         }
-                        else {
-                            fnUART_string(0, 0, ulSpeed, Mode);          // {101} create a UART string that can be displayed on the status bar (not assigned to COM port)
-                        }
+    #if defined CRYSTAL_FONTZ_UART_LCD_SIMULATION && (CRYSTAL_FONZ_UART == 0)
+                        m_hComm_crystalFontz = sm_hComm0;
+    #endif
+    #if defined USER_INTERNALLY_CONNECTED_UART_A && (USER_INTERNALLY_CONNECTED_UART_A == 0)
+                        m_hComm_user_uart_A = sm_hComm0;
+    #endif
+    #if defined USER_INTERNALLY_CONNECTED_UART_B && (USER_INTERNALLY_CONNECTED_UART_B == 0)
+                        m_hComm_user_uart_B = sm_hComm0;
+    #endif
+                        fnUART_string(0, SERIAL_PORT_0, ulSpeed, Mode);  // {101} create a UART string that can be displayed on the status bar
                     }
                     break;
                 case OPEN_PC_COM1:
@@ -3712,12 +3876,19 @@ extern int APIENTRY WinMain(HINSTANCE hInstance,
                             CloseHandle(sm_hComm1);                          // if we have an open port we want to reconfigure it - so close it
                         }
                         sm_hComm1 = fnConfigureSerialInterface(SERIAL_PORT_1, ulSpeed, Mode); // try to open com since the embedded system wants to use it
-                        if (sm_hComm1 >= 0) {
-                            fnUART_string(1, SERIAL_PORT_1, ulSpeed, Mode); // {101} create a UART string that can be displayed on the status bar
+                        if (sm_hComm1 == INVALID_HANDLE_VALUE) {
+                            sm_hComm1 = ((HANDLE)(LONG_PTR)-(2 + 1));
                         }
-                        else {
-                            fnUART_string(1, 0, ulSpeed, Mode);          // {101} create a UART string that can be displayed on the status bar (not assigned to COM port)
-                        }
+    #if defined CRYSTAL_FONTZ_UART_LCD_SIMULATION && (CRYSTAL_FONZ_UART == 1)
+                        m_hComm_crystalFontz = sm_hComm1;
+    #endif
+    #if defined USER_INTERNALLY_CONNECTED_UART_A && (USER_INTERNALLY_CONNECTED_UART_A == 1)
+                        m_hComm_user_uart_A = sm_hComm1;
+    #endif
+    #if defined USER_INTERNALLY_CONNECTED_UART_B && (USER_INTERNALLY_CONNECTED_UART_B == 1)
+                        m_hComm_user_uart_B = sm_hComm1;
+    #endif
+                        fnUART_string(1, SERIAL_PORT_1, ulSpeed, Mode);  // {101} create a UART string that can be displayed on the status bar
                     }
                     break;
     #if defined SERIAL_PORT_2
@@ -3729,12 +3900,19 @@ extern int APIENTRY WinMain(HINSTANCE hInstance,
                             CloseHandle(sm_hComm2);                      // if we have an open port we want to reconfigure it - so close it
                         }
                         sm_hComm2 = fnConfigureSerialInterface(SERIAL_PORT_2, ulSpeed, Mode); // try to open com since the embedded system wants to use it
-                        if (sm_hComm2 >= 0) {
-                            fnUART_string(2, SERIAL_PORT_2, ulSpeed, Mode); // {101} create a UART string that can be displayed on the status bar
+                        if (sm_hComm2 == INVALID_HANDLE_VALUE) {
+                            sm_hComm2 = ((HANDLE)(LONG_PTR)-(2 + 2));
                         }
-                        else {
-                            fnUART_string(2, 0, ulSpeed, Mode);          // {101} create a UART string that can be displayed on the status bar (not assigned to COM port)
-                        }
+        #if defined CRYSTAL_FONTZ_UART_LCD_SIMULATION && (CRYSTAL_FONZ_UART == 2)
+                        m_hComm_crystalFontz = sm_hComm2;
+        #endif
+        #if defined USER_INTERNALLY_CONNECTED_UART_A && (USER_INTERNALLY_CONNECTED_UART_A == 2)
+                        m_hComm_user_uart_A = sm_hComm2;
+        #endif
+        #if defined USER_INTERNALLY_CONNECTED_UART_B && (USER_INTERNALLY_CONNECTED_UART_B == 2)
+                        m_hComm_user_uart_B = sm_hComm2;
+        #endif
+                        fnUART_string(2, SERIAL_PORT_2, ulSpeed, Mode);  // {101} create a UART string that can be displayed on the status bar
                     }
                     break;
     #endif
@@ -3754,12 +3932,19 @@ extern int APIENTRY WinMain(HINSTANCE hInstance,
         CloseHandle(sm_hComm3);
     }*/
                         sm_hComm3 = fnConfigureSerialInterface(SERIAL_PORT_3, ulSpeed, Mode); // try to open com since the embedded system wants to use it
-                        if (sm_hComm3 >= 0) {
-                            fnUART_string(3, SERIAL_PORT_3, ulSpeed, Mode); // {101} create a UART string that can be displayed on the status bar
+                        if (sm_hComm3 == INVALID_HANDLE_VALUE) {
+                            sm_hComm3 = ((HANDLE)(LONG_PTR)-(2 + 3));
                         }
-                        else {
-                            fnUART_string(3, 0, ulSpeed, Mode);          // {101} create a UART string that can be displayed on the status bar (not assigned to COM port)
-                        }
+        #if defined CRYSTAL_FONTZ_UART_LCD_SIMULATION && (CRYSTAL_FONZ_UART == 3)
+                        m_hComm_crystalFontz = sm_hComm3;
+        #endif
+        #if defined USER_INTERNALLY_CONNECTED_UART_A && (USER_INTERNALLY_CONNECTED_UART_A == 3)
+                        m_hComm_user_uart_A = sm_hComm3;
+        #endif
+        #if defined USER_INTERNALLY_CONNECTED_UART_B && (USER_INTERNALLY_CONNECTED_UART_B == 3)
+                        m_hComm_user_uart_B = sm_hComm3;
+        #endif
+                        fnUART_string(3, SERIAL_PORT_3, ulSpeed, Mode);  // {101} create a UART string that can be displayed on the status bar
                     }
                     break;
     #endif
@@ -3772,12 +3957,19 @@ extern int APIENTRY WinMain(HINSTANCE hInstance,
                             CloseHandle(sm_hComm4);                      // if we have an open port we want to reconfigure it - so close it
                         }
                         sm_hComm4 = fnConfigureSerialInterface(SERIAL_PORT_4, ulSpeed, Mode); // try to open com since the embedded system wants to use it
-                        if (sm_hComm4 >= 0) {
-                            fnUART_string(4, SERIAL_PORT_4, ulSpeed, Mode); // {101} create a UART string that can be displayed on the status bar
+                        if (sm_hComm4 == INVALID_HANDLE_VALUE) {
+                            sm_hComm4 = ((HANDLE)(LONG_PTR)-(2 + 4));
                         }
-                        else {
-                            fnUART_string(4, 0, ulSpeed, Mode);          // {101} create a UART string that can be displayed on the status bar (not assigned to COM port)
-                        }
+        #if defined CRYSTAL_FONTZ_UART_LCD_SIMULATION && (CRYSTAL_FONZ_UART == 4)
+                        m_hComm_crystalFontz = sm_hComm4;
+        #endif
+        #if defined USER_INTERNALLY_CONNECTED_UART_A && (USER_INTERNALLY_CONNECTED_UART_A == 4)
+                        m_hComm_user_uart_A = sm_hComm4;
+        #endif
+        #if defined USER_INTERNALLY_CONNECTED_UART_B && (USER_INTERNALLY_CONNECTED_UART_B == 4)
+                        m_hComm_user_uart_B = sm_hComm4;
+        #endif
+                        fnUART_string(4, SERIAL_PORT_4, ulSpeed, Mode);  // {101} create a UART string that can be displayed on the status bar
                     }
                     break;
     #endif
@@ -3790,12 +3982,19 @@ extern int APIENTRY WinMain(HINSTANCE hInstance,
                             CloseHandle(sm_hComm5);                      // if we have an open port we want to reconfigure it - so close it
                         }
                         sm_hComm5 = fnConfigureSerialInterface(SERIAL_PORT_5, ulSpeed, Mode); // try to open com since the embedded system wants to use it
-                        if (sm_hComm5 >= 0) {
-                            fnUART_string(5, SERIAL_PORT_5, ulSpeed, Mode); // {101} create a UART string that can be displayed on the status bar
+                        if (sm_hComm5 == INVALID_HANDLE_VALUE) {
+                            sm_hComm5 = ((HANDLE)(LONG_PTR)-(2 + 5));
                         }
-                        else {
-                            fnUART_string(5, 0, ulSpeed, Mode);          // {101} create a UART string that can be displayed on the status bar (not assigned to COM port)
-                        }
+        #if defined CRYSTAL_FONTZ_UART_LCD_SIMULATION && (CRYSTAL_FONZ_UART == 5)
+                        m_hComm_crystalFontz = sm_hComm5;
+        #endif
+        #if defined USER_INTERNALLY_CONNECTED_UART_A && (USER_INTERNALLY_CONNECTED_UART_A == 5)
+                        m_hComm_user_uart_A = sm_hComm5;
+        #endif
+        #if defined USER_INTERNALLY_CONNECTED_UART_B && (USER_INTERNALLY_CONNECTED_UART_B == 5)
+                        m_hComm_user_uart_B = sm_hComm5;
+        #endif
+                        fnUART_string(5, SERIAL_PORT_5, ulSpeed, Mode);  // {101} create a UART string that can be displayed on the status bar
                     }
                     break;
     #endif
@@ -3808,12 +4007,19 @@ extern int APIENTRY WinMain(HINSTANCE hInstance,
                             CloseHandle(sm_hComm6);                      // if we have an open port we want to reconfigure it - so close it
                         }
                         sm_hComm6 = fnConfigureSerialInterface(SERIAL_PORT_6, ulSpeed, Mode); // try to open com since the embedded system wants to use it
-                        if (sm_hComm6 >= 0) {
-                            fnUART_string(6, SERIAL_PORT_6, ulSpeed, Mode); //create a UART string that can be displayed on the status bar
+                        if (sm_hComm6 == INVALID_HANDLE_VALUE) {
+                            sm_hComm6 = ((HANDLE)(LONG_PTR)-(2 + 6));
                         }
-                        else {
-                            fnUART_string(6, 0, ulSpeed, Mode);          // create a UART string that can be displayed on the status bar (not assigned to COM port)
-                        }
+        #if defined CRYSTAL_FONTZ_UART_LCD_SIMULATION && (CRYSTAL_FONZ_UART == 6)
+                        m_hComm_crystalFontz = sm_hComm6;
+        #endif
+        #if defined USER_INTERNALLY_CONNECTED_UART_A && (USER_INTERNALLY_CONNECTED_UART_A == 6)
+                        m_hComm_user_uart_A = sm_hComm6;
+        #endif
+        #if defined USER_INTERNALLY_CONNECTED_UART_B && (USER_INTERNALLY_CONNECTED_UART_B == 6)
+                        m_hComm_user_uart_B = sm_hComm6;
+        #endif
+                        fnUART_string(6, SERIAL_PORT_6, ulSpeed, Mode);  //create a UART string that can be displayed on the status bar
                     }
                     break;
     #endif
@@ -3826,12 +4032,19 @@ extern int APIENTRY WinMain(HINSTANCE hInstance,
                             CloseHandle(sm_hComm7);                      // if we have an open port we want to reconfigure it - so close it
                         }
                         sm_hComm7 = fnConfigureSerialInterface(SERIAL_PORT_7, ulSpeed, Mode); // try to open com since the embedded system wants to use it
-                        if (sm_hComm7 >= 0) {
-                            fnUART_string(7, SERIAL_PORT_7, ulSpeed, Mode); //create a UART string that can be displayed on the status bar
+                        if (sm_hComm7 == INVALID_HANDLE_VALUE) {
+                            sm_hComm7 = ((HANDLE)(LONG_PTR)-(2 + 7));
                         }
-                        else {
-                            fnUART_string(7, 0, ulSpeed, Mode);          // create a UART string that can be displayed on the status bar (not assigned to COM port)
-                        }
+        #if defined CRYSTAL_FONTZ_UART_LCD_SIMULATION && (CRYSTAL_FONZ_UART == 7)
+                        m_hComm_crystalFontz = sm_hComm7;
+        #endif
+        #if defined USER_INTERNALLY_CONNECTED_UART_A && (USER_INTERNALLY_CONNECTED_UART_A == 7)
+                        m_hComm_user_uart_A = sm_hComm7;
+        #endif
+        #if defined USER_INTERNALLY_CONNECTED_UART_B && (USER_INTERNALLY_CONNECTED_UART_B == 7)
+                        m_hComm_user_uart_B = sm_hComm7;
+        #endif
+                        fnUART_string(7, SERIAL_PORT_7, ulSpeed, Mode); //create a UART string that can be displayed on the status bar
                     }
                     break;
     #endif
@@ -3985,16 +4198,19 @@ extern int APIENTRY WinMain(HINSTANCE hInstance,
                     ClearCommBreak(sm_hComm3);
                     break;
 #endif
+#if defined USE_IP
                 case IP_CHANGE:                                          // update IP configuration
                     {
                         int i = 0;
                         unsigned char *ucInputPointer = doPtr;           // {42}
-                        unsigned char ucStrLength = (unsigned char)fnGetValue(ucInputPointer++, sizeof(ucStrLength));
+                        unsigned short usStrLength = (unsigned short)fnGetValue(ucInputPointer, sizeof(usStrLength));
                         RECT ip_string;
                         char *ptrIpConfig = &szIPDetails[0][3];
+                        doPtr += (usStrLength + 1);
+                        ucInputPointer += sizeof(usStrLength);
                         memset(&szIPDetails[0][3], ' ', (sizeof(szIPDetails[0]) - 4)); // {68}
                         szIPDetails[0][sizeof(szIPDetails[0]) - 1] = 0;
-                        while (ucStrLength--) {
+                        while (usStrLength-- != 0) {
                             /*if (ucStrLength == 0) {
                                 fnGetValue(ucInputPointer++, 1);         // {68}
                             }
@@ -4019,9 +4235,10 @@ extern int APIENTRY WinMain(HINSTANCE hInstance,
                         ip_string.right = 450;                           // {68}
                         ip_string.top = 1;
                         InvalidateRect(ghWnd, &ip_string, FALSE);        // ensure IP text is updated
+                        continue;
                     }
                     break;
-
+#endif
                 case DISPLAY_PORT_CHANGE:
                     {
                         unsigned char ucNumberOfPorts = (unsigned char)fnGetValue(doPtr, sizeof(ucNumberOfPorts));
@@ -4076,7 +4293,7 @@ extern int APIENTRY WinMain(HINSTANCE hInstance,
     return msg.wParam;
 }
 
-static void fnProcessRx(unsigned char *ptrData, unsigned short usLength, int iPort)
+extern void fnProcessRx(unsigned char *ptrData, unsigned short usLength, int iPort)
 {
     char *ptr[2];
 
@@ -4213,6 +4430,19 @@ extern void fnInjectI2C(unsigned char *ptrInputData, unsigned short usLength, in
 }
 #endif
 
+#if defined CAN_INTERFACE                                                // {116}
+extern void fnInjectCAN(unsigned char *ptrData, unsigned long ulCanID, int iRTR, unsigned char ucLength, int iCAN_controller)
+{
+    char *ptr[5];
+    ptr[0] = (char *)iCAN_controller;
+    ptr[1] = (char *)ucLength;
+    ptr[2] = (char *)ptrData;
+    ptr[3] = (char *)ulCanID;
+    ptr[4] = (char *)iRTR;
+    _main(SIM_CAN_MESSAGE, ptr);
+}
+#endif
+
 extern void fnsetKeypadState(char **ptr);
 
 static void fnProcessKeyChange(void)
@@ -4339,8 +4569,8 @@ extern void fnInjectFrame(unsigned char *ptrData, unsigned short usLength)
 
     if (usLength <= MAX_ETHERNET_BUFFER) {
         _main(RX_ETHERNET, ptr);                                            // send this to the ethernet input
-        if (ptr[2]) {
-            iRxActivity = 2;                                                // cause activity LED blinking
+        if (ptr[2] != 0) {
+            iRxActivity = LAN_LED_FLASH_DURATION;                           // cause activity LED blinking
         }
     }
 }
@@ -4367,18 +4597,37 @@ ATOM MyRegisterClass( HINSTANCE hInstance )
     return RegisterClassEx(&wcex);
 }
 
+#if defined SUPPORT_GLCD  || defined SUPPORT_OLED || defined SUPPORT_TFT || defined GLCD_COLOR
+extern void fnCreateLCD_Bitmap(void)
+{
+    HBITMAP hBitmap = 0;
+    LONG lBmpSize = (GLCD_X * GLCD_Y * (24 / 8));
+    BITMAPINFO bmpInfo = { 0 };
+    bmpInfo.bmiHeader.biBitCount = 24;
+    bmpInfo.bmiHeader.biHeight = GLCD_Y;
+    bmpInfo.bmiHeader.biWidth = GLCD_X;
+    bmpInfo.bmiHeader.biPlanes = 1;
+    bmpInfo.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    hBitmap = CreateDIBSection(clientDeviceContext, (BITMAPINFO *)&bmpInfo, DIB_RGB_COLORS, (void **)&pPixels, NULL, 0); // get bit map memory for LCD display usage
+    if (hBitmap != 0) {
+        lcd_device_context = CreateCompatibleDC(clientDeviceContext);// create a device context for the LCD's bitmap
+        SelectObject(lcd_device_context, hBitmap);                   // enter the LCD's bitmap memory in the context
+    }
+}
+#endif
+
 
 BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 {
     HWND hWnd;
     RECT rt = {0, 0, 0, 0};
-#if defined SUPPORT_LCD || defined SUPPORT_GLCD || defined SUPPORT_OLED || defined SUPPORT_TFT || defined GLCD_COLOR || defined SLCD_FILE || defined SUPPORT_KEY_SCAN || defined KEYPAD || defined BUTTON_KEY_DEFINITIONS  // {35}{65}{83}
+#if defined SUPPORT_LCD || defined CRYSTAL_FONTZ_UART_LCD_SIMULATION || defined SUPPORT_GLCD || defined SUPPORT_OLED || defined SUPPORT_TFT || defined GLCD_COLOR || defined SLCD_FILE || defined SUPPORT_KEY_SCAN || defined KEYPAD || defined BUTTON_KEY_DEFINITIONS  // {35}{65}{83}
     int iLCD_Bottom = 0;
 #endif
     rt.right = UTASKER_WIN_WIDTH;                                        // basic windows size without LCD or keypad/panel
     rt.bottom = UTASKER_WIN_HEIGHT;
 
-#if (defined SUPPORT_LCD || defined SUPPORT_GLCD  || defined SUPPORT_OLED || defined SUPPORT_TFT || defined GLCD_COLOR || defined SLCD_FILE) && !(defined FT800_GLCD_MODE && defined FT800_EMULATOR) // {35}{65}
+#if (defined SUPPORT_LCD || defined CRYSTAL_FONTZ_UART_LCD_SIMULATION || defined SUPPORT_GLCD  || defined SUPPORT_OLED || defined SUPPORT_TFT || defined GLCD_COLOR || defined SLCD_FILE) && !(defined FT800_GLCD_MODE && (defined FT800_EMULATOR || defined BT800_EMULATOR)) // {35}{65}
     #if defined _M5225X
     iLCD_Bottom = fnInitLCD(rt, UTASKER_WIN_HEIGHT, (UTASKER_WIN_WIDTH + 70));
     #else
@@ -4388,11 +4637,17 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 #if defined SUPPORT_KEY_SCAN || defined BUTTON_KEY_DEFINITIONS || defined KEYPAD // {85}
     fnInitKeyPad(rt, UTASKER_WIN_WIDTH, iLCD_Bottom);
 #endif
+#if defined PRINTER_INTERFACE
+    fnInitPrinter(rt, UTASKER_WIN_WIDTH, iLCD_Bottom);
+#endif
 #if _EXTERNAL_PORT_COUNT > 0                                             // {81}
     rt.bottom += (_EXTERNAL_PORT_COUNT * PORT_LINE_SPACE);               // increase the windows height to accomodate external ports
 #endif
 #if defined _WITH_STATUS_BAR                                             // {84}
     rt.bottom += (25);                                                   // increase the main window height to include the status bar
+#endif
+#if defined IP_NETWORK_COUNT
+    rt.bottom += (18 * (IP_NETWORK_COUNT - 1));
 #endif
 
     hInst = hInstance;
@@ -4404,30 +4659,17 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 
     ShowWindow(hWnd, nCmdShow);                                          // draw the main window frame
     ghWnd = hWnd;
-    UpdateWindow(hWnd);
+  //UpdateWindow(hWnd);                                                  // {121}
 
     #if defined SUPPORT_GLCD  || defined SUPPORT_OLED || defined SUPPORT_TFT || defined GLCD_COLOR // {104}
     clientDeviceContext = GetDC(hWnd);                                   // save device context
-    {
-        HBITMAP hBitmap = 0;
-        LONG lBmpSize = (GLCD_X * GLCD_Y * (24/8));
-        BITMAPINFO bmpInfo = { 0 };
-        bmpInfo.bmiHeader.biBitCount = 24;
-        bmpInfo.bmiHeader.biHeight = GLCD_Y;
-        bmpInfo.bmiHeader.biWidth = GLCD_X;
-        bmpInfo.bmiHeader.biPlanes = 1;
-        bmpInfo.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-        hBitmap = CreateDIBSection(clientDeviceContext, (BITMAPINFO *)&bmpInfo, DIB_RGB_COLORS, (void **)&pPixels , NULL, 0); // get bit map memory for LCD display usage
-        if (hBitmap != 0) {
-            lcd_device_context = CreateCompatibleDC(clientDeviceContext);// create a device context for the LCD's bitmap
-            SelectObject(lcd_device_context, hBitmap);                   // enter the LCD's bitmap memory in the context
-        }
-    }
+    fnCreateLCD_Bitmap();
     #endif
+    UpdateWindow(hWnd);                                                  // {121} moved to after creation of LCDbit map to increase efficiency of first draw
     return TRUE;
 }
 
-#if defined SUPPORT_LCD || defined SUPPORT_GLCD  || defined SUPPORT_OLED || defined SUPPORT_TFT || defined GLCD_COLOR // {104}
+#if defined SUPPORT_LCD || defined CRYSTAL_FONTZ_UART_LCD_SIMULATION || defined SUPPORT_GLCD  || defined SUPPORT_OLED || defined SUPPORT_TFT || defined GLCD_COLOR // {104}
 // Redraw LCD bitmap ontent
 //
 extern void LCD_draw_bmp(int iX, int iY, int iXsize, int iYsize)
@@ -4479,12 +4721,40 @@ static BOOL fnOpenDialog(HWND hWnd, int iType)
     return bReturn;
 }
 
+#if defined _WITH_STATUS_BAR
+static void fnDisplayMouseCoordinates(int iEvent, LPARAM lParam)
+{
+    static const char cCoordOff[] = { ' ', ' ',' ',' ',' ',' ',' ',' ',' ',' ', ' ',' ',' ',' ',' ',' ',' ',' ',' ',0 };
+    char cCoord[20];
+    switch (iEvent) {
+    case 1:
+    #if _VC80_UPGRADE >= 0x0600
+        SPRINTF(cCoord, 20, "X = %i, Y = %i", (LOWORD(lParam) - keypad_x), (HIWORD(lParam) - keypad_y));
+    #else
+        SPRINTF(cCoord, "X = %i, Y = %i", (LOWORD(lParam) - keypad_x), (HIWORD(lParam) - keypad_y));
+    #endif
+        SendMessage((HWND)hStatus, (UINT)SB_SETTEXT, (WPARAM)(INT)0 | 0, (LPARAM)(LPSTR)cCoord);
+        break;
+    #if defined SUPPORT_TOUCH_SCREEN
+    case 2:
+        #if _VC80_UPGRADE >= 0x0600
+        SPRINTF(cCoord, 20, "X = %i, Y = %i", (LOWORD(lParam) - rectTouch.left), (HIWORD(lParam) - rectTouch.top));
+        #else
+        SPRINTF(cCoord, "X = %i, Y = %i", (LOWORD(lParam) - touch_x), (HIWORD(lParam) - touch_y));
+        #endif
+        SendMessage((HWND)hStatus, (UINT)SB_SETTEXT, (WPARAM)(INT)0 | 0, (LPARAM)(LPSTR)cCoord);
+        break;
+    #endif
+    case 0:
+        SendMessage((HWND)hStatus, (UINT)SB_SETTEXT, (WPARAM)(INT)0 | 0, (LPARAM)(LPSTR)cCoordOff);
+        break;
+    }
+}
+#endif
+
 
 LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
-#if defined SUPPORT_TOUCH_SCREEN                                         // {56}
-    static int iPenDown = 0;
-#endif
     int wmId, wmEvent;
     PAINTSTRUCT ps;
     HDC hdc;
@@ -4533,30 +4803,45 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 #if defined _WITH_STATUS_BAR                                             // {84}
             SendMessage(GetDlgItem(hWnd, IDC_STATUS_BAR_1), WM_SIZE, 0, 0);
 #endif
+#if defined LCD_ON_KEYPAD
+            iRefreshKeyPad = 1;                                          // {117} redraw the keypad and LCD
+#endif
             break;
 
-        case WM_MOUSEMOVE:
+        case WM_MOUSEMOVE:                                               // mouse has moved to a new location
 #if defined SUPPORT_TOUCH_SCREEN                                         // {56}
-            if (iPenDown != 0) {
-                if (fnPenDown(LOWORD(lParam), HIWORD(lParam), iPenDown) != 0) {  // check whether pen stays down on touch screen
-                    SetCursor(LoadCursor(NULL, IDC_UPARROW));
+            if ((ucTouchPenPressed & (1 << iActivePen)) != 0) {          // if the pen is presently down
+                if (fnPenDown(LOWORD(lParam), HIWORD(lParam), 1, iActivePen) != 0) { // check whether pen stays down on touch screen
+                    SetCursor(LoadCursor(NULL, IDC_UPARROW));            // set the touch cursor
+    #if defined _WITH_STATUS_BAR
+                    iDisplayTouchCoord = 1;
+                    fnDisplayMouseCoordinates(2, lParam);
+    #endif
                 }
-                else {
-                    iPenDown = 0;
+                else {                                                   // pen has been moved outside of the display area
+                    ucTouchPenPressed |= (1 << iActivePen);              // mark that the pen is presently pressed down
+    #if defined _WITH_STATUS_BAR
+                    iDisplayTouchCoord = 0;
+                    fnDisplayMouseCoordinates(0, 0);
+    #endif
                 }
                 break;
             }
+    #if defined _WITH_STATUS_BAR
+            else if (fnPenDown(LOWORD(lParam), HIWORD(lParam), 2, iActivePen) != 0) { // moving over the screen area
+                iDisplayTouchCoord = 1;
+                fnDisplayMouseCoordinates(2, lParam);
+            }
+            else if (iDisplayTouchCoord != 0) {
+                iDisplayTouchCoord = 0;
+                fnDisplayMouseCoordinates(0, 0);
+            }
+    #endif
 #endif
 #if defined SUPPORT_KEY_SCAN || defined BUTTON_KEY_DEFINITIONS || defined KEYPAD // {83}{89}
             if (fnCheckKeypad(LOWORD(lParam), HIWORD(lParam), 3) != 0) {
     #if defined _WITH_STATUS_BAR                                         // {84}
-                char cCoord[20];
-        #if _VC80_UPGRADE >= 0x0600
-                SPRINTF(cCoord, 20, "X = %i, Y = %i", (LOWORD(lParam) - keypad_x), (HIWORD(lParam) - keypad_y));
-        #else
-                SPRINTF(cCoord, "X = %i, Y = %i", (LOWORD(lParam) - keypad_x), (HIWORD(lParam) - keypad_y));
-        #endif
-                SendMessage((HWND)hStatus, (UINT) SB_SETTEXT, (WPARAM)(INT) 0 | 0, (LPARAM) (LPSTR)cCoord);
+                fnDisplayMouseCoordinates(1, lParam);
                 iDisplayCoord = 1;
     #endif
                 SetCursor(LoadCursor(NULL, IDC_CROSS));
@@ -4564,8 +4849,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
     #if defined _WITH_STATUS_BAR                                         // {84}
             else {
                 if (iDisplayCoord != 0) {                                // if leaving the key pad / front-panel region
-                    char cCoord[] = {' ', ' ',' ',' ',' ',' ',' ',' ',' ',' ', ' ',' ',' ',' ',' ',' ',' ',' ',' ',0};
-                    SendMessage((HWND)hStatus, (UINT) SB_SETTEXT, (WPARAM)(INT) 0 | 0, (LPARAM) (LPSTR)cCoord);
+                    fnDisplayMouseCoordinates(0, 0);
                     iDisplayCoord = 0;
                 }
             }
@@ -4591,15 +4875,30 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             }
             break;
 
-        case WM_LBUTTONDOWN:
+        case WM_LBUTTONDOWN:                                             // left mouse click
             iInputChange = fnToggleInput(LOWORD(lParam), HIWORD(lParam), TOGGLE_PORT);
 #if defined SUPPORT_TOUCH_SCREEN                                         // {56}
-            if (fnPenDown(LOWORD(lParam), HIWORD(lParam), 0) != 0) {     // check whether pen down on touch screen
-                SetCursor(LoadCursor(NULL, IDC_UPARROW));
-                iPenDown = 1;
+            if (ucTouchPenHeld != 0) {
+                int iNextPen = 0;
+                unsigned char ucPresentTouchPenHeld = ucTouchPenHeld;
+                while (ucPresentTouchPenHeld != 0) {
+                    while ((ucPresentTouchPenHeld & 1) == 0) {
+                        ucPresentTouchPenHeld >>= 1;
+                    }
+                    ucPresentTouchPenHeld >>= 1;
+                    iNextPen++;
+                }
+                iActivePen = iNextPen;
+            }
+            if (fnPenDown(LOWORD(lParam), HIWORD(lParam), 0, iActivePen) != 0) { // check whether pen down on touch screen
+                SetCursor(LoadCursor(NULL, IDC_UPARROW));                // change to touch screen cursor
+                ucTouchPenHeld |= (1 << iActivePen);                     // mark that the pen is presently held down
+                ucTouchPenPressed |= (1 << iActivePen);                  // mark that the pen is presently pressed down
                 break;
             }
 #endif
+            // Fall-through intentionally
+            //
         case WM_RBUTTONDOWN:
 #if defined SUPPORT_KEY_SCAN || defined BUTTON_KEY_DEFINITIONS           // {83}
             if (message == WM_RBUTTONDOWN) {
@@ -4614,12 +4913,15 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 #endif
             break;
 
-        case WM_LBUTTONUP:
+        case WM_LBUTTONUP:                                               // left mouse clock release
 #if defined SUPPORT_TOUCH_SCREEN                                         // {56}
-            if (iPenDown != 0) {
-                fnPenDown(LOWORD(lParam), HIWORD(lParam), -1);           // pen removed
+            if ((ucTouchPenPressed & (1 << iActivePen)) != 0) {          // if the pen was pressed down
+                if (iShiftPressed == 0) {                                // as long as the shift key is not pressed the pen is lifted
+                    fnPenDown(LOWORD(lParam), HIWORD(lParam), -1, iActivePen); // pen removed
+                    ucTouchPenHeld &= ~(1 << iActivePen);                // not held down
+                }
+                ucTouchPenPressed &= ~(1 << iActivePen);                 // not pressed down presently
             }
-            iPenDown = 0;
 #endif
 #if defined SUPPORT_KEY_SCAN || defined BUTTON_KEY_DEFINITIONS
             iInputChange |= wmEvent = fnCheckKeypad(LOWORD(lParam), HIWORD(lParam), 0);
@@ -4632,24 +4934,41 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 #endif
             break;
 
-        case WM_KEYDOWN:
+        case WM_KEYDOWN:                                                 // keyboard key pressed
             catchKey = wParam;
             if (0x10 == wParam) {                                        // shift key down {11}
                 iShiftPressed = 1;
             }
-#if defined SUPPORT_KEY_SCAN || defined BUTTON_KEY_DEFINITIONS           // {88}
+#if defined SUPPORT_TOUCH_SCREEN_
+            else if ((iShiftPressed != 0) && ((catchKey >= '1') && (catchKey <= '5'))) {  // user presses shift + 1..5 to freeze pens down
+                iActivePen = (catchKey - '1');                           // set active pen
+            }
+#endif
+#if defined SUPPORT_KEY_SCAN || defined BUTTON_KEY_DEFINITIONS || defined SUPPORT_TOUCH_SCREEN // {88}
             else if (VK_ESCAPE == wParam) {                              // ESC key pressed
+    #if defined SUPPORT_KEY_SCAN || defined BUTTON_KEY_DEFINITIONS
                 iInputChange = fnCheckKeypad(-1, -1, 0);
+    #endif
+    #if defined SUPPORT_TOUCH_SCREEN
+                iActivePen = 0;
+                ucTouchPenHeld = 0;
+                ucTouchPenPressed = 0;
+                fnPenDown(LOWORD(lParam), HIWORD(lParam), -1, -1);       // all pens removed
+    #endif
             }
 #endif
             break;
 
-        case WM_KEYUP:
+        case WM_KEYUP:                                                   // keyboard key released
             if (0x10 == wParam) {                                        // shift key up {11}
                 iShiftPressed = 0;
             }
+#if defined SUPPORT_TOUCH_SCREEN_
+            else if ((iShiftPressed == 0) && ((catchKey >= '1') && (catchKey <= '5'))) { // user releases 1..5 to release pens (with shift released)
+                ucTouchPenHeld &= ~(1 << (catchKey - '1'));              // release pens being held down
+            }
+#endif
             break;
-
 
         case WM_COMMAND:
             wmId    = LOWORD(wParam); 
@@ -4718,6 +5037,10 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 
                 case ID_USB_CONNECTFULLSPEEDDEVICE:                      // {17}
                     _main(SIM_TEST_FULLSPEED_DEVICE, 0);
+                    break;
+
+                case ID_USB_ATTACHHIGHSPEEDDEVICE:
+                    _main(SIM_TEST_HIGHSPEED_DEVICE, 0);
                     break;
 
                 case ID_PORTSIMULATOR_OPENSCRIPT:                        // {8}
@@ -5082,8 +5405,22 @@ static DWORD fnSendSerialMessage(HANDLE m_hComm, const void *lpBuf, DWORD dwCoun
 {
     DWORD dwBytesWritten = 0;
     static _OVERLAPPED ol = {0};                                         // {3}
-
-    WriteFileEx(m_hComm, lpBuf, dwCount, &ol, 0);
+    #if defined CRYSTAL_FONTZ_UART_LCD_SIMULATION
+    if (m_hComm == m_hComm_crystalFontz) {
+        fnRxCrystalFontz((unsigned char *)lpBuf, dwCount);
+    }
+    #endif
+    #if defined USER_INTERNALLY_CONNECTED_UART_A
+    if (m_hComm == m_hComm_user_uart_A) {
+        fnProcessRx((unsigned char *)lpBuf, (unsigned short)dwCount, USER_INTERNALLY_CONNECTED_UART_B);
+    }
+    #endif
+    #if defined USER_INTERNALLY_CONNECTED_UART_B
+    if (m_hComm == m_hComm_user_uart_B) {
+        fnProcessRx((unsigned char *)lpBuf, (unsigned short)dwCount, USER_INTERNALLY_CONNECTED_UART_A);
+    }
+    #endif
+    WriteFileEx(m_hComm, lpBuf, dwCount, &ol, 0);                        // send the serial byte(s) over the com port
 
     return dwBytesWritten;
 }
@@ -5100,7 +5437,7 @@ static int _main(int argc, char *argv[])                                 // {23}
     return iRtn;
 }
 
-#if defined SUPPORT_LCD || defined SUPPORT_GLCD || defined SUPPORT_OLED || defined SUPPORT_TFT || defined GLCD_COLOR // {35}
+#if defined SUPPORT_LCD || defined CRYSTAL_FONTZ_UART_LCD_SIMULATION || defined SUPPORT_GLCD || defined SUPPORT_OLED || defined SUPPORT_TFT || defined GLCD_COLOR // {35}
 extern void fnRedrawDisplay(void)
 {
     InvalidateRect(ghWnd, NULL, FALSE);                                  // {44}
@@ -5685,11 +6022,29 @@ extern "C" unsigned long fnRemoteSimulationInterface(int iInterfaceReference, un
 }
 #endif
 
-#if defined FT800_GLCD_MODE && defined FT800_EMULATOR                    // {110}
-
-static volatile int iEmulatorReady = 0;                                  // variable used to monitor whether the emulator has competed its initialisaion
+#if defined FT800_GLCD_MODE && (defined FT800_EMULATOR || defined BT800_EMULATOR) // {110}
 
 typedef unsigned long argb8888;
+
+#if defined BT800_EMULATOR                                               // {118}
+namespace BT8XXEMU
+{
+    class Emulator;
+    class Flash;
+}
+
+typedef BT8XXEMU::Emulator BT8XXEMU_Emulator;
+typedef BT8XXEMU::Flash BT8XXEMU_Flash;
+
+#if !defined BT800_SCREEN_COUNT
+    #define BT800_SCREEN_COUNT 1
+#endif
+
+static BT8XXEMU_Emulator *emulator[BT800_SCREEN_COUNT] = {0};
+static volatile int iEmulatorReady[BT800_SCREEN_COUNT] = {0};            // variable used to monitor whether the emulator has completed its initialisaion
+#else
+static volatile int iEmulatorReady[1] = {0};                             // variable used to monitor whether the emulator has completed its initialisaion
+#endif
 
 typedef enum
 {
@@ -5735,6 +6090,25 @@ typedef enum
 
 typedef enum
 {
+    BT8XXEMU_EmulatorFT800 = 0x0800,
+    BT8XXEMU_EmulatorFT801 = 0x0801,
+    BT8XXEMU_EmulatorFT810 = 0x0810,
+    BT8XXEMU_EmulatorFT811 = 0x0811,
+    BT8XXEMU_EmulatorFT812 = 0x0812,
+    BT8XXEMU_EmulatorFT813 = 0x0813,
+    BT8XXEMU_EmulatorBT815 = 0x0815,
+    BT8XXEMU_EmulatorBT816 = 0x0816,
+} BT8XXEMU_EmulatorMode;
+
+typedef enum
+{
+    BT8XXEMU_LogError = 0,
+    BT8XXEMU_LogWarning = 1,
+    BT8XXEMU_LogMessage = 2,
+} BT8XXEMU_LogType;
+
+typedef enum
+{
 	// enables the keyboard to be used as input (default: on)
 	FT8XXEMU_EmulatorEnableKeyboard = 0x01,
 	// enables audio (default: on)
@@ -5757,12 +6131,43 @@ typedef enum
 	FT8XXEMU_EmulatorEnableTouchTransformation = 0x200,
 } FT8XXEMU_EmulatorFlags;
 
+typedef enum
+{
+    // enables the keyboard to be used as input (default: on)
+    BT8XXEMU_EmulatorEnableKeyboard = 0x01,
+    // enables audio (default: on)
+    BT8XXEMU_EmulatorEnableAudio = 0x02,
+    // enables coprocessor (default: on)
+    BT8XXEMU_EmulatorEnableCoprocessor = 0x04,
+    // enables mouse as touch (default: on)
+    BT8XXEMU_EmulatorEnableMouse = 0x08,
+    // enable debug shortkeys (default: on)
+    BT8XXEMU_EmulatorEnableDebugShortkeys = 0x10,
+    // enable graphics processor multithreading (default: on)
+    BT8XXEMU_EmulatorEnableGraphicsMultithread = 0x20,
+    // enable dynamic graphics quality degrading by reducing resolution and dropping frames (default: on)
+    BT8XXEMU_EmulatorEnableDynamicDegrade = 0x40,
+    // enable usage of REG_ROTATE (default: off)
+    // BT8XXEMU_EmulatorEnableRegRotate = 0x80, // Now always on
+    // enable emulating REG_PWM_DUTY by fading the rendered display to black (default: off)
+    BT8XXEMU_EmulatorEnableRegPwmDutyEmulation = 0x100,
+    // enable usage of touch transformation matrix (default: on) (should be disabled in editor)
+    BT8XXEMU_EmulatorEnableTouchTransformation = 0x200,
+    // enable output to stdout from the emulator (default: off) (note: stdout is in some cases not thread safe)
+    BT8XXEMU_EmulatorEnableStdOut = 0x400,
+    // enable performance adjustments for running the emulator as a background process without window (default: off)
+    BT8XXEMU_EmulatorEnableBackgroundPerformance = 0x800,
+    // enable performance adjustments for the main MCU thread (default: on)
+    BT8XXEMU_EmulatorEnableMainPerformance = 0x1000,
+
+} BT8XXEMU_EmulatorFlags;
+
 typedef struct
 {
 	// Microcontroller function called before loop.
-	void(*Setup)();
+	void (*Setup)();
 	// Microcontroller continuous loop.
-	void(*Loop)();
+	void (*Loop)();
 	// See EmulatorFlags.
 	int Flags;
 	// Emulator mode
@@ -5783,7 +6188,7 @@ typedef struct
 	unsigned long ReduceGraphicsThreads;
 
 	// Sleep function for MCU thread usage throttle. Defaults to generic system sleep
-	void(*MCUSleep)(int ms);
+	void (*MCUSleep)(int ms);
 
 	// Replaces the default builtin ROM with a custom ROM from a file.
 	// NOTE: String is copied and may be deallocated after call to run(...)
@@ -5813,28 +6218,149 @@ typedef struct
 	// void (*Interrupt)();
 
 	// Exception callback
-	void(*Exception)(const char *message);
+	void (*Exception)(const char *message);
 
 	// Safe exit
-	void(*Close)();
+	void (*Close)();
 
 } FT8XXEMU_EmulatorParameters;
 
+typedef enum
+{
+    // frame render has changes since last render
+    BT8XXEMU_FrameBufferChanged = 0x01,
+    // frame is completely rendered (without degrade)
+    BT8XXEMU_FrameBufferComplete = 0x02,
+    // frame has changes since last render
+    BT8XXEMU_FrameChanged = 0x04,
+    // frame rendered right after display list swap
+    BT8XXEMU_FrameSwap = 0x08,
+
+    // NOTE: Difference between FrameChanged and FrameBufferChanged is that
+    // FrameChanged will only be true if the content of the frame changed,
+    // whereas FrameBufferChanged will be true if the rendered buffer changed.
+    // For example, when the emulator renders a frame incompletely due to
+    // CPU overload, it will then finish the frame in the next callback,
+    // and when this is the same frame, FrameChanged will be false,
+    // but FrameBufferChanged will be true as the buffer has changed.
+
+    // NOTE: Frames can change even though no frame was swapped, due to
+    // several parameters such as REG_MACRO or REG_ROTATE.
+
+    // NOTE: If you only want completely rendered frames, turn OFF
+    // the EmulatorEnableDynamicDegrade feature.
+
+    // NOTE: To get the accurate frame after a frame swap, wait for FrameSwap
+    // to be set, and get the first frame which has FrameBufferComplete set.
+
+    // NOTE: To get the accurate frame after any frame change, wait for
+    // FrameChanged, and get the first frame which has FrameBufferComplete set.
+
+} BT8XXEMU_FrameFlags;
+
+#if defined BT800_EMULATOR
+typedef struct
+{
+	// Microcontroller main function. This will be run on a new thread managed by the emulator. When not provided the calling thread is assumed to be the MCU thread
+	void (*Main)(BT8XXEMU_Emulator *sender, void *context);
+	// See EmulatorFlags.
+	int Flags;
+	// Emulator mode
+	BT8XXEMU_EmulatorMode Mode;
+
+	// The default mouse pressure, default 0 (maximum).
+	// See REG_TOUCH_RZTRESH, etc.
+	unsigned long MousePressure;
+	// External frequency. See CLK, etc.
+    unsigned long ExternalFrequency;
+
+	// Reduce graphics processor threads by specified number, default 0
+	// Necessary when doing very heavy work on the MCU or Coprocessor
+    unsigned long ReduceGraphicsThreads;
+
+	// Sleep function for MCU thread usage throttle. Defaults to generic system sleep
+	void (*MCUSleep)(BT8XXEMU_Emulator *sender, void *context, int ms);
+
+	// Replaces the default builtin ROM with a custom ROM from a file.
+	// NOTE: String is copied and may be deallocated after call to run(...)
+	wchar_t RomFilePath[260];
+	// Replaces the default builtin OTP with a custom OTP from a file.
+	// NOTE: String is copied and may be deallocated after call to run(...)
+	wchar_t OtpFilePath[260];
+	// Replaces the builtin coprocessor ROM.
+	// NOTE: String is copied and may be deallocated after call to run(...)
+	wchar_t CoprocessorRomFilePath[260];
+
+	// Graphics driverless mode
+	// Setting this callback means no window will be created, and all
+	// rendered graphics will be automatically sent to this function.
+	// For enabling touch functionality, the functions
+	// Memory.setTouchScreenXY and Memory.resetTouchScreenXY must be
+	// called manually from the host application.
+	// Builtin keyboard functionality is not supported and must be
+	// implemented manually when using this mode.
+	// The output parameter is false (0) when the display is turned off.
+	// The contents of the buffer pointer are undefined after this
+	// function returns. Create a copy to use it on another thread.
+	// Return false (0) when the application must exit, otherwise return true (1).
+	int (*Graphics)(BT8XXEMU_Emulator *sender, void *context, int output, const argb8888 *buffer, unsigned long hsize, unsigned long vsize, BT8XXEMU_FrameFlags flags);
+
+	// Interrupt handler
+	// void (*Interrupt)(void *sender, void *context);
+
+	// Log callback
+	void (*Log)(BT8XXEMU_Emulator *sender, void *context, BT8XXEMU_LogType type, const char *message);
+
+	// Safe exit. Called when the emulator window is closed
+	void (*Close)(BT8XXEMU_Emulator *sender, void *context);
+
+	// User context that will be passed along to callbacks
+	void *UserContext;
+
+	// Flash device to connect with, default NULL
+	BT8XXEMU_Flash *Flash;
+
+} BT8XXEMU_EmulatorParameters;
+#endif
+
 extern "C" {
+#if defined BT800_EMULATOR
+    __declspec(dllimport) extern void BT8XXEMU_defaults(unsigned long versionApi, BT8XXEMU_EmulatorParameters *params, BT8XXEMU_EmulatorMode mode);
+    __declspec(dllimport) extern void BT8XXEMU_run(unsigned long versionApi, BT8XXEMU_Emulator **emulator, const BT8XXEMU_EmulatorParameters *params);;
+    __declspec(dllimport) extern unsigned char BT8XXEMU_transfer(BT8XXEMU_Emulator *emulator, unsigned char data); // transfer data over the imaginary SPI bus. Call from the MCU thread (from the setup/loop callbacks). See FT8XX documentation for SPI transfer protocol
+    __declspec(dllimport) extern void BT8XXEMU_chipSelect(BT8XXEMU_Emulator *, int cs); // set cable select. Must be set to 1 to start data transfer, 0 to end. See FT8XX documentation for CS_N
+    __declspec(dllimport) extern int  BT8XXEMU_hasInterrupt(BT8XXEMU_Emulator *emulator); // returns 1 if there is an interrupt flag set. Depends on mask. See FT8XX documentation for INT_N
+#else
     extern void FT8XXEMU_defaults(unsigned long versionApi, FT8XXEMU_EmulatorParameters *params, FT8XXEMU_EmulatorMode mode);
     extern void FT8XXEMU_run(unsigned long versionApi, const FT8XXEMU_EmulatorParameters *params);
 
     __declspec(dllimport) extern unsigned char (*FT8XXEMU_transfer)(unsigned char data); // transfer data over the imaginary SPI bus. Call from the MCU thread (from the setup/loop callbacks). See FT8XX documentation for SPI transfer protocol
     __declspec(dllimport) extern void (*FT8XXEMU_cs)(int cs);            // set cable select. Must be set to 1 to start data transfer, 0 to end. See FT8XX documentation for CS_N
     __declspec(dllimport) extern int (*FT8XXEMU_int)();                  // returns 1 if there is an interrupt flag set. Depends on mask. See FT8XX documentation for INT_N
+#endif
 }
 
 
 // Call back when the emulator has completed its initialisation
 //
+#if defined BT800_EMULATOR
+static void setup(BT8XXEMU_Emulator *sender, void *context)
+#else
 static void setup(void)
+#endif
 {
-    iEmulatorReady = 1;                                                  // this flag is used to stop the LCD task from accessing the FT800 emulation before it has completed its initialisation
+#if defined BT800_EMULATOR                                               // {118}
+    int i = 0;
+    while (i < BT800_SCREEN_COUNT) {
+        if (sender == emulator[i]) {
+            iEmulatorReady[i] = 1;                                       // this flag is used to stop the LCD task from accessing the BT800 emulation before it has completed its initialisation
+            break;
+        }
+        i++;
+    }
+#else
+    iEmulatorReady[0] = 1;                                               // this flag is used to stop the LCD task from accessing the FT800 emulation before it has completed its initialisation
+#endif
 }
 
 // Call back when the emulator is idle
@@ -5847,55 +6373,130 @@ static void loop(void)
 //
 extern "C" void _FT8XXEMU_cs(int cs)
 {
-    while (iEmulatorReady == 0) {                                        // if the emulator has not yet initialised we wait
+#if defined BT800_EMULATOR                                               // {118}
+    while (iEmulatorReady[BT800_SCREEN_COUNT - 1] == 0) {                // if the emulator has not yet initialised we wait
+        Sleep(10);
+    }
+    BT8XXEMU_chipSelect(emulator[0], cs);                                // from bt8xxemu.dll
+    #if BT800_SCREEN_COUNT > 1
+    BT8XXEMU_chipSelect(emulator[1], cs);                                // from bt8xxemu.dll
+    #endif
+#else
+    while (iEmulatorReady[0] == 0) {                                     // if the emulator has not yet initialised we wait
         Sleep(10);
     }
     FT8XXEMU_cs(cs);                                                     // from ft8xxemu.lib
+#endif
 }
 
 // Send a byte to the emulator
 //
 extern "C" unsigned char _FT8XXEMU_transfer(unsigned char data)
 {
+#if defined BT800_EMULATOR                                               // {118}
+    unsigned char ucReturn = BT8XXEMU_transfer(emulator[0], data);       // from bt8xxemu.dll
+    #if BT800_SCREEN_COUNT > 1
+    BT8XXEMU_transfer(emulator[1], data);                                // from bt8xxemu.dll
+    #endif
+    return ucReturn;
+#else
     return FT8XXEMU_transfer(data);                                      // from ft8xxemu.lib
+#endif
 }
 
-static void FT800_emulator_thread(void *hArgs)
+void FT800_emulator_thread(void *hArgs)
 {
-  //#define FT8XXEMU_VERSION_API    9                                    // (2012) API version is increased for the library whenever FT8XXEMU_EmulatorParameters format changes or functions are modified
-    #define FT8XXEMU_VERSION_API    10                                   // (2015) API version is increased for the library whenever FT8XXEMU_EmulatorParameters format changes or functions are modified
-
+    #if defined BT800_EMULATOR
+        #define BT8XXEMU_VERSION_API    11                               // (2019) API version is increased for the library whenever BT8XXEMU_EmulatorParameters format changes or functions are modified
+    #else
+      //#define FT8XXEMU_VERSION_API    9                                // (2012) API version is increased for the library whenever FT8XXEMU_EmulatorParameters format changes or functions are modified
+        #define FT8XXEMU_VERSION_API    10                               // (2015) API version is increased for the library whenever FT8XXEMU_EmulatorParameters format changes or functions are modified
+    #endif
+    #if defined BT800_EMULATOR                                           // {118}
+    BT8XXEMU_EmulatorParameters params;
+    BT8XXEMU_EmulatorMode       Ft_GpuEmu_Mode;
+        #if defined (FT_800_ENABLE)                                       // select the emulation mode
+    Ft_GpuEmu_Mode = BT8XXEMU_EmulatorFT800;
+        #elif defined (FT_801_ENABLE)
+    Ft_GpuEmu_Mode = BT8XXEMU_EmulatorFT801;
+        #elif defined (FT_810_ENABLE)
+    Ft_GpuEmu_Mode =  BT8XXEMU_EmulatorFT810;
+        #elif defined (FT_811_ENABLE)
+    Ft_GpuEmu_Mode = BT8XXEMU_EmulatorFT811;
+        #elif defined (FT_812_ENABLE)
+    Ft_GpuEmu_Mode = BT8XXEMU_EmulatorFT812;
+        #elif defined(FT_813_ENABLE)
+    Ft_GpuEmu_Mode = BT8XXEMU_EmulatorFT813;
+        #elif defined(FT_815_ENABLE)
+    Ft_GpuEmu_Mode = BT8XXEMU_EmulatorFT815;
+        #elif defined(FT_816_ENABLE)
+    Ft_GpuEmu_Mode = BT8XXEMU_EmulatorFT816;
+        #else
+    Ft_GpuEmu_Mode = BT8XXEMU_EmulatorFT800;
+        #endif
+    #else
     FT8XXEMU_EmulatorParameters params;
     FT8XXEMU_EmulatorMode       Ft_GpuEmu_Mode;
-    #if defined (FT_800_ENABLE)                                           // select the emulation mode
+        #if defined (FT_800_ENABLE)                                       // select the emulation mode
     Ft_GpuEmu_Mode = FT8XXEMU_EmulatorFT800;
-    #elif defined (FT_801_ENABLE)
+        #elif defined (FT_801_ENABLE)
     Ft_GpuEmu_Mode = FT8XXEMU_EmulatorFT801;
-    #elif defined (FT_810_ENABLE)
+        #elif defined (FT_810_ENABLE)
     Ft_GpuEmu_Mode =  FT8XXEMU_EmulatorFT810;
-    #elif defined (FT_811_ENABLE)
+        #elif defined (FT_811_ENABLE)
     Ft_GpuEmu_Mode = FT8XXEMU_EmulatorFT811;
-    #elif defined (FT_812_ENABLE)
+        #elif defined (FT_812_ENABLE)
     Ft_GpuEmu_Mode = FT8XXEMU_EmulatorFT812;
-    #elif defined(FT_813_ENABLE)
+        #elif defined(FT_813_ENABLE)
     Ft_GpuEmu_Mode = FT8XXEMU_EmulatorFT813;
-    #else
+        #else
     Ft_GpuEmu_Mode = FT8XXEMU_EmulatorFT800;
+        #endif
     #endif
 
+    #if defined BT800_EMULATOR
+    BT8XXEMU_defaults(BT8XXEMU_VERSION_API, &params, Ft_GpuEmu_Mode);    // get the parameters for the emulation mode
+    #else
     FT8XXEMU_defaults(FT8XXEMU_VERSION_API, &params, Ft_GpuEmu_Mode);    // get the parameters for the emulation mode
+    #endif
+    #if defined BT800_EMULATOR                                           // {118}
+
+    params.Flags =
+        BT8XXEMU_EmulatorEnableKeyboard
+        | BT8XXEMU_EmulatorEnableMouse
+        | BT8XXEMU_EmulatorEnableAudio
+        | BT8XXEMU_EmulatorEnableDebugShortkeys
+        | BT8XXEMU_EmulatorEnableCoprocessor
+        | BT8XXEMU_EmulatorEnableGraphicsMultithread
+        | BT8XXEMU_EmulatorEnableStdOut
+        | BT8XXEMU_EmulatorEnableMainPerformance
+        ;
+    params.UserContext = 0;// this;
+
+    params.Main = setup;
+  //params.Flags &= (~BT8XXEMU_EmulatorEnableDynamicDegrade & ~BT8XXEMU_EmulatorEnableRegPwmDutyEmulation);
+  //params.Flags |= BT8XXEMU_EmulatorEnableStdOut;
+    BT8XXEMU_run(BT8XXEMU_VERSION_API, &emulator[(int)hArgs], &params);  // start the emulation - this doesn't return until terminated (or if it fails)
+    if (iEmulatorReady[(int)hArgs] == 0) {
+        _EXCEPTION("Mismatch between the API version selected and the library linked - please adjust BT8XXEMU_VERSION_API (above) appropriately!");
+    }
+    #else
     params.Flags &= (~FT8XXEMU_EmulatorEnableDynamicDegrade & ~FT8XXEMU_EmulatorEnableRegPwmDutyEmulation);
     params.Setup = setup;
     params.Loop = loop;
     FT8XXEMU_run(FT8XXEMU_VERSION_API, &params);                         // start the emulation - this doesn't return until terminated
-    if (iEmulatorReady == 0) {
-        _EXCEPTION("Mismatch vetween the API version selected and the library linked - please adjust FT8XXEMU_VERSION_API (above) appropriately!");
+    if (iEmulatorReady[0] == 0) {
+        _EXCEPTION("Mismatch between the API version selected and the library linked - please adjust FT8XXEMU_VERSION_API (above) appropriately!");
     }
+    #endif
 }
 
 static void fnInitFT800_emulator(void)
 {
     DWORD ThreadIDRead;
-    HANDLE hThreadRead = CreateThread (NULL, 0, (LPTHREAD_START_ROUTINE)FT800_emulator_thread, (LPVOID)0, 0, (LPDWORD)&ThreadIDRead);
+    HANDLE hThreadRead0 = CreateThread(NULL, 0, (LPTHREAD_START_ROUTINE)FT800_emulator_thread, (LPVOID)0, 0, (LPDWORD)&ThreadIDRead);
+    #if defined BT800_EMULATOR && (BT800_SCREEN_COUNT > 1)               // {118}
+    HANDLE hThreadRead1 = CreateThread(NULL, 0, (LPTHREAD_START_ROUTINE)FT800_emulator_thread, (LPVOID)1, 0, (LPDWORD)&ThreadIDRead);
+    #endif
 }
 #endif

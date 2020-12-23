@@ -1,5 +1,5 @@
 //{{NO_DEPENDENCIES}}
-// Microsoft Developer Studio generated include file.
+// Microsoft Visual C++ generated include file.
 // Used by uTasker.rc
 //
 #define IDC_MYICON                      2
@@ -24,7 +24,9 @@
 #define IDC_CURSOR5                     155
 #define IDC_CURSOR6                     156
 #define IDC_CURSOR7                     163
-#define IDC_CURSOR8                     166
+#define IDC_CURSOR8                     164
+#define IDC_CURSOR9                     166
+#define IDC_CURSOR10                    172
 #define IDC_COMBO1                      1000
 #define ID_TEST_TX                      32771
 #define ID_TEST_RX                      32772
@@ -77,14 +79,15 @@
 #define ID_SLCD_RELEASESEGMENTS         32817
 #define ID_TEST_EXT_R2                  32818
 #define ID_TEST_EXT_R3                  32819
+#define ID_USB_ATTACHHIGHSPEEDDEVICE    32820
 #define IDC_STATIC                      -1
 
 // Next default values for new objects
 // 
 #ifdef APSTUDIO_INVOKED
 #ifndef APSTUDIO_READONLY_SYMBOLS
-#define _APS_NEXT_RESOURCE_VALUE        167
-#define _APS_NEXT_COMMAND_VALUE         32820
+#define _APS_NEXT_RESOURCE_VALUE        175
+#define _APS_NEXT_COMMAND_VALUE         32821
 #define _APS_NEXT_CONTROL_VALUE         1005
 #define _APS_NEXT_SYMED_VALUE           110
 #endif

@@ -1,0 +1,106 @@
+# make_uTaskerBoot_GNU_iMX
+# Make file for uTasker boot loader build for iMX
+#
+
+#
+# When changing the project target check that the C_FLAGS selection (just below) and the linker script file (at bottom) matches the processor being used
+#
+
+
+# Compiler flags (thumb mode - little endian) - if a part with single-precision FPU [1011] choose -mfpu=fpv5-sp-d16, else -mfpu=fpv5-d16 (double-precision FPU)
+#C_FLAGS = -mcpu=cortex-m7 -mthumb -mfloat-abi=hard -mfpu=fpv5-sp-d16 -mlittle-endian -mthumb -Wall -Wstrict-prototypes -fmessage-length=0 -fsigned-char -ffunction-sections -fdata-sections -Wundef
+C_FLAGS = -mcpu=cortex-m7 -mthumb -mfloat-abi=hard -mfpu=fpv5-d16 -mlittle-endian -mthumb -Wall -Wstrict-prototypes -fmessage-length=0 -fsigned-char -ffunction-sections -fdata-sections -Wundef
+
+#choose iMX_RT_1064_FlexSPI_NOR only when building for the i.MX RT 1064 (with internal QSPI)
+#LINKER_SCRIPT = iMX_RT_1064_FlexSPI_NOR
+LINKER_SCRIPT = iMX_RT_10XX_FlexSPI_NOR
+
+# All objects (Hardware, application, uTasker, stack)
+#
+OBJS = Build/uTaskerBootLoader.o \
+       Build/iMX.o \
+	   Build/crypto.o \
+	   Build/aes_mbedTLS.o
+
+
+A_FLAGS = -DARM_MATH_CM7
+
+
+
+
+#General dependencies
+#
+DEPENDS = ../config.h ../types.h ../../../Hardware/hardware.h ../../../Hardware/packages.h ../../../Hardware/iMX/iMX.h make_uTaskerBoot_GNU_iMX
+
+
+
+INC     = -I../ 
+OPTS    = -D _GNU -D _iMX -g -c -Os
+# lower optimisation level due to GCC alignment bug
+OPTS_BUG = -D _GNU -D _iMX -g -c -O1
+CC      = arm-none-eabi-gcc
+CC_LNK  = arm-none-eabi-g++
+CC_OBJ  = arm-none-eabi-objcopy
+CC_SIZE = arm-none-eabi-size
+DUMP    = arm-none-eabi-objdump
+
+# Hardware peripheral dependencies
+#
+PERIPH_DEP = ../../../Hardware/iMX/iMX_FLASH.h \
+             ../../../Hardware/iMX/iMX_Clock.h \
+			 ../../../Hardware/iMX/iMX_Caches_MPU.h \
+			 ../../../Hardware/iMX/iMX_Loader.h \
+			 ../../../Hardware/SPI_Memory/spi_flash_interface.h
+
+# SPI FLASH dependencies
+#
+SPI_FLASH_DEP = ../../../Hardware/SPI_Memory/spi_flash_AT25SF.h \
+			 ../../../Hardware/SPI_Memory/spi_flash_IS25LP.h \
+			 ../../../Hardware/SPI_Memory/spi_flash_S26KL.h \
+			 ../../../Hardware/SPI_Memory/spi_flash_ATXP.h \
+			 ../../../Hardware/SPI_Memory/spi_flash_w25q.h
+
+
+
+all: uTaskerBoot.elf
+
+# Application files
+#
+Build/uTaskerBootLoader.o: ../uTaskerBootLoader.c $(DEPENDS)
+		$(CC) $(C_FLAGS) $(INC) $(OPTS) ../uTaskerBootLoader.c -o Build/uTaskerBootLoader.o
+
+
+# Hardware files
+#
+Build/iMX.o: ../../../Hardware/iMX/iMX.c $(DEPENDS) $(PERIPH_DEP) $(SPI_FLASH_DEP)
+		$(CC) $(C_FLAGS) $(INC) $(OPTS) ../../../Hardware/iMX/iMX.c -o Build/iMX.o
+
+# uTasker files
+#
+Build/crypto.o: ../../../uTasker/crypto.c $(DEPENDS)
+		$(CC) $(C_FLAGS) $(INC) $(OPTS) ../../../uTasker/crypto.c -o Build/crypto.o
+
+# Special packages
+##################
+
+#CRYPTO
+Build/aes_mbedTLS.o: ../../../stack/SSL/mbedtls-1.3.10/aes_mbedTLS.c $(DEPENDS) ../../../stack/SSL/mbedtls-1.3.10/aes.h
+		$(CC) $(C_FLAGS) $(INC) $(OPTS) ../../../stack/SSL/mbedtls-1.3.10/aes_mbedTLS.c -o Build/aes_mbedTLS.o
+
+# Link
+# Create output file and show its size
+uTaskerBoot.elf: $(OBJS) iMX_RT_10XX_FlexSPI_NOR.ld iMX_RT_1064_FlexSPI_NOR.ld
+	$(CC_LNK) $(C_FLAGS) -Os -g -T$(LINKER_SCRIPT).ld -nostartfiles -Xlinker --gc-sections -lm -Wl,-Map,"uTaskerBoot.map" -o "uTaskerBoot.elf" $(OBJS)
+	$(CC_OBJ) --only-section=.data --only-section=.init --only-section=.text --only-section=.rodata --only-section=.vectors --only-section=.boot_hdr --output-target=binary uTaskerBoot.elf uTaskerBoot.bin
+	$(CC_SIZE) uTaskerBoot.elf
+
+	$(CC) -v
+
+.PHONY: clean
+clean:
+	rm uTaskerBoot.map
+	rm uTaskerBoot.elf
+	rm uTaskerBoot.bin
+
+# *** EOF ***
+    

@@ -3471,6 +3471,54 @@
     </settings>
   </configuration>
   <group>
+    <name>FreeRTOS</name>
+    <group>
+      <name>portableM0</name>
+      <file>
+        <name>$PROJ_DIR$\..\..\..\FreeRTOS\Source\portable\IAR\ARM_CM0\port.c</name>
+      </file>
+      <file>
+        <name>$PROJ_DIR$\..\..\..\FreeRTOS\Source\portable\IAR\ARM_CM0\portasm.s</name>
+        <configuration>
+          <name>Flash</name>
+        </configuration>
+      </file>
+    </group>
+    <group>
+      <name>portableM4F</name>
+      <file>
+        <name>$PROJ_DIR$\..\..\..\FreeRTOS\Source\portable\IAR\ARM_CM4F\port.c</name>
+      </file>
+      <file>
+        <name>$PROJ_DIR$\..\..\..\FreeRTOS\Source\portable\IAR\ARM_CM4F\portasm.s</name>
+        <configuration>
+          <name>Flash</name>
+        </configuration>
+      </file>
+    </group>
+    <file>
+      <name>$PROJ_DIR$\..\..\..\FreeRTOS\Source\croutine.c</name>
+    </file>
+    <file>
+      <name>$PROJ_DIR$\..\..\..\FreeRTOS\Source\event_groups.c</name>
+    </file>
+    <file>
+      <name>$PROJ_DIR$\..\..\..\FreeRTOS\Source\list.c</name>
+    </file>
+    <file>
+      <name>$PROJ_DIR$\..\..\..\FreeRTOS\Source\queue.c</name>
+    </file>
+    <file>
+      <name>$PROJ_DIR$\..\..\..\FreeRTOS\Source\tasks.c</name>
+    </file>
+    <file>
+      <name>$PROJ_DIR$\..\..\..\FreeRTOS\Source\timers.c</name>
+    </file>
+    <configuration>
+      <name>Flash</name>
+    </configuration>
+  </group>
+  <group>
     <name>Hardware</name>
     <file>
       <name>$PROJ_DIR$\..\..\..\Hardware\Kinetis\kinetis.c</name>
@@ -3478,6 +3526,33 @@
   </group>
   <group>
     <name>TCP/IP</name>
+    <group>
+      <name>mbedtls</name>
+      <file>
+        <name>$PROJ_DIR$\..\..\..\stack\SSL\mbedtls-1.3.10\aes_mbedTLS.c</name>
+      </file>
+      <file>
+        <name>$PROJ_DIR$\..\..\..\stack\SSL\mbedtls-1.3.10\sha256_mbedTLS.c</name>
+      </file>
+    </group>
+    <group>
+      <name>OpenSSL</name>
+      <file>
+        <name>$PROJ_DIR$\..\..\..\stack\SSL\openssl-1.0.2\aes_cbc.c</name>
+      </file>
+      <file>
+        <name>$PROJ_DIR$\..\..\..\stack\SSL\openssl-1.0.2\aes_core.c</name>
+      </file>
+      <file>
+        <name>$PROJ_DIR$\..\..\..\stack\SSL\openssl-1.0.2\cbc128.c</name>
+      </file>
+    </group>
+    <group>
+      <name>wolfSSL</name>
+      <file>
+        <name>$PROJ_DIR$\..\..\..\stack\SSL\wolfssl-3.9.6\w_aes.c</name>
+      </file>
+    </group>
     <file>
       <name>$PROJ_DIR$\..\..\..\stack\arp.c</name>
     </file>
@@ -3512,6 +3587,9 @@
       <name>$PROJ_DIR$\..\..\..\stack\ip_utils.c</name>
     </file>
     <file>
+      <name>$PROJ_DIR$\..\..\..\stack\mqtt.c</name>
+    </file>
+    <file>
       <name>$PROJ_DIR$\..\..\..\stack\NetBIOS.c</name>
     </file>
     <file>
@@ -3519,6 +3597,9 @@
     </file>
     <file>
       <name>$PROJ_DIR$\..\..\..\stack\ppp.c</name>
+    </file>
+    <file>
+      <name>$PROJ_DIR$\..\..\..\stack\secure_layer.c</name>
     </file>
     <file>
       <name>$PROJ_DIR$\..\..\..\stack\smtp.c</name>
@@ -3549,6 +3630,15 @@
     </file>
   </group>
   <group>
+    <name>Test</name>
+    <group>
+      <name>LTC_AES</name>
+      <file>
+        <name>$PROJ_DIR$\..\..\..\NXP\LTC_TEST\ltc_aes.c</name>
+      </file>
+    </group>
+  </group>
+  <group>
     <name>uTasker</name>
     <group>
       <name>MODBUS</name>
@@ -3557,6 +3647,39 @@
       </file>
       <file>
         <name>$PROJ_DIR$\..\..\..\uTasker\MODBUS\modbus.h</name>
+      </file>
+    </group>
+    <group>
+      <name>uCANopen</name>
+      <file>
+        <name>$PROJ_DIR$\..\..\..\uTasker\uCANopen\CANopen.c</name>
+      </file>
+      <file>
+        <name>$PROJ_DIR$\..\..\..\uTasker\uCANopen\CO_driver.c</name>
+      </file>
+      <file>
+        <name>$PROJ_DIR$\..\..\..\uTasker\uCANopen\CO_Emergency.c</name>
+      </file>
+      <file>
+        <name>$PROJ_DIR$\..\..\..\uTasker\uCANopen\CO_HBconsumer.c</name>
+      </file>
+      <file>
+        <name>$PROJ_DIR$\..\..\..\uTasker\uCANopen\CO_NMT_Heartbeat.c</name>
+      </file>
+      <file>
+        <name>$PROJ_DIR$\..\..\..\uTasker\uCANopen\CO_PDO.c</name>
+      </file>
+      <file>
+        <name>$PROJ_DIR$\..\..\..\uTasker\uCANopen\CO_SDO.c</name>
+      </file>
+      <file>
+        <name>$PROJ_DIR$\..\..\..\uTasker\uCANopen\CO_SDOmaster.c</name>
+      </file>
+      <file>
+        <name>$PROJ_DIR$\..\..\..\uTasker\uCANopen\CO_SYNC.c</name>
+      </file>
+      <file>
+        <name>$PROJ_DIR$\..\..\..\uTasker\uCANopen\crc16-ccitt.c</name>
       </file>
     </group>
     <group>
@@ -3608,7 +3731,13 @@
       <name>$PROJ_DIR$\..\..\..\uTasker\can_drv.c</name>
     </file>
     <file>
+      <name>$PROJ_DIR$\..\..\..\uTasker\crypto.c</name>
+    </file>
+    <file>
       <name>$PROJ_DIR$\..\..\..\uTasker\Driver.c</name>
+    </file>
+    <file>
+      <name>$PROJ_DIR$\..\..\..\uTasker\DSP.c</name>
     </file>
     <file>
       <name>$PROJ_DIR$\..\..\..\uTasker\eth_drv.c</name>
@@ -3617,10 +3746,13 @@
       <name>$PROJ_DIR$\..\..\..\uTasker\GlobalTimer.c</name>
     </file>
     <file>
-      <name>$PROJ_DIR$\..\..\..\uTasker\iic_drv.c</name>
+      <name>$PROJ_DIR$\..\..\..\uTasker\i2c_drv.c</name>
     </file>
     <file>
       <name>$PROJ_DIR$\..\..\..\uTasker\low_power.c</name>
+    </file>
+    <file>
+      <name>$PROJ_DIR$\..\..\..\uTasker\SPI_drv.c</name>
     </file>
     <file>
       <name>$PROJ_DIR$\..\..\..\uTasker\SSC_drv.c</name>
@@ -3657,6 +3789,18 @@
     <name>$PROJ_DIR$\..\debug.c</name>
   </file>
   <file>
+    <name>$PROJ_DIR$\..\DMX512.c</name>
+  </file>
+  <file>
+    <name>$PROJ_DIR$\..\FreeMaster.c</name>
+  </file>
+  <file>
+    <name>$PROJ_DIR$\..\FreeRTOSapplication.c</name>
+    <configuration>
+      <name>Flash</name>
+    </configuration>
+  </file>
+  <file>
     <name>$PROJ_DIR$\..\KeyScan.c</name>
   </file>
   <file>
@@ -3667,6 +3811,9 @@
   </file>
   <file>
     <name>$PROJ_DIR$\..\snmp_mib_handlers.c</name>
+  </file>
+  <file>
+    <name>$PROJ_DIR$\..\uCANopenApp.c</name>
   </file>
   <file>
     <name>$PROJ_DIR$\..\usb_application.c</name>

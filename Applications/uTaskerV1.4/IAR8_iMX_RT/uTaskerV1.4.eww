@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<workspace>
+    <project>
+        <path>$WS_DIR$\..\..\uTaskerBoot\IAR8_iMX_RT\uTaskerBoot.ewp</path>
+    </project>
+    <project>
+        <path>$WS_DIR$\..\..\uTaskerSerialBoot\IAR8_iMX\uTaskerSerialBoot.ewp</path>
+    </project>
+    <project>
+        <path>$WS_DIR$\uTaskerV1.4.ewp</path>
+    </project>
+    <batchBuild>
+        <batchDefinition>
+            <name>All</name>
+            <member>
+                <project>GettingStarted</project>
+                <configuration>Flash Debug</configuration>
+            </member>
+            <member>
+                <project>GettingStarted</project>
+                <configuration>RAM Debug</configuration>
+            </member>
+        </batchDefinition>
+    </batchBuild>
+</workspace>

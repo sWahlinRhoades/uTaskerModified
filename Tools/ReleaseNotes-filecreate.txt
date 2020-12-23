@@ -53,3 +53,8 @@ XML_TestVariable.txt -c=FILE_INVISIBLE -w -? -T=MIME_HTML
 The content of this file is embedded with access file name "XML?TestVariable" and will be parsed by the HTTP server to allow it to be used as control for AJAX parameters.
 
 
+Version V1.10 14.11.2020
+========================
+
+Add 16 bit colour support (RGB565)
+

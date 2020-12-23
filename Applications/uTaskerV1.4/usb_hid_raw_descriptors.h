@@ -11,7 +11,7 @@
     File:      usb_hid_raw_descriptors.h
     Project:   uTasker project
     ---------------------------------------------------------------------
-    Copyright (C) M.J.Butcher Consulting 2004..2016
+    Copyright (C) M.J.Butcher Consulting 2004..2019
     *********************************************************************
 
 */
@@ -25,12 +25,6 @@
     #define USB_PRODUCT_ID                      0x0486                   // Teensy reference
 
     #define USB_HID_RAW_INTERFACE_NUMBER        0
-
-    #define HID_RAW_TX_SIZE                     32
-    #define HID_RAW_TX_RATE                     2                        // ms
-
-    #define HID_RAW_RX_SIZE                     64
-    #define HID_RAW_RX_RATE                     8                        // ms
 
     #define RAWHID_USAGE_PAGE                   0xffab                   // recommended: 0xFF00 to 0xFFFF
     #define RAWHID_USAGE                        0x0200                   // recommended: 0x0100 to 0xFFFF
@@ -111,7 +105,7 @@ static const unsigned char ucRawReport[] = {
 	0x81, 0x02,                                                          // input (array)
 	0x95, HID_RAW_RX_SIZE,                                               // report count
 	0x09, 0x02,                                                          // usage
-	0x91, 0x02,                                                          // Output (array)
+	0x91, 0x02,                                                          // output (array)
 	0xc0                                                                 // end collection
 };
 #endif
@@ -185,7 +179,7 @@ static const USB_CONFIGURATION_DESCRIPTOR_COLLECTION config_descriptor = {
     HID_RAW_TX_RATE                                                      // polling interval in ms
     },
 
-    {                                                                    // interrupt in endpoint descriptor for the interface
+    {                                                                    // interrupt out endpoint descriptor for the interface
     DESCRIPTOR_TYPE_ENDPOINT_LENGTH,                                     // descriptor size in bytes (0x07)
     DESCRIPTOR_TYPE_ENDPOINT,                                            // endpoint descriptor (0x05)
     (OUT_ENDPOINT | 0x02),                                               // direction and address of endpoint

@@ -11,7 +11,7 @@
     File:      uTasker.h
     Project:   Single Chip Embedded Internet
     ---------------------------------------------------------------------
-    Copyright (C) M.J.Butcher Consulting 2004..2018
+    Copyright (C) M.J.Butcher Consulting 2004..2020
     *********************************************************************
     11.05.2007 UTASK_TASK used consistently for node ids
     23.08.2007 enabled flag added to Timer table                         {1}
@@ -24,6 +24,8 @@
     06.11.2015 Modify fnStackFree() to allow worst-case used stack to be returned {6}
     31.01.2017 Add TICK_UNIT_MS() and TICK_UNIT_US()                     {7}
     10.01.2018 pucBottomOfHeap made extern                               {8}
+    30.08.2018 Add optional cInterruptWatchdog                           {9}
+    27.12.2019 Add return values to uTaskerMonoTimer() and uTaskerStopTimer() {10}
 
 */
 
@@ -76,7 +78,7 @@
 #define NO_QUE                 0
 #define NO_QUEUE               NO_QUE
 
-#define SMALL_MESSAGE          32                                        // these are a few message length defines - users can befine their own in config.h if special sizes are required
+#define SMALL_MESSAGE          32                                        // these are a few message length defines - users can define their own in config.h if special sizes are required
 #define MEDIUM_MESSAGE         64
 #define LARGE_MESSAGE          128
 #define LARGER_MESSAGE         256
@@ -99,8 +101,18 @@
 #define INTERRUPT_EVENT        (unsigned char)0x01                       // message from task 0x01 can only be interrupt
 #define FUNCTION_EVENT         (unsigned char)0x02                       // message from task 0x02 is a function event, specifying handling by a function rather than a task
 #define CHECK_QUEUE            (unsigned char)0x03                       // task reference used to check input queues {2}
+#define TIMER_EVENT_INITIAL_DELAY (unsigned char)0x04                    // message from task 0x04 can only be task timer (initial delay)
+#define TIMER_EVENT_PERIODIC   (unsigned char)0x05                       // message from task 0x05 can only be task timer (periodic event)
 
 #define NON_EVENT              (unsigned char)0x00
+
+#define UTASKER_TASK_TIMERS_NOT_AVAILABLE       -3                       // {10} no timers exist in the system
+#define UTASKER_TASK_TIMER_NOT_FOUND            -2                       // task timer could not be found
+#define UTASKER_TASK_NOT_FOUND                  -1                       // the task was not found
+#define UTASKER_TASK_TIMER_STOPPED               0                       // task timer successfully stopped
+#define UTASKER_REP_TASK_TIMER_STOPPED           1                       // repetitive task timer successfully stopped
+#define UTASKER_TASK_TIMER_STARTED               2                       // task timer successfully started
+
 /* =================================================================== */
 /*                     global structure definitions                    */
 /* =================================================================== */
@@ -109,7 +121,7 @@
 //
 typedef struct stTaskTable
 {
-    CHAR           *pcTaskName;                                          // name of task
+    const CHAR     *pcTaskName;                                          // name of task
     void          (*ptrTaskEntry)(void *);                               // entry address of routine
 #if defined MONITOR_PERFORMANCE                                          // {3}
     unsigned long  ulExecutions;                                         // total number of times that the task was executed
@@ -146,7 +158,7 @@ typedef struct stUTASK_PERFORMANCE
 //
 typedef struct stTaskTableInit
 {
-    CHAR           *pcTaskName;                                          // name of task
+    const CHAR     *pcTaskName;                                          // name of task
     void          (*ptrTaskEntry)(TTASKTABLE *);                         // entry address of routine
     QUEUE_TRANSFER QueLength;                                            // length of input que to task
     DELAY_LIMIT    TaskDelay;                                            // delay before starting or pause length (ticks)
@@ -209,6 +221,9 @@ extern NETWORK_LIMIT         OurNetworkNumber;                           // pres
 #if defined MONITOR_PERFORMANCE
     extern unsigned long ulMaximumIdle;                                  // this value contains the maximum idle duration that has occurred - setting it to 0xffffffff causes the performance monitoring to be reset after the next schedule sequence
 #endif
+#if defined INTERRUPT_WATCHDOG_TASK                                      // {9}
+    extern CHAR cInterruptWatchdog;
+#endif
 extern unsigned char *pucBottomOfHeap;                                   // {8} the location of heap memory, which is the top of static variables
 
 /* =================================================================== */
@@ -226,9 +241,9 @@ extern unsigned char uGetTaskState(UTASK_TASK pcTaskName);               // {5}
 extern void uTaskerStateChange(UTASK_TASK pcTaskName, unsigned char ucSetState); // change the state of a task
 
 extern void fnRtmkSystemTick(void);
-extern void uTaskerMonoTimer(UTASK_TASK pcTaskName, DELAY_LIMIT delay, unsigned char time_out_nr); // schedule task after delay, with timeout event
+extern int uTaskerMonoTimer(UTASK_TASK pcTaskName, DELAY_LIMIT delay, unsigned char time_out_nr); // {10} schedule task after delay, with timeout event
 extern UTASK_TICK uTaskerRemainingTime(UTASK_TASK pcTaskName);
-extern void uTaskerStopTimer(UTASK_TASK pcTaskName);
+extern int uTaskerStopTimer(UTASK_TASK pcTaskName);                      // {10}
 extern void fnInitialiseHeap(const HEAP_NEEDS *ctOurHeap, void *HeapStart);
 extern HEAP_REQUIREMENTS  fnHeapAvailable(void);
 extern HEAP_REQUIREMENTS  fnHeapFree(void);

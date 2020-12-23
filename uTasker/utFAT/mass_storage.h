@@ -11,21 +11,32 @@
     File:      mass_storage.h
     Project:   uTasker project
     ---------------------------------------------------------------------
-    Copyright (C) M.J.Butcher Consulting 2004..2016
+    Copyright (C) M.J.Butcher Consulting 2004..2020
     *********************************************************************
     11.07.2014 utFAT2.0
     22.01.2015 Add option to return a file's creation time and date in its file object {1}
     30.10.2015 Add emulated FAT support (FAT_EMULATION)                  {2}
     17.01.2016 Add utFileAttribute()                                     {3}
+    18.12.2017 Add disk setup for internal flash and emulated FAT combination {4}
+    02.03.2018 Added CSD structs                                         {5}
 
 */
 
-#if defined USB_MSD_HOST && defined SDCARD_SUPPORT
+#if defined USB_MSD_HOST && defined SDCARD_SUPPORT && defined FAT_EMULATION
+    #define DISK_COUNT                     3                             // this implementation supports three disks (SD-card, USB-MSD host and emulated drive) with up to one partition - disks D and E
+    #define DISK_D                         0
+    #define DISK_E                         1
+    #define DISK_F                         2
+    #define DISK_SDCARD                    DISK_D
+    #define DISK_MEM_STICK                 DISK_E
+    #define DISK_EM_FAT                    DISK_F
+#elif defined USB_MSD_HOST && defined SDCARD_SUPPORT
     #define DISK_COUNT                     2                             // this implementation supports two disks (SD-card and USB-MSD host) with up to one partition - disks D and E
     #define DISK_D                         0
     #define DISK_E                         1
     #define DISK_SDCARD                    DISK_D
     #define DISK_MEM_STICK                 DISK_E
+    #define DISK_EM_FAT                    DISK_F
 #elif defined SDCARD_SUPPORT && defined SPI_FLASH_FAT && defined FLASH_FAT
     #define DISK_COUNT                     3                             // this implementation supports three disks (SD-card, internal flash and SPI flash) with up to one partition - disks C, D and E
     #define DISK_C                         0
@@ -62,6 +73,18 @@
     #define DISK_COUNT                     1                             // this implementation supports one disk (SD-card) with up to one partition - disk D
     #define DISK_D                         0
     #define DISK_SDCARD                    DISK_D
+#elif defined USB_MSD_HOST && defined FAT_EMULATION
+    #define DISK_COUNT                     2                             // this implementation supports two disks (memory stick and emulated FAT) with up to one partition - disks E and F
+    #define DISK_E                         0
+    #define DISK_F                         1
+    #define DISK_MEM_STICK                 DISK_E
+    #define DISK_EM_FAT                    DISK_F
+#elif defined SPI_FLASH_FAT && defined FAT_EMULATION
+    #define DISK_COUNT                     2                             // this implementation supports two disks (SPI flash and emulated FAT) with up to one partition - disks C and D
+    #define DISK_D                         0
+    #define DISK_E                         1
+    #define DISK_SPI_FLASH                 DISK_D
+    #define DISK_EM_FAT                    DISK_E
 #elif defined USB_MSD_HOST
     #define DISK_COUNT                     1                             // this implementation supports one disk (memory stick) with up to one partition - disk E
     #define DISK_E                         0
@@ -70,6 +93,12 @@
     #define DISK_D                         0
     #define DISK_COUNT                     1
     #define DISK_SPI_FLASH                 DISK_D
+#elif defined FLASH_FAT && defined FAT_EMULATION                         // {4} internal flash and FAT eumlation - disks C and D
+    #define DISK_C                         0
+    #define DISK_D                         1
+    #define DISK_COUNT                     2
+    #define DISK_INTERNAL_FLASH            DISK_C
+    #define DISK_EM_FAT                    DISK_D
 #elif defined FLASH_FAT                                                  // internal flash alone
     #define DISK_C                         0
     #define DISK_COUNT                     1
@@ -184,6 +213,39 @@ typedef struct stFILEINFO
     unsigned long ulNextFreeCluster;
     unsigned char ucCardSpecificData[16];                                // CSD register content (128 bits)
 } FILEINFO;
+
+typedef struct _PACK stCSD_1_0                                           // {5}
+{
+    unsigned char ucCDC_STRUCTURE;                                       // 0x00
+    unsigned char ucTAAC;                                                // data read access-time
+    unsigned char ucNSAC;                                                // data read access-time in clock cycles
+    unsigned char ucTRAN_SPEED;                                          // maximum data transfer rate (0x32 or 0x5a)
+    unsigned char ucCCC_READ_BL_LEN[2];                                  // card command classes (12 bits) and maximum read data block length (4 bits)
+    unsigned char ucVarious1[6];                                         // READ_BL_PARTIAL, WRITE_BLK_MISALIGN, READ_BLK_MISALIGN, DSR_IMP flags, C_SIZE, VDD_R_CURR_MIN/MAX, VDD_W_CURR_MIN/MAX, C_SIZE_MULT, ERASE_BLK_EN, SECTOR_SIZE, WP_GRP_SIZE
+    unsigned char ucVarious2[2];                                         // WP_GRP_ENABLE, R2W_FACTOR, WRITE_BL_LEN, WRITE_BL_PARTIAL
+    unsigned char ucFile;                                                // FILE_FORMAT_GRP, COPY, PERM_WRITE_PROTECT, TMP_WRITE_PROTECT, FILE_FORMAT
+    unsigned char ucCRC;                                                 // CSD CRC
+} CSD_1_0;
+
+typedef struct _PACK stCSD_2_0                                           // {5}
+{
+    unsigned char ucCDC_STRUCTURE;                                       // 0x40
+    unsigned char ucTAAC;                                                // data read access-time (0x0e)
+    unsigned char ucNSAC;                                                // data read access-time in clock cycles (0x00)
+    unsigned char ucTRAN_SPEED;                                          // maximum data transfer rate (0x32, 0x5a, 0x0b, 0x2b)
+    unsigned char ucCCC_READ_BL_LEN[2];                                  // card command classes (12 bits) and maximum read data block length (4 bits)
+    unsigned char ucFlags;                                               // READ_BL_PARTIAL, WRITE_BLK_MISALIGN, READ_BLK_MISALIGN, DSR_IMP flags
+    unsigned char ucC_SIZE[3];                                           // device size (22 bits)
+    unsigned char ucERASE_PROT[2];                                       // ERASE_BLK_EN, SECTOR_SIZE, WP_GRP_SIZE
+    unsigned char ucVarious[2];                                          // WP_GRP_ENABLE, R2W_FACTOR, WRITE_BL_LEN, WRITE_BL_PARTIAL
+    unsigned char ucFile;                                                // FILE_FORMAT_GRP, COPY, PERM_WRITE_PROTECT, TMP_WRITE_PROTECT, FILE_FORMAT
+    unsigned char ucCRC;                                                 // CSD CRC
+} CSD_2_0;
+
+#define CSD_2_MAX_DATA_RATE_25M      0x32
+#define CSD_2_MAX_DATA_RATE_50M      0x5a
+#define CSD_2_MAX_DATA_RATE_100M     0x0b
+#define CSD_2_MAX_DATA_RATE_220M     0x2b
 
 typedef struct _PACK stDIR_ENTRY_STRUCTURE_FAT32
 {
@@ -557,6 +619,7 @@ extern int  utFileAttribute(UTFILE *ptr_utFile, int iNewAttributes);
     #define FILE_ATTRIBUTE_OF_DIRECTORY         0x10
 extern int  fnReadSector(unsigned char ucDisk, unsigned char *ptrBuffer, unsigned long ulSectorNumber);
 extern int  fnWriteSector(unsigned char ucDisk, unsigned char *ptrBuffer, unsigned long ulSectorNumber);
+extern int  fnPrepareBlockRead(unsigned char ucDisk, unsigned long ulReadBlocks);
 extern int  fnPrepareBlockWrite(unsigned char ucDisk, unsigned long ulWriteBlocks, int iPreErase);
 extern int  utFreeClusters(unsigned char ucDisk, UTASK_TASK owner_task);
 extern int  utReadDirectory(UTLISTDIRECTORY *ptr_utListDirectory, UTFILEINFO *ptr_ut_fileInfo);
@@ -618,7 +681,7 @@ extern int uDatacopy(int iDisk, int iDataRef, unsigned char *ptrSectorData, cons
 
 #define UTFAT_SEEK_SET             0                                     // set the file position relative to the start of the file
 #define UTFAT_SEEK_CUR             1                                     // set the file position relative to the current position
-#define UTFAT_SEEK_END             2                                     // set the file position relative to the end fo the file
+#define UTFAT_SEEK_END             2                                     // set the file position relative to the end of the file
 
 #endif
 
@@ -692,6 +755,7 @@ extern int uFileManagedDelete(int fileHandle);
 #define STOP_TRANSMISSION_CMD12          (COMMAND_OFFSET + 12)
 #define SET_BLOCKLEN_CMD16               (COMMAND_OFFSET + 16)
 #define READ_SINGLE_BLOCK_CMD17          (COMMAND_OFFSET + 17)
+#define READ_MULTIPLE_BLOCK_CMD18        (COMMAND_OFFSET + 18)
 #define PRE_ERASE_BLOCKS_CMD23           (COMMAND_OFFSET + 23)
 #define WRITE_BLOCK_CMD24                (COMMAND_OFFSET + 24)
 #define WRITE_MULTIPLE_BLOCK_CMD25       (COMMAND_OFFSET + 25)
@@ -701,10 +765,14 @@ extern int uFileManagedDelete(int fileHandle);
 
 
 #define VOLTAGE_2_7__3_6                 0x01
+#define VOLTAGE_LOW_VOLTAGE_RANGE        0x02
 #define CHECK_PATTERN                    0xaa
 #define CS_SEND_IF_COND_CMD8             0x87
 
 #define HIGH_CAPACITY_SD_CARD_MEMORY     0x40
+
+#define ACMD6_BUS_WIDTH_1                0x00
+#define ACMD6_BUS_WIDTH_4                0x02
 
 #define CS_GO_IDLE_STATE_CMD0            0x95
 #define CS_SEND_OP_COND_ACMD_CMD41       0x00

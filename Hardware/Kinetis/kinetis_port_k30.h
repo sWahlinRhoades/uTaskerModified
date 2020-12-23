@@ -11,8 +11,10 @@
     File:      kinetis_port_k30.h
     Project:   Single Chip Embedded Internet
     ---------------------------------------------------------------------
-    Copyright (C) M.J.Butcher Consulting 2004..2016
-    *********************************************************************/
+    Copyright (C) M.J.Butcher Consulting 2004..2018
+    *********************************************************************
+    
+*/
 
 #if defined DEVICE_80_PIN
 static const char *cPinNumber[PORTS_AVAILABLE][PORT_WIDTH] = {           // 81 pin MAPGBA / 80 pin LQPF

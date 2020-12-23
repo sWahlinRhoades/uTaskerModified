@@ -8,10 +8,10 @@
     www.uTasker.com    Skype: M_J_Butcher
     
     ---------------------------------------------------------------------
-    File:      glcd_tft.h [LPC247x / LPC1788 / Kinetis K70]
+    File:      glcd_tft.h [LPC247x / LPC1788 / Kinetis K70 / i.MX RT]
     Project:   uTasker project
     ---------------------------------------------------------------------
-    Copyright (C) M.J.Butcher Consulting 2004..2016
+    Copyright (C) M.J.Butcher Consulting 2004..2020
     *********************************************************************
     09.08.2010 Add CGLCD_PIXEL_SIZE to control effective size             {1}
     10.08.2010 Don't remove pull-up from P1-27 when USB is used           {2}
@@ -20,21 +20,22 @@
     05.09.2012 Enable code when SUPPORT_TFT                               {5}
     03.10.2012 Add LPC1788 support                                        {6} - merged from a previous version with this already contained
     20.12.2014 Added K70 LCD support                                      {7}
+    22.01.2020 Add i.MX RT                                                {8}
+    29.10.2020 Correct X_BYTES and Y_BYTES dimensions to operate with various pixel sizes {9}
        
 */
 
 #if (defined TFT_GLCD_MODE || defined SUPPORT_TFT) && !defined CGLCD_GLCD_MODE && !defined KITRONIX_GLCD_MODE && !defined MB785_GLCD_MODE // {5}
     #if !defined _GLCD_TFT_DEFINES
         #define GLCD_BUSY()                 0                            // no LCD busy check
-        #define X_BYTES	                    (GLCD_X/CGLCD_PIXEL_SIZE/8)  // {1} the number of bytes holding the X-pixels
-        #define Y_BYTES	                    (GLCD_Y/CGLCD_PIXEL_SIZE)    // {1} the number of rows of X_BYTES holding the Y rows
+        #define X_BYTES	                    ((((GLCD_X + (CGLCD_PIXEL_SIZE - 1))/CGLCD_PIXEL_SIZE) + 7)/8) // {1}{9} the number of bytes holding the X-pixels
+        #define Y_BYTES	                    ((GLCD_Y + (CGLCD_PIXEL_SIZE - 1))/CGLCD_PIXEL_SIZE) // {1}{9} the number of rows of X_BYTES holding the Y rows
         #define DISPLAY_LEFT_PIXEL          0  
         #define DISPLAY_TOP_PIXEL           0
         #define DISPLAY_RIGHT_PIXEL         (GLCD_X - 1)
         #define DISPLAY_BOTTOM_PIXEL        (GLCD_Y - 1)
         #define UPDATE_WIDTH                ((X_BYTES + 7)/8)
         #define UPDATE_HEIGHT               Y_BYTES
-
 
         // SDRAM characteristics
         //
@@ -64,17 +65,19 @@
         #define VERTICAL_PULSE           3
 
         #define LCD_VRAM_BASE_ADDR       SDRAM_ADDR                      // LCD ram set to the start of SDRAM
-        #if !defined _KINETIS
+        #if !defined _KINETIS && !defined _iMX
             static void fnInit_SDRAM(void);
         #endif
         static void fnInitLCD_Controller(void);
-        #if defined SUPPORT_TOUCH_SCREEN
-            static void fnStartTouch(void);
-        #endif
         #if defined _WINDOWS
           //extern void CollectCommand(int bRS, unsigned long ulByte);   // {4}
-            extern unsigned char *fnGetSDRAM(unsigned char *ptrSDRAM);
+            #if defined eLCD_IN_OCR2
+                extern unsigned char *fnGetOCR2(unsigned char *ptrOCR2);
+            #else
+                extern unsigned char *fnGetSDRAM(unsigned char *ptrSDRAM);
+            #endif
         #else
+            #define fnGetOCR2(x) x
             #define fnGetSDRAM(x) x
         #endif
 
@@ -84,17 +87,27 @@
     #if defined _GLCD_COMMANDS                                           // link in TFT specific interface commands
 
 #if defined _WINDOWS
+    #if defined eLCD_IN_OCR2
+static unsigned char ucOCR2[SIZE_OF_RAM_OCR2];                           // OCRAM2, used to store the display image - automatically refreshed by the LCD controller
+
+extern unsigned char *fnGetOCR2(unsigned char *ptrOCR2)
+{
+    CAST_POINTER_ARITHMETIC offsetOCR2 = ((CAST_POINTER_ARITHMETIC)ptrOCR2 - RAM_START_ADDRESS_OCR2);
+    return (ucOCR2 + offsetOCR2);
+}
+    #else
 static unsigned char ucSDRAM[SDRAM_SIZE];                                // SDRAM, used to store the display image - automatically refreshed by the LCD controller
 
 extern unsigned char *fnGetSDRAM(unsigned char *ptrSDRAM)
 {
-    CAST_POINTER_ARITHMETIC offsetSDRAM = (CAST_POINTER_ARITHMETIC)ptrSDRAM - SDRAM_ADDR;
+    CAST_POINTER_ARITHMETIC offsetSDRAM = ((CAST_POINTER_ARITHMETIC)ptrSDRAM - SDRAM_ADDR);
     return (ucSDRAM + offsetSDRAM);
 }
+    #endif
 #endif
 
 
-#if defined SUPPORT_TOUCH_SCREEN
+#if defined SUPPORT_TOUCH_SCREEN && !(defined MB785_GLCD_MODE || defined TOUCH_FT6206 || defined TOUCH_FT5406)
 static unsigned short usResults[2] = {0};                                // X, Y touch result
 
 #if defined LPC1788
@@ -379,7 +392,7 @@ static void fnTouchInterrupt(void)
         adc_setup.int_adc_bit = ADC_SE4_SINGLE;                          // Y input to be measured
         adc_setup.pga_gain = PGA_GAIN_OFF;
         adc_setup.int_adc_offset = 0;
-        adc_setup.int_adc_mode = (ulCalibrate | ADC_SELECT_INPUTS_A | ADC_CLOCK_BUS_DIV_2 | ADC_CLOCK_DIVIDE_8 | ADC_SAMPLE_ACTIVATE_LONG | ADC_CONFIGURE_ADC | ADC_REFERENCE_VREF | ADC_CONFIGURE_CHANNEL | ADC_SINGLE_ENDED | ADC_SINGLE_SHOT_MODE | ADC_12_BIT_MODE | ADC_SW_TRIGGERED); // note that the first configuration should calibrate the ADC - single shot with interrupt on completion
+        adc_setup.int_adc_mode = (ulCalibrate | ADC_SELECT_INPUTS_A | ADC_CLOCK_BUS_DIV_2 | ADC_CLOCK_DIVIDE_8 | ADC_SAMPLE_ACTIVATE_LONG | ADC_CONFIGURE_ADC | ADC_REFERENCE_VREF | ADC_CONFIGURE_CHANNEL | ADC_SINGLE_ENDED_INPUT | ADC_SINGLE_SHOT_MODE | ADC_12_BIT_MODE | ADC_SW_TRIGGERED); // note that the first configuration should calibrate the ADC - single shot with interrupt on completion
         adc_setup.int_adc_sample = (ADC_SAMPLE_LONG_PLUS_12 | ADC_SAMPLE_AVERAGING_32); // additional sampling clocks
         adc_setup.int_adc_result = 0;                                    // no result is requested
         ulCalibrate = 0;                                                 // calibration performed only once
@@ -414,7 +427,7 @@ static void fnTouchInterrupt(void)
         adc_setup.int_adc_bit = ADC_SE5_SINGLE;                          // X input to be measured
         adc_setup.pga_gain = PGA_GAIN_OFF;
         adc_setup.int_adc_offset = 0;
-        adc_setup.int_adc_mode = (ADC_SELECT_INPUTS_A | ADC_CONFIGURE_CHANNEL | ADC_SINGLE_ENDED | ADC_SINGLE_SHOT_MODE | ADC_12_BIT_MODE | ADC_SW_TRIGGERED);
+        adc_setup.int_adc_mode = (ADC_SELECT_INPUTS_A | ADC_CONFIGURE_CHANNEL | ADC_SINGLE_ENDED_INPUT | ADC_SINGLE_SHOT_MODE | ADC_12_BIT_MODE | ADC_SW_TRIGGERED);
         adc_setup.int_adc_result = 0;                                    // no result is requested
     #else
         adc_setup.int_adc_single_ended_inputs = (ADC_CHANNEL_1);         // ADC channel 1 as single ended inputs (only one channel should be selected in SW mode
@@ -474,7 +487,7 @@ static void fnStartTouch(void)                                           // {3}
 }
 #endif
 
-#if !defined _KINETIS
+#if !defined _KINETIS && !defined _iMX
 // SDRAM initialisation
 //
 static void fnInit_SDRAM(void)
@@ -568,11 +581,11 @@ static void fnInit_SDRAM(void)
     //
     EMCDynamicControl = (SDRAM_NOP_CMD | DYNAMIC_CLKOUT_CONTINUOUS | DYNAMIC_MEM_CLK_EN);
     ulDelay = 200*30;
-    while (ulDelay--) {}
+    while (ulDelay-- != 0) {}
     EMCDynamicControl = (SDRAM_PRECHARGE_ALL_CMD | DYNAMIC_CLKOUT_CONTINUOUS | DYNAMIC_MEM_CLK_EN); // PALL
     EMCDynamicRefresh = 1;
     ulDelay = 128;
-    while (ulDelay--) {}                                                 // 128 clock delay
+    while (ulDelay-- != 0) {}                                            // 128 clock delay
     EMCDynamicRefresh = CALC_PERIOD(SDRAM_REFRESH) >> 4;
     EMCDynamicControl = (SDRAM_MODE_CMD | DYNAMIC_CLKOUT_CONTINUOUS | DYNAMIC_MEM_CLK_EN); // COMM
     ulDelay = *(volatile unsigned short *)fnGetSDRAM((unsigned char *)(SDRAM_ADDR + (0x33UL << (12)))); // burst 8, sequential, CAS-2
@@ -582,36 +595,150 @@ static void fnInit_SDRAM(void)
 }
 #endif
 
+#if defined _iMX                                                         // {8}
+static void lcd_frame_interrupt(void)
+{
+    unsigned long ulFlags = LCDIF_CTRL1;
+    _CLEAR_REGISTER(LCDIF_CTRL1, ulFlags);
+}
+#endif
+
 // Initialise the LCD pins and also configure the LCD controller
 //
 static void fnInitLCD_Controller(void)
 {
-        #if defined KINETIS_K70                                          // {7}
-            #if defined K70F150M_12M
-                #define LCD_SHIFT_CLOCK_POLARITY  (0)
-                #define H_WIDTH  42
-                #define H_WAIT_1 2
-                #define H_WAIT_2 83
-                #define V_WIDTH  2
-                #define V_WAIT_1 1
-                #define V_WAIT_2 1
-            #elif defined TWR_RGB_LCD_REV_E
-                #define LCD_SHIFT_CLOCK_POLARITY  (LCDC_LPCR_CLKPOL)
-                #define H_WIDTH  42
-                #define H_WAIT_1 2
-                #define H_WAIT_2 3
-                #define V_WIDTH  2
-                #define V_WAIT_1 1
-                #define V_WAIT_2 1
+    #if defined MIMXRT1050 || defined iMX_RT1052_EMB_ART || defined iMX_RT1062_EMB_ART || defined MIMXRT1064 // {8}
+        _CONFIG_DRIVE_PORT_OUTPUT_VALUE(1, (LCD_RST), (0), (PORT_SRE_SLOW | PORT_DSE_LOW)); // initially drive LCD reset output low
+        _CONFIG_PERIPHERAL(GPIO_B0_00, LCD_CLK,    (IOMUXC_SW_PAD_CTL_PAD_HYS | IOMUXC_SW_PAD_CTL_PAD_PUS_100k_UP | IOMUXC_SW_PAD_CTL_PAD_PUE | IOMUXC_SW_PAD_CTL_PAD_PKE | IOMUXC_SW_PAD_CTL_PAD_DSE_6 | PORT_SPEED_MID)); // select LCD_CLK on GPIO2-00 - alt function 0 (direction output)
+        _CONFIG_PERIPHERAL(GPIO_B0_01, LCD_ENABLE, (IOMUXC_SW_PAD_CTL_PAD_HYS | IOMUXC_SW_PAD_CTL_PAD_PUS_100k_UP | IOMUXC_SW_PAD_CTL_PAD_PUE | IOMUXC_SW_PAD_CTL_PAD_PKE | IOMUXC_SW_PAD_CTL_PAD_DSE_6 | PORT_SPEED_MID)); // select LCD_ENABLE on GPIO2-01 - alt function 0 (direction input/output)
+        _CONFIG_PERIPHERAL(GPIO_B0_02, LCD_HSYNC,  (IOMUXC_SW_PAD_CTL_PAD_HYS | IOMUXC_SW_PAD_CTL_PAD_PUS_100k_UP | IOMUXC_SW_PAD_CTL_PAD_PUE | IOMUXC_SW_PAD_CTL_PAD_PKE | IOMUXC_SW_PAD_CTL_PAD_DSE_6 | PORT_SPEED_MID)); // select LCD_HSYNC on GPIO2-02 - alt function 0 (direction output)
+        _CONFIG_PERIPHERAL(GPIO_B0_03, LCD_VSYNC,  (IOMUXC_SW_PAD_CTL_PAD_HYS | IOMUXC_SW_PAD_CTL_PAD_PUS_100k_UP | IOMUXC_SW_PAD_CTL_PAD_PUE | IOMUXC_SW_PAD_CTL_PAD_PKE | IOMUXC_SW_PAD_CTL_PAD_DSE_6 | PORT_SPEED_MID)); // select LCD_VSYNC on GPIO2-03 - alt function 0 (direction output)
+        // 16 bit data bus
+        //
+        _CONFIG_PERIPHERAL(GPIO_B0_04, LCD_DATA00, (IOMUXC_SW_PAD_CTL_PAD_HYS | IOMUXC_SW_PAD_CTL_PAD_PUS_100k_UP | IOMUXC_SW_PAD_CTL_PAD_PUE | IOMUXC_SW_PAD_CTL_PAD_PKE | IOMUXC_SW_PAD_CTL_PAD_DSE_6 | PORT_SPEED_MID)); // select LCD_DATA00 on GPIO2-04 - alt function 0 (direction input/output)
+        _CONFIG_PERIPHERAL(GPIO_B0_05, LCD_DATA01, (IOMUXC_SW_PAD_CTL_PAD_HYS | IOMUXC_SW_PAD_CTL_PAD_PUS_100k_UP | IOMUXC_SW_PAD_CTL_PAD_PUE | IOMUXC_SW_PAD_CTL_PAD_PKE | IOMUXC_SW_PAD_CTL_PAD_DSE_6 | PORT_SPEED_MID)); // select LCD_DATA01 on GPIO2-05 - alt function 0 (direction input/output)
+        _CONFIG_PERIPHERAL(GPIO_B0_06, LCD_DATA02, (IOMUXC_SW_PAD_CTL_PAD_HYS | IOMUXC_SW_PAD_CTL_PAD_PUS_100k_UP | IOMUXC_SW_PAD_CTL_PAD_PUE | IOMUXC_SW_PAD_CTL_PAD_PKE | IOMUXC_SW_PAD_CTL_PAD_DSE_6 | PORT_SPEED_MID)); // select LCD_DATA02 on GPIO2-06 - alt function 0 (direction input/output)
+        _CONFIG_PERIPHERAL(GPIO_B0_07, LCD_DATA03, (IOMUXC_SW_PAD_CTL_PAD_HYS | IOMUXC_SW_PAD_CTL_PAD_PUS_100k_UP | IOMUXC_SW_PAD_CTL_PAD_PUE | IOMUXC_SW_PAD_CTL_PAD_PKE | IOMUXC_SW_PAD_CTL_PAD_DSE_6 | PORT_SPEED_MID)); // select LCD_DATA03 on GPIO2-07 - alt function 0 (direction input/output)
+        _CONFIG_PERIPHERAL(GPIO_B0_08, LCD_DATA04, (IOMUXC_SW_PAD_CTL_PAD_HYS | IOMUXC_SW_PAD_CTL_PAD_PUS_100k_UP | IOMUXC_SW_PAD_CTL_PAD_PUE | IOMUXC_SW_PAD_CTL_PAD_PKE | IOMUXC_SW_PAD_CTL_PAD_DSE_6 | PORT_SPEED_MID)); // select LCD_DATA04 on GPIO2-08 - alt function 0 (direction input/output)
+        _CONFIG_PERIPHERAL(GPIO_B0_09, LCD_DATA05, (IOMUXC_SW_PAD_CTL_PAD_HYS | IOMUXC_SW_PAD_CTL_PAD_PUS_100k_UP | IOMUXC_SW_PAD_CTL_PAD_PUE | IOMUXC_SW_PAD_CTL_PAD_PKE | IOMUXC_SW_PAD_CTL_PAD_DSE_6 | PORT_SPEED_MID)); // select LCD_DATA05 on GPIO2-09 - alt function 0 (direction input/output)
+        _CONFIG_PERIPHERAL(GPIO_B0_10, LCD_DATA06, (IOMUXC_SW_PAD_CTL_PAD_HYS | IOMUXC_SW_PAD_CTL_PAD_PUS_100k_UP | IOMUXC_SW_PAD_CTL_PAD_PUE | IOMUXC_SW_PAD_CTL_PAD_PKE | IOMUXC_SW_PAD_CTL_PAD_DSE_6 | PORT_SPEED_MID)); // select LCD_DATA06 on GPIO2-10 - alt function 0 (direction input/output)
+        _CONFIG_PERIPHERAL(GPIO_B0_11, LCD_DATA07, (IOMUXC_SW_PAD_CTL_PAD_HYS | IOMUXC_SW_PAD_CTL_PAD_PUS_100k_UP | IOMUXC_SW_PAD_CTL_PAD_PUE | IOMUXC_SW_PAD_CTL_PAD_PKE | IOMUXC_SW_PAD_CTL_PAD_DSE_6 | PORT_SPEED_MID)); // select LCD_DATA07 on GPIO2-11 - alt function 0 (direction input/output)
+        _CONFIG_PERIPHERAL(GPIO_B0_12, LCD_DATA08, (IOMUXC_SW_PAD_CTL_PAD_HYS | IOMUXC_SW_PAD_CTL_PAD_PUS_100k_UP | IOMUXC_SW_PAD_CTL_PAD_PUE | IOMUXC_SW_PAD_CTL_PAD_PKE | IOMUXC_SW_PAD_CTL_PAD_DSE_6 | PORT_SPEED_MID)); // select LCD_DATA08 on GPIO2-12 - alt function 0 (direction input/output)
+        _CONFIG_PERIPHERAL(GPIO_B0_13, LCD_DATA09, (IOMUXC_SW_PAD_CTL_PAD_HYS | IOMUXC_SW_PAD_CTL_PAD_PUS_100k_UP | IOMUXC_SW_PAD_CTL_PAD_PUE | IOMUXC_SW_PAD_CTL_PAD_PKE | IOMUXC_SW_PAD_CTL_PAD_DSE_6 | PORT_SPEED_MID)); // select LCD_DATA09 on GPIO2-13 - alt function 0 (direction input/output)
+        _CONFIG_PERIPHERAL(GPIO_B0_14, LCD_DATA10, (IOMUXC_SW_PAD_CTL_PAD_HYS | IOMUXC_SW_PAD_CTL_PAD_PUS_100k_UP | IOMUXC_SW_PAD_CTL_PAD_PUE | IOMUXC_SW_PAD_CTL_PAD_PKE | IOMUXC_SW_PAD_CTL_PAD_DSE_6 | PORT_SPEED_MID)); // select LCD_DATA10 on GPIO2-14 - alt function 0 (direction input/output)
+        _CONFIG_PERIPHERAL(GPIO_B0_15, LCD_DATA11, (IOMUXC_SW_PAD_CTL_PAD_HYS | IOMUXC_SW_PAD_CTL_PAD_PUS_100k_UP | IOMUXC_SW_PAD_CTL_PAD_PUE | IOMUXC_SW_PAD_CTL_PAD_PKE | IOMUXC_SW_PAD_CTL_PAD_DSE_6 | PORT_SPEED_MID)); // select LCD_DATA11 on GPIO2-15 - alt function 0 (direction input/output)
+        _CONFIG_PERIPHERAL(GPIO_B1_00, LCD_DATA12, (IOMUXC_SW_PAD_CTL_PAD_HYS | IOMUXC_SW_PAD_CTL_PAD_PUS_100k_UP | IOMUXC_SW_PAD_CTL_PAD_PUE | IOMUXC_SW_PAD_CTL_PAD_PKE | IOMUXC_SW_PAD_CTL_PAD_DSE_6 | PORT_SPEED_MID)); // select LCD_DATA12 on GPIO2-16 - alt function 0 (direction input/output)
+        _CONFIG_PERIPHERAL(GPIO_B1_01, LCD_DATA13, (IOMUXC_SW_PAD_CTL_PAD_HYS | IOMUXC_SW_PAD_CTL_PAD_PUS_100k_UP | IOMUXC_SW_PAD_CTL_PAD_PUE | IOMUXC_SW_PAD_CTL_PAD_PKE | IOMUXC_SW_PAD_CTL_PAD_DSE_6 | PORT_SPEED_MID)); // select LCD_DATA13 on GPIO2-17 - alt function 0 (direction input/output)
+        _CONFIG_PERIPHERAL(GPIO_B1_02, LCD_DATA14, (IOMUXC_SW_PAD_CTL_PAD_HYS | IOMUXC_SW_PAD_CTL_PAD_PUS_100k_UP | IOMUXC_SW_PAD_CTL_PAD_PUE | IOMUXC_SW_PAD_CTL_PAD_PKE | IOMUXC_SW_PAD_CTL_PAD_DSE_6 | PORT_SPEED_MID)); // select LCD_DATA14 on GPIO2-18 - alt function 0 (direction input/output)
+        _CONFIG_PERIPHERAL(GPIO_B1_03, LCD_DATA15, (IOMUXC_SW_PAD_CTL_PAD_HYS | IOMUXC_SW_PAD_CTL_PAD_PUS_100k_UP | IOMUXC_SW_PAD_CTL_PAD_PUE | IOMUXC_SW_PAD_CTL_PAD_PKE | IOMUXC_SW_PAD_CTL_PAD_DSE_6 | PORT_SPEED_MID)); // select LCD_DATA15 on GPIO2-19 - alt function 0 (direction input/output)
+        #if !defined SDRAM_CONFIGURED_BY_DCD && !defined eLCD_IN_OCR2
+        // Configure SEMC pins and SDRAM (IS42S16160J-6BLI)
+        //
+        _CONFIG_PERIPHERAL(GPIO_EMC_00, SEMC_DATA00, (IOMUXC_SW_PAD_CTL_PAD_HYS | IOMUXC_SW_PAD_CTL_PAD_PKE | IOMUXC_SW_PAD_CTL_PAD_SPEED_MAX | IOMUXC_SW_PAD_CTL_PAD_DSE_7 | IOMUXC_SW_PAD_CTL_PAD_SRE)); // select SEMC_DATA00 on GPIO4-00 - alt function 0 (direction input/output)
+        _CONFIG_PERIPHERAL(GPIO_EMC_01, SEMC_DATA01, (IOMUXC_SW_PAD_CTL_PAD_HYS | IOMUXC_SW_PAD_CTL_PAD_PKE | IOMUXC_SW_PAD_CTL_PAD_SPEED_MAX | IOMUXC_SW_PAD_CTL_PAD_DSE_7 | IOMUXC_SW_PAD_CTL_PAD_SRE)); // select SEMC_DATA01 on GPIO4-01 - alt function 0 (direction input/output)
+        _CONFIG_PERIPHERAL(GPIO_EMC_02, SEMC_DATA02, (IOMUXC_SW_PAD_CTL_PAD_HYS | IOMUXC_SW_PAD_CTL_PAD_PKE | IOMUXC_SW_PAD_CTL_PAD_SPEED_MAX | IOMUXC_SW_PAD_CTL_PAD_DSE_7 | IOMUXC_SW_PAD_CTL_PAD_SRE)); // select SEMC_DATA02 on GPIO4-02 - alt function 0 (direction input/output)
+        _CONFIG_PERIPHERAL(GPIO_EMC_03, SEMC_DATA03, (IOMUXC_SW_PAD_CTL_PAD_HYS | IOMUXC_SW_PAD_CTL_PAD_PKE | IOMUXC_SW_PAD_CTL_PAD_SPEED_MAX | IOMUXC_SW_PAD_CTL_PAD_DSE_7 | IOMUXC_SW_PAD_CTL_PAD_SRE)); // select SEMC_DATA03 on GPIO4-03 - alt function 0 (direction input/output)
+        _CONFIG_PERIPHERAL(GPIO_EMC_04, SEMC_DATA04, (IOMUXC_SW_PAD_CTL_PAD_HYS | IOMUXC_SW_PAD_CTL_PAD_PKE | IOMUXC_SW_PAD_CTL_PAD_SPEED_MAX | IOMUXC_SW_PAD_CTL_PAD_DSE_7 | IOMUXC_SW_PAD_CTL_PAD_SRE)); // select SEMC_DATA04 on GPIO4-04 - alt function 0 (direction input/output)
+        _CONFIG_PERIPHERAL(GPIO_EMC_05, SEMC_DATA05, (IOMUXC_SW_PAD_CTL_PAD_HYS | IOMUXC_SW_PAD_CTL_PAD_PKE | IOMUXC_SW_PAD_CTL_PAD_SPEED_MAX | IOMUXC_SW_PAD_CTL_PAD_DSE_7 | IOMUXC_SW_PAD_CTL_PAD_SRE)); // select SEMC_DATA05 on GPIO4-05 - alt function 0 (direction input/output)
+        _CONFIG_PERIPHERAL(GPIO_EMC_06, SEMC_DATA06, (IOMUXC_SW_PAD_CTL_PAD_HYS | IOMUXC_SW_PAD_CTL_PAD_PKE | IOMUXC_SW_PAD_CTL_PAD_SPEED_MAX | IOMUXC_SW_PAD_CTL_PAD_DSE_7 | IOMUXC_SW_PAD_CTL_PAD_SRE)); // select SEMC_DATA06 on GPIO4-06 - alt function 0 (direction input/output)
+        _CONFIG_PERIPHERAL(GPIO_EMC_07, SEMC_DATA07, (IOMUXC_SW_PAD_CTL_PAD_HYS | IOMUXC_SW_PAD_CTL_PAD_PKE | IOMUXC_SW_PAD_CTL_PAD_SPEED_MAX | IOMUXC_SW_PAD_CTL_PAD_DSE_7 | IOMUXC_SW_PAD_CTL_PAD_SRE)); // select SEMC_DATA07 on GPIO4-07 - alt function 0 (direction input/output)
+        _CONFIG_PERIPHERAL(GPIO_EMC_30, SEMC_DATA08, (IOMUXC_SW_PAD_CTL_PAD_HYS | IOMUXC_SW_PAD_CTL_PAD_PKE | IOMUXC_SW_PAD_CTL_PAD_SPEED_MAX | IOMUXC_SW_PAD_CTL_PAD_DSE_7 | IOMUXC_SW_PAD_CTL_PAD_SRE)); // select SEMC_DATA08 on GPIO4-30 - alt function 0 (direction input/output)
+        _CONFIG_PERIPHERAL(GPIO_EMC_31, SEMC_DATA09, (IOMUXC_SW_PAD_CTL_PAD_HYS | IOMUXC_SW_PAD_CTL_PAD_PKE | IOMUXC_SW_PAD_CTL_PAD_SPEED_MAX | IOMUXC_SW_PAD_CTL_PAD_DSE_7 | IOMUXC_SW_PAD_CTL_PAD_SRE)); // select SEMC_DATA09 on GPIO4-31 - alt function 0 (direction input/output)
+        _CONFIG_PERIPHERAL(GPIO_EMC_32, SEMC_DATA10, (IOMUXC_SW_PAD_CTL_PAD_HYS | IOMUXC_SW_PAD_CTL_PAD_PKE | IOMUXC_SW_PAD_CTL_PAD_SPEED_MAX | IOMUXC_SW_PAD_CTL_PAD_DSE_7 | IOMUXC_SW_PAD_CTL_PAD_SRE)); // select SEMC_DATA10 on GPIO3-18 - alt function 0 (direction input/output)
+        _CONFIG_PERIPHERAL(GPIO_EMC_33, SEMC_DATA11, (IOMUXC_SW_PAD_CTL_PAD_HYS | IOMUXC_SW_PAD_CTL_PAD_PKE | IOMUXC_SW_PAD_CTL_PAD_SPEED_MAX | IOMUXC_SW_PAD_CTL_PAD_DSE_7 | IOMUXC_SW_PAD_CTL_PAD_SRE)); // select SEMC_DATA11 on GPIO3-19 - alt function 0 (direction input/output)
+        _CONFIG_PERIPHERAL(GPIO_EMC_34, SEMC_DATA12, (IOMUXC_SW_PAD_CTL_PAD_HYS | IOMUXC_SW_PAD_CTL_PAD_PKE | IOMUXC_SW_PAD_CTL_PAD_SPEED_MAX | IOMUXC_SW_PAD_CTL_PAD_DSE_7 | IOMUXC_SW_PAD_CTL_PAD_SRE)); // select SEMC_DATA12 on GPIO3-20 - alt function 0 (direction input/output)
+        _CONFIG_PERIPHERAL(GPIO_EMC_35, SEMC_DATA13, (IOMUXC_SW_PAD_CTL_PAD_HYS | IOMUXC_SW_PAD_CTL_PAD_PKE | IOMUXC_SW_PAD_CTL_PAD_SPEED_MAX | IOMUXC_SW_PAD_CTL_PAD_DSE_7 | IOMUXC_SW_PAD_CTL_PAD_SRE)); // select SEMC_DATA13 on GPIO3-21 - alt function 0 (direction input/output)
+        _CONFIG_PERIPHERAL(GPIO_EMC_36, SEMC_DATA14, (IOMUXC_SW_PAD_CTL_PAD_HYS | IOMUXC_SW_PAD_CTL_PAD_PKE | IOMUXC_SW_PAD_CTL_PAD_SPEED_MAX | IOMUXC_SW_PAD_CTL_PAD_DSE_7 | IOMUXC_SW_PAD_CTL_PAD_SRE)); // select SEMC_DATA14 on GPIO3-22 - alt function 0 (direction input/output)
+        _CONFIG_PERIPHERAL(GPIO_EMC_37, SEMC_DATA15, (IOMUXC_SW_PAD_CTL_PAD_HYS | IOMUXC_SW_PAD_CTL_PAD_PKE | IOMUXC_SW_PAD_CTL_PAD_SPEED_MAX | IOMUXC_SW_PAD_CTL_PAD_DSE_7 | IOMUXC_SW_PAD_CTL_PAD_SRE)); // select SEMC_DATA15 on GPIO3-23 - alt function 0 (direction input/output)
+        _CONFIG_PERIPHERAL(GPIO_EMC_09, SEMC_ADDR00, (IOMUXC_SW_PAD_CTL_PAD_HYS | IOMUXC_SW_PAD_CTL_PAD_PKE | IOMUXC_SW_PAD_CTL_PAD_SPEED_MAX | IOMUXC_SW_PAD_CTL_PAD_DSE_7 | IOMUXC_SW_PAD_CTL_PAD_SRE)); // select SEMC_ADDR00 on GPIO4-09 - alt function 0 (direction output)
+        _CONFIG_PERIPHERAL(GPIO_EMC_10, SEMC_ADDR01, (IOMUXC_SW_PAD_CTL_PAD_HYS | IOMUXC_SW_PAD_CTL_PAD_PKE | IOMUXC_SW_PAD_CTL_PAD_SPEED_MAX | IOMUXC_SW_PAD_CTL_PAD_DSE_7 | IOMUXC_SW_PAD_CTL_PAD_SRE)); // select SEMC_ADDR01 on GPIO4-10 - alt function 0 (direction output)
+        _CONFIG_PERIPHERAL(GPIO_EMC_11, SEMC_ADDR02, (IOMUXC_SW_PAD_CTL_PAD_HYS | IOMUXC_SW_PAD_CTL_PAD_PKE | IOMUXC_SW_PAD_CTL_PAD_SPEED_MAX | IOMUXC_SW_PAD_CTL_PAD_DSE_7 | IOMUXC_SW_PAD_CTL_PAD_SRE)); // select SEMC_ADDR02 on GPIO4-11 - alt function 0 (direction output)
+        _CONFIG_PERIPHERAL(GPIO_EMC_12, SEMC_ADDR03, (IOMUXC_SW_PAD_CTL_PAD_HYS | IOMUXC_SW_PAD_CTL_PAD_PKE | IOMUXC_SW_PAD_CTL_PAD_SPEED_MAX | IOMUXC_SW_PAD_CTL_PAD_DSE_7 | IOMUXC_SW_PAD_CTL_PAD_SRE)); // select SEMC_ADDR03 on GPIO4-12 - alt function 0 (direction output)
+        _CONFIG_PERIPHERAL(GPIO_EMC_13, SEMC_ADDR04, (IOMUXC_SW_PAD_CTL_PAD_HYS | IOMUXC_SW_PAD_CTL_PAD_PKE | IOMUXC_SW_PAD_CTL_PAD_SPEED_MAX | IOMUXC_SW_PAD_CTL_PAD_DSE_7 | IOMUXC_SW_PAD_CTL_PAD_SRE)); // select SEMC_ADDR04 on GPIO4-13 - alt function 0 (direction output)
+        _CONFIG_PERIPHERAL(GPIO_EMC_14, SEMC_ADDR05, (IOMUXC_SW_PAD_CTL_PAD_HYS | IOMUXC_SW_PAD_CTL_PAD_PKE | IOMUXC_SW_PAD_CTL_PAD_SPEED_MAX | IOMUXC_SW_PAD_CTL_PAD_DSE_7 | IOMUXC_SW_PAD_CTL_PAD_SRE)); // select SEMC_ADDR05 on GPIO4-14 - alt function 0 (direction output)
+        _CONFIG_PERIPHERAL(GPIO_EMC_15, SEMC_ADDR06, (IOMUXC_SW_PAD_CTL_PAD_HYS | IOMUXC_SW_PAD_CTL_PAD_PKE | IOMUXC_SW_PAD_CTL_PAD_SPEED_MAX | IOMUXC_SW_PAD_CTL_PAD_DSE_7 | IOMUXC_SW_PAD_CTL_PAD_SRE)); // select SEMC_ADDR06 on GPIO4-15 - alt function 0 (direction output)
+        _CONFIG_PERIPHERAL(GPIO_EMC_16, SEMC_ADDR07, (IOMUXC_SW_PAD_CTL_PAD_HYS | IOMUXC_SW_PAD_CTL_PAD_PKE | IOMUXC_SW_PAD_CTL_PAD_SPEED_MAX | IOMUXC_SW_PAD_CTL_PAD_DSE_7 | IOMUXC_SW_PAD_CTL_PAD_SRE)); // select SEMC_ADDR07 on GPIO4-16 - alt function 0 (direction output)
+        _CONFIG_PERIPHERAL(GPIO_EMC_17, SEMC_ADDR08, (IOMUXC_SW_PAD_CTL_PAD_HYS | IOMUXC_SW_PAD_CTL_PAD_PKE | IOMUXC_SW_PAD_CTL_PAD_SPEED_MAX | IOMUXC_SW_PAD_CTL_PAD_DSE_7 | IOMUXC_SW_PAD_CTL_PAD_SRE)); // select SEMC_ADDR08 on GPIO4-17 - alt function 0 (direction output)
+        _CONFIG_PERIPHERAL(GPIO_EMC_18, SEMC_ADDR09, (IOMUXC_SW_PAD_CTL_PAD_HYS | IOMUXC_SW_PAD_CTL_PAD_PKE | IOMUXC_SW_PAD_CTL_PAD_SPEED_MAX | IOMUXC_SW_PAD_CTL_PAD_DSE_7 | IOMUXC_SW_PAD_CTL_PAD_SRE)); // select SEMC_ADDR09 on GPIO4-18 - alt function 0 (direction output)
+        _CONFIG_PERIPHERAL(GPIO_EMC_23, SEMC_ADDR10, (IOMUXC_SW_PAD_CTL_PAD_HYS | IOMUXC_SW_PAD_CTL_PAD_PKE | IOMUXC_SW_PAD_CTL_PAD_SPEED_MAX | IOMUXC_SW_PAD_CTL_PAD_DSE_7 | IOMUXC_SW_PAD_CTL_PAD_SRE)); // select SEMC_ADDR10 on GPIO4-23 - alt function 0 (direction output)
+        _CONFIG_PERIPHERAL(GPIO_EMC_19, SEMC_ADDR11, (IOMUXC_SW_PAD_CTL_PAD_HYS | IOMUXC_SW_PAD_CTL_PAD_PKE | IOMUXC_SW_PAD_CTL_PAD_SPEED_MAX | IOMUXC_SW_PAD_CTL_PAD_DSE_7 | IOMUXC_SW_PAD_CTL_PAD_SRE)); // select SEMC_ADDR11 on GPIO4-19 - alt function 0 (direction output)
+        _CONFIG_PERIPHERAL(GPIO_EMC_20, SEMC_ADDR12, (IOMUXC_SW_PAD_CTL_PAD_HYS | IOMUXC_SW_PAD_CTL_PAD_PKE | IOMUXC_SW_PAD_CTL_PAD_SPEED_MAX | IOMUXC_SW_PAD_CTL_PAD_DSE_7 | IOMUXC_SW_PAD_CTL_PAD_SRE)); // select SEMC_ADDR12 on GPIO4-20 - alt function 0 (direction output)
+        _CONFIG_PERIPHERAL(GPIO_EMC_21, SEMC_BA0,    (IOMUXC_SW_PAD_CTL_PAD_HYS | IOMUXC_SW_PAD_CTL_PAD_PKE | IOMUXC_SW_PAD_CTL_PAD_SPEED_MAX | IOMUXC_SW_PAD_CTL_PAD_DSE_7 | IOMUXC_SW_PAD_CTL_PAD_SRE)); // select SEMC_BA0 on GPIO4-21 - alt function 0 (direction output)
+        _CONFIG_PERIPHERAL(GPIO_EMC_22, SEMC_BA1,    (IOMUXC_SW_PAD_CTL_PAD_HYS | IOMUXC_SW_PAD_CTL_PAD_PKE | IOMUXC_SW_PAD_CTL_PAD_SPEED_MAX | IOMUXC_SW_PAD_CTL_PAD_DSE_7 | IOMUXC_SW_PAD_CTL_PAD_SRE)); // select SEMC_BA1 on GPIO4-22 - alt function 0 (direction output)
+        _CONFIG_PERIPHERAL(GPIO_EMC_24, SEMC_CAS,    (IOMUXC_SW_PAD_CTL_PAD_HYS | IOMUXC_SW_PAD_CTL_PAD_PKE | IOMUXC_SW_PAD_CTL_PAD_SPEED_MAX | IOMUXC_SW_PAD_CTL_PAD_DSE_7 | IOMUXC_SW_PAD_CTL_PAD_SRE)); // select SEMC_CAS on GPIO4-24 - alt function 0 (direction output)
+        _CONFIG_PERIPHERAL(GPIO_EMC_25, SEMC_RAS,    (IOMUXC_SW_PAD_CTL_PAD_HYS | IOMUXC_SW_PAD_CTL_PAD_PKE | IOMUXC_SW_PAD_CTL_PAD_SPEED_MAX | IOMUXC_SW_PAD_CTL_PAD_DSE_7 | IOMUXC_SW_PAD_CTL_PAD_SRE)); // select SEMC_RAS on GPIO4-25 - alt function 0 (direction output)
+        _CONFIG_PERIPHERAL(GPIO_EMC_26, SEMC_CLK,    (IOMUXC_SW_PAD_CTL_PAD_HYS | IOMUXC_SW_PAD_CTL_PAD_PKE | IOMUXC_SW_PAD_CTL_PAD_SPEED_MAX | IOMUXC_SW_PAD_CTL_PAD_DSE_7 | IOMUXC_SW_PAD_CTL_PAD_SRE)); // select SEMC_CLK on GPIO4-26 - alt function 0 (direction output)
+        _CONFIG_PERIPHERAL(GPIO_EMC_27, SEMC_CKE,    (IOMUXC_SW_PAD_CTL_PAD_HYS | IOMUXC_SW_PAD_CTL_PAD_PKE | IOMUXC_SW_PAD_CTL_PAD_SPEED_MAX | IOMUXC_SW_PAD_CTL_PAD_DSE_7 | IOMUXC_SW_PAD_CTL_PAD_SRE)); // select SEMC_CKE on GPIO4-27 - alt function 0 (direction output)
+        _CONFIG_PERIPHERAL(GPIO_EMC_28, SEMC_WE,     (IOMUXC_SW_PAD_CTL_PAD_HYS | IOMUXC_SW_PAD_CTL_PAD_PKE | IOMUXC_SW_PAD_CTL_PAD_SPEED_MAX | IOMUXC_SW_PAD_CTL_PAD_DSE_7 | IOMUXC_SW_PAD_CTL_PAD_SRE)); // select SEMC_WE on GPIO4-28 - alt function 0 (direction output)
+        _CONFIG_PERIPHERAL(GPIO_EMC_29, SEMC_CS0,    (IOMUXC_SW_PAD_CTL_PAD_HYS | IOMUXC_SW_PAD_CTL_PAD_PKE | IOMUXC_SW_PAD_CTL_PAD_SPEED_MAX | IOMUXC_SW_PAD_CTL_PAD_DSE_7 | IOMUXC_SW_PAD_CTL_PAD_SRE)); // select SEMC_CS0 on GPIO4-29 - alt function 0 (direction output)
+        _CONFIG_PERIPHERAL(GPIO_EMC_08, SEMC_DM00,   (IOMUXC_SW_PAD_CTL_PAD_HYS | IOMUXC_SW_PAD_CTL_PAD_PKE | IOMUXC_SW_PAD_CTL_PAD_SPEED_MAX | IOMUXC_SW_PAD_CTL_PAD_DSE_7 | IOMUXC_SW_PAD_CTL_PAD_SRE)); // select SEMC_DM00 on GPIO4-08 - alt function 0 (direction output)
+        _CONFIG_PERIPHERAL(GPIO_EMC_38, SEMC_DM01,   (IOMUXC_SW_PAD_CTL_PAD_HYS | IOMUXC_SW_PAD_CTL_PAD_PKE | IOMUXC_SW_PAD_CTL_PAD_SPEED_MAX | IOMUXC_SW_PAD_CTL_PAD_DSE_7 | IOMUXC_SW_PAD_CTL_PAD_SRE)); // select SEMC_DM01 on GPIO3-24 - alt function 0 (direction output)
+        POWER_UP_ATOMIC(1, SEMC_EXSC_CLOCK);
+        POWER_UP_ATOMIC(3, SEMC_CLOCKS);
+        #if defined iMX_RT1062
+            #if defined APPLICATION_REQUIRES_GPIO_EMC_39
+        SEMC_MCR = 0;                                                    // dummy read strobe loop backed internally - maximum 60MHz operation
             #else
-                #define LCD_SHIFT_CLOCK_POLARITY  (0)
-                #define H_WIDTH  41
-                #define H_WAIT_1 2
-                #define H_WAIT_2 3
-                #define V_WIDTH  10
-                #define V_WAIT_1 2
-                #define V_WAIT_2 2
+        SEMC_MCR = (SEMC_MCR_BTO_DEFAULT | SEMC_MCR_DQSMD);              // DQS (read strobe) mode (maximum speed possiböe)
             #endif
+        #else
+            #if defined APPLICATION_REQUIRES_GPIO_EMC_39
+        SEMC_MCR = 0;                                                    // dummy read strobe loop backed internally - maximum 60MHz operation
+            #else
+        SEMC_MCR = (SEMC_MCR_DQSMD);                                     // DQS (read strobe) mode (maximum speed possiböe)
+            #endif
+        #endif
+        SEMC_BR0 = (SDRAM_ADDR | SEMC_BR_MS_32MB | SEMC_BR_VLD);
+        SEMC_IOCR = (SEMC_IOCR_MUX_RDY_NAND_RDY_WAIT | SEMC_IOCR_MUX_CSX3_DBI_CSX | SEMC_IOCR_MUX_CSX2_NAND_CE | SEMC_IOCR_MUX_CSX1_PSRAM_CE | SEMC_IOCR_MUX_CSX0_NOR_CE | SEMC_IOCR_MUX_A8_SDRAM_A8);
+        SEMC_SDRAMCR0 = 0x00000f31;
+        SEMC_SDRAMCR1 = 0x00652922;
+        SEMC_SDRAMCR2 = 0x00010920;
+        SEMC_SDRAMCR3 = 0x50210a08;
+        SEMC_DBICR0 = 0x00000021;
+        SEMC_DBICR1 = 0x00888888;
+        SEMC_IPCR1 = 0x00000002;
+        SEMC_IPCR2 = 0x00000000;
+        SEMC_IPCR0 = 0x80000000;
+        SEMC_IPCMD = (SEMC_IPCMD_KEY | SEMC_IPCMD_SDRAM_PRECHARGE_ALL);
+        _WAIT_REGISTER_FALSE(SEMC_INTR, SEMC_INTR_IPCMDDONE);
+        SEMC_IPCR0 = 0x80000000;
+        SEMC_IPCMD = (SEMC_IPCMD_KEY | SEMC_IPCMD_SDRAM_AUTO_REFRESH);
+        _WAIT_REGISTER_FALSE(SEMC_INTR, SEMC_INTR_IPCMDDONE);
+        SEMC_IPCR0 = 0x80000000;
+        SEMC_IPCMD = (SEMC_IPCMD_KEY | SEMC_IPCMD_SDRAM_AUTO_REFRESH);
+        _WAIT_REGISTER_FALSE(SEMC_INTR, SEMC_INTR_IPCMDDONE);
+        SEMC_IPTXDAT = 0x00000033;
+        SEMC_IPCR0 = 0x80000000;
+        SEMC_IPCMD = (SEMC_IPCMD_KEY | SEMC_IPCMD_SDRAM_MODESET);
+        _WAIT_REGISTER_FALSE(SEMC_INTR, SEMC_INTR_IPCMDDONE);
+        SEMC_SDRAMCR3 = (0x50210a08 | SEMC_SDRAMCR3_REN);
+        #endif
+    #elif defined KINETIS_K70                                            // {7}
+        #if defined K70F150M_12M
+            #define LCD_SHIFT_CLOCK_POLARITY  (0)
+            #define H_WIDTH  42
+            #define H_WAIT_1 2
+            #define H_WAIT_2 83
+            #define V_WIDTH  2
+            #define V_WAIT_1 1
+            #define V_WAIT_2 1
+        #elif defined TWR_RGB_LCD_REV_E
+            #define LCD_SHIFT_CLOCK_POLARITY  (LCDC_LPCR_CLKPOL)
+            #define H_WIDTH  42
+            #define H_WAIT_1 2
+            #define H_WAIT_2 3
+            #define V_WIDTH  2
+            #define V_WAIT_1 1
+            #define V_WAIT_2 1
+        #else
+            #define LCD_SHIFT_CLOCK_POLARITY  (0)
+            #define H_WIDTH  41
+            #define H_WAIT_1 2
+            #define H_WAIT_2 3
+            #define V_WIDTH  10
+            #define V_WAIT_1 2
+            #define V_WAIT_2 2
+        #endif
     _CONFIG_PERIPHERAL(F, 0, PF_0_GLCD_PCLK);                            // configure the LCD pins
     _CONFIG_PERIPHERAL(F, 1, PF_1_GLCD_DE);
     _CONFIG_PERIPHERAL(F, 2, PF_2_GLCD_HFS);
@@ -701,7 +828,52 @@ static void fnInitLCD_Controller(void)
     PINMODE9  |= (PINMODE_NO_PULLS_28 | PINMODE_NO_PULLS_29);
     PINSEL11   = (LCD_MODE_TFT_24_BIT | LCDPE);                          // set TFT mode and enable LCD port
         #endif
-        #if defined KINETIS_K70                                          // {7}
+        #if defined _iMX
+    fnDelayLoop(100);                                                    // hold LCD reset a bit
+    _SETBITS(1, LCD_RST);                                                // allow LCD to exit reset
+    POWER_UP_ATOMIC(2, LCD_CLOCKS);                                      // power up the LCD controller
+            #if defined LCD_READ_PRIORITY && (LCD_READ_PRIORITY != 1)
+    SET_LCD_READ_ARBITRATION_PRIORITY(LCD_READ_PRIORITY);                // the LCD's default read priority is 1 (NIC-301's network interconnect bus system) which may not be adequate in all systems - if flickering occurs or the frame buffer gets shifted it signals that a read over-flow took place - increasing the value gives the LCD higher arbitration priority and shoudl solve this (1..15 possible, where 15 is highest priority)
+            #endif
+    POWER_UP_ATOMIC(3, LCDIF_PIX_CLOCK);
+    _CLEAR_REGISTER(LCDIF_CTRL, LCDIF_CTRL_CLKGATE);                     // ungate clock to the LCD block
+    _CLEAR_REGISTER(LCDIF_CTRL, LCDIF_CTRL_SFTRST);                      // leave reset stae
+    #if defined eLCD_IN_16_BIT_MODE
+    LCDIF_CTRL = (LCDIF_CTRL_BYPASS_COUNT | LCDIF_CTRL_DOT_CLOCK_MODE | LCDIF_CTRL_WORD_LENGTH_16_BIT | LCDIF_CTRL_LCD_DATABUS_WIDTH_16 | LCDIF_CTRL_MASTER);
+    LCDIF_CTRL1 = LCDIF_CTRL1_BYTE_PACKING_FORMAT_16_IN_32;
+    #else
+    LCDIF_CTRL = (LCDIF_CTRL_BYPASS_COUNT | LCDIF_CTRL_DOT_CLOCK_MODE | LCDIF_CTRL_WORD_LENGTH_24_BIT | LCDIF_CTRL_LCD_DATABUS_WIDTH_16 | LCDIF_CTRL_MASTER | LCDIF_CTRL_INPUT_DATA_SWIZZLE_BIG_ENDIAN);
+    LCDIF_CTRL1 = LCDIF_CTRL1_BYTE_PACKING_FORMAT_24_ARGB;
+    #endif
+
+    LCDIF_CTRL2 = (LCDIF_CTRL2_BURST_LEN_8 | LCDIF_CTRL2_OUTSTANDING_REQS_8);
+    LCDIF_TRANSFER_COUNT = (GLCD_X | (GLCD_Y << 16));                    // set height and width
+            #if (defined iMX_RT1062_EMB_ART && defined DEV9)
+    LCDIF_VDCTRL0 = (LCDIF_VDCTRL0_ENABLE_PRESENT | LCDIF_VDCTRL0_ENABLE_POL | LCDIF_VDCTRL0_DOTCLK_POL | LCDIF_VDCTRL0_VSYNC_PERIOD_UNIT | LCDIF_VDCTRL0_VSYNC_PULSE_WIDTH_UNIT | 0x3); // 0x13300003 - VSYNC pulse width 
+    LCDIF_VDCTRL1 = 528;                                                 // VSYNC period
+    LCDIF_VDCTRL2 = ((192 << 16) | 976);                                 // HSYNC pule width and HSYNC period (in pix_clk)
+    LCDIF_VDCTRL3 = 8912931;                                             // vertical wait count
+    LCDIF_VDCTRL4 = (LCDIF_VDCTRL4_DOTCLK_DLY_SEL_2ns | 262944);         // total number of DISPLAY_CLOCK cycles on each horizontal line that carries valid data in DOTCLK mode (display goes dark after this)
+            #else
+    LCDIF_VDCTRL0 = (LCDIF_VDCTRL0_ENABLE_PRESENT | LCDIF_VDCTRL0_ENABLE_POL | LCDIF_VDCTRL0_DOTCLK_POL | LCDIF_VDCTRL0_VSYNC_PERIOD_UNIT | LCDIF_VDCTRL0_VSYNC_PULSE_WIDTH_UNIT | 0xa); // 0x1330000a
+    LCDIF_VDCTRL1 = 288;                                                 // VSYNC period
+    LCDIF_VDCTRL2 = ((164 << 16) | 533);                                 // HSYNC pulse width and HSYNC period (in pix_clk)
+    LCDIF_VDCTRL3 = 3211276;                                             // vertical wait count
+    LCDIF_VDCTRL4 = (LCDIF_VDCTRL4_DOTCLK_DLY_SEL_2ns | 262624);         // total number of DISPLAY_CLOCK cycles on each horizontal line that carries valid data in DOTCLK mode (display goes dark after this)
+            #endif
+            #if defined eLCD_IN_OCR2
+    LCDIF_CUR_BUF = RAM_START_ADDRESS_OCR2;                              // address of current frame being transmitted (must be double word aligned!)
+    LCDIF_NEXT_BUF = RAM_START_ADDRESS_OCR2;
+    fnCommandCache(DATA_CACHE_DISABLE | DATA_CACHE_INVALIDATE);          // disable the data cache so that the LCD reacts to all OCR2 content changes
+            #else
+    LCDIF_CUR_BUF = SDRAM_ADDR;                                          // address of current frame being transmitted (must be double word aligned!)
+    LCDIF_NEXT_BUF = SDRAM_ADDR;
+            #endif
+    return;
+
+    fnEnterInterrupt(irq_LCDIF_ID, PRIORITY_LCD, lcd_frame_interrupt);
+    _SET_REGISTER(LCDIF_CTRL1, LCDIF_CTRL1_CUR_FRAME_DONE_IRQ_EN);       // enable an interrupt after the current frame has been transferred (in vertical blanking period)
+        #elif defined KINETIS_K70                                        // {7}
     MPU_CESR = 0;                                                        // disable memory protection unit
     LCDC_LSSAR = SDRAM_ADDR;                                             // point the LCD controller to the start address in SDRAM that is used as main window (the complete image must fit in a 4 MB memory boundary)
     LCDC_LSR = (((GLCD_X/16) << 20) | GLCD_Y);                           // specify the height and width of the LCD
@@ -733,8 +905,10 @@ static void fnInitLCD_Controller(void)
     #endif
 
     #if defined GLCD_INIT
-        #if defined _KINETIS
-            POWER_UP(3, SIM_SCGC3_LCDC);                                 // power up the LCD controller
+        #if defined _iMX                                                 // {8} i.MX RT 1052 / 1062 / 1064
+            fnInitLCD_Controller();                                      // initialise the LCD controller
+        #elif defined _KINETIS
+            POWER_UP_ATOMIC(3, LCDC);                                    // power up the LCD controller
             fnInitLCD_Controller();                                      // initialise the LCD controller
         #else
             POWER_UP(PCEMC | PCLCD);                                     // power up the External Memory Controller and enable LCD controller clock
@@ -753,12 +927,16 @@ static void fnInitLCD_Controller(void)
         #endif
         case STATE_POWER_LCD_1:
             {
-                unsigned long *ptrSDRAM = (unsigned long *)fnGetSDRAM((unsigned char *)SDRAM_ADDR);
+        #if defined eLCD_IN_OCR2
+                COLORREF *ptrSDRAM = (COLORREF *)fnGetOCR2((unsigned char *)RAM_START_ADDRESS_OCR2);
+        #else
+                COLORREF *ptrSDRAM = (COLORREF *)fnGetSDRAM((unsigned char *)SDRAM_ADDR);
+        #endif
                 int i = (GLCD_X * GLCD_Y);
-                while (i--) {
+                while (i-- != 0) {                                       // fill the video RAM with the background color
                     *ptrSDRAM++ = LCD_ON_COLOUR;
                 }
-        #if !defined _KINETIS
+        #if !defined _KINETIS && !defined _iMX
                 LCD_CTRL |= LCD_EN;                                      // enable but don't power until after the stabilising delay
         #endif
                 uTaskerMonoTimer(OWN_TASK, (DELAY_LIMIT)(0.01 * SEC), E_STABILISE_DELAY);
@@ -767,11 +945,13 @@ static void fnInitLCD_Controller(void)
             return;
 
         case STATE_POWER_LCD_2:
-            fnClearScreen();
+            fnClearScreen(0);
         #if defined GLCD_BACKLIGHT_CONTROL
             fnSetBacklight();
         #endif
-        #if defined _KINETIS
+        #if defined _iMX
+            _SET_REGISTER(LCDIF_CTRL, (LCDIF_CTRL_DOT_CLOCK_MODE | LCDIF_CTRL_RUN));
+        #elif defined _KINETIS
             SIM_MCR |= SIM_MCR_LCDSTART;                                 // start LCD operation 
         #else
             LCD_CTRL |= LCD_PWR;                                         // enable power

@@ -11,7 +11,7 @@
     File:      NAND_driver.h
     Project:   uTasker project
     ---------------------------------------------------------------------
-    Copyright (C) M.J.Butcher Consulting 2004..2016
+    Copyright (C) M.J.Butcher Consulting 2004..2018
     *********************************************************************
     Implementation originally for SAM7SE with K9F5608U0D-P in 8 bit mode
     24.02.2011 Correct management of last remap content location         {1}
@@ -23,7 +23,7 @@
 
 #if defined NAND_FLASH_FAT
 
-#ifndef NAND_MALLOC                                                      // {3}
+#if !defined NAND_MALLOC                                                 // {3}
     #define NAND_MALLOC(x) uMalloc((MAX_MALLOC)(x))
 #endif
 
@@ -147,7 +147,7 @@ static int            iSwapBufferValid = 0;
 
 
 
-#ifdef _WINDOWS
+#if defined _WINDOWS
 // NAND Flash simulation
 //
 #if defined _KINETIS                                                     // {2}
@@ -548,7 +548,7 @@ static int _fnReadNANDdata(unsigned short usBlockNumber, unsigned char ucPageNum
         READ_NAND();                                                     // read stored ECC (4 bytes) so that the ECC can perform error checking and error correction
         READ_NAND();
         READ_NAND();
-#ifdef _WINDOWS
+#if defined _WINDOWS
     #if defined _HW_SAM7X
         ECC_SR = READ_NAND();                                            // when simulating 0 is written and so is expected as result
         if (ECC_SR != 0)  {
@@ -725,7 +725,7 @@ static void fnCreateBadBlocktable(void)
 
 // This routine checks the 4 values that have been passed to it and returns the value that is most likely the correct one
 // It expects that all 4 are the same, but will accept one or two erros and still return the one that occurs twice (redundancy)
-// Two different values in the four input values is an error since the correct one can not be determined
+// Two different values in the four input values is an error since the correct one cannot be determined
 //
 static unsigned short fnGetBestBlock(unsigned short usBlock[4], int *iSingleErrors, int *DoubleErrors)
 {
@@ -1326,7 +1326,7 @@ static void fnInitNAND(void)
 {
     unsigned char ucDeviceInfo[2];
 
-#ifdef _WINDOWS                                                          // read in the simulated NAND content
+#if defined _WINDOWS                                                     // read in the simulated NAND content
     #if _VC80_UPGRADE<0x0600
 	iFileNAND = _open(NAND_FILE, (_O_BINARY | _O_RDWR));
     #else
@@ -1360,8 +1360,8 @@ static void fnInitNAND(void)
 #elif defined _KINETIS                                                   // {2} configure the pins for the 8/16 bit NAND
     SIM_CLKDIV4 |= (4 << 27);                                            // set the fractional clock divider (note that 
     MPU_CESR = 0;                                                        // allow concurrent access to MPU controller
-    POWER_UP(7, SIM_SCGC7_FLEXBUS);                                      // ensure FlexBus is enabled
-    POWER_UP(3, SIM_SCGC3_NFC);                                          // ensure NAND controller is enabled
+    POWER_UP_ATOMIC(7, FLEXBUS);                                         // ensure FlexBus is enabled
+    POWER_UP_ATOMIC(3, NFC);                                             // ensure NAND controller is enabled
     _CONFIG_PERIPHERAL(C, 16, (PC_16_NFC_RB | PORT_PS_UP_ENABLE));       // NFC_RB on PC16 (alt. function 6) with pull-up enabled
     _CONFIG_PERIPHERAL(C, 17, PC_17_NFC_CE0);                            // NFC_CE0 on PC17 (alt. function 6)
     _CONFIG_PERIPHERAL(C, 11, PC_11_NFC_WE);                             // NFC_WE on PC11 (alt. function 5)
@@ -1589,7 +1589,7 @@ static void fnCleanNAND(void)
         uTaskerMonoTimer(OWN_TASK, T_CLEAN_SPARE, E_CLEAN_SPARE);        // start the next operation after a further delay
         return;
     }
-    #ifdef VERIFY_NAND
+    #if defined VERIFY_NAND
     fnDebugMsg("NAND cleaned\r\n");
     #endif
 }

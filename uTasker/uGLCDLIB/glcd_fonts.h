@@ -11,7 +11,7 @@
     File:      glcd_fonts.h
     Project:   uTasker project
     ---------------------------------------------------------------------
-    Copyright (C) M.J.Butcher Consulting 2004..2016
+    Copyright (C) M.J.Butcher Consulting 2004..2019
     *********************************************************************
     This file is not linked directly in the project but is included by the GLCD task file
 
@@ -28,19 +28,19 @@
 
 */ 
 
-#ifndef USER_SPECIAL_SEVEN_DOT
+#if !defined USER_SPECIAL_SEVEN_DOT
     #define USER_SPECIAL_SEVEN_DOT 0
 #endif
-#ifndef USER_SPECIAL_NINE_DOT
+#if !defined USER_SPECIAL_NINE_DOT
     #define USER_SPECIAL_NINE_DOT 0
 #endif
-#ifndef USER_SPECIAL_TEN_DOT
+#if !defined USER_SPECIAL_TEN_DOT
     #define USER_SPECIAL_TEN_DOT 0
 #endif
-#ifndef USER_SPECIAL_FIFTEEN_DOT
+#if !defined USER_SPECIAL_FIFTEEN_DOT
     #define USER_SPECIAL_FIFTEEN_DOT 0
 #endif
-#ifndef USER_SPECIAL_EIGHTEEN_DOT
+#if !defined USER_SPECIAL_EIGHTEEN_DOT
     #define USER_SPECIAL_EIGHTEEN_DOT 0
 #endif
 
@@ -58,7 +58,7 @@ struct FONT_DEF
     unsigned char glyph_def;				                             // code for undefined glyph code 
 };
 
-#ifdef FONTS_AVAILABLE
+#if defined FONTS_AVAILABLE
 // Font definition tables for the three fonts 
 //
 extern const struct FONT_DEF fonts[FONT_COUNT];
@@ -66,73 +66,91 @@ extern const struct FONT_DEF fonts[FONT_COUNT];
 
 // Glyph bitmap and width tables for the fonts
 //
-#ifdef EN_FIVE_DOT
+#if defined EN_FIVE_DOT
     extern const unsigned char  five_dot_glyph_table[];
     extern const unsigned short five_dot_width_table[];
 #endif
-#ifdef EN_SIX_DOT
+#if defined EN_SIX_DOT
     extern const unsigned char  six_dot_glyph_table[];
     extern const unsigned short six_dot_width_table[];
 #endif
-#ifdef EN_SEVEN_DOT
+#if defined EN_USER_DOT
+    extern const unsigned char  user_dot_glyph_table[];
+#endif
+#if defined EN_USER_DOT2
+    extern const unsigned char  user_dot2_glyph_table[];
+#endif
+#if defined EN_SEVEN_DOT
     extern const unsigned char  seven_dot_glyph_table[];
     extern const unsigned short seven_dot_width_table[];
 #endif
-#ifdef EN_CHAR_LCD_DOT
+#if defined EN_CHAR_LCD_DOT
     extern const unsigned char  seven_five_lcd_glyph_table[];    
 #endif
-#ifdef EN_NINE_DOT
+#if defined EN_NINE_DOT
     extern const unsigned char  nine_dot_glyph_table[];
 #endif
-#ifdef EN_TEN_DOT
+#if defined EN_TEN_DOT
     extern const unsigned char  ten_dot_glyph_table[];
 #endif
-#ifdef EN_FIFTEEN_DOT
+#if defined EN_FIFTEEN_DOT
     extern const unsigned char  fifteen_dot_glyph_table[];
     extern const unsigned short fifteen_dot_width_table[];
 #endif
-#ifdef EN_EIGHTEEN_DOT
+#if defined EN_EIGHTEEN_DOT
     extern const unsigned char  eighteen_dot_glyph_table[];
     extern const unsigned short eighteen_dot_width_table[];
 #endif
 
-#ifdef FONTS_AVAILABLE
+#if defined FONTS_AVAILABLE
+    #if !defined USER_DOT_HEIGHT
+        #define USER_DOT_HEIGHT   8
+    #endif
+    #if !defined USER_DOT_WIDTH
+        #define USER_DOT_WIDTH    5
+    #endif
 const struct FONT_DEF fonts[FONT_COUNT] = {
-    #ifdef EN_FIVE_DOT
+    #if defined EN_FIVE_DOT
     {7, five_dot_glyph_table, 0, five_dot_width_table,' ','~','.'},
     #endif
-    #ifdef EN_FIVE_DOT_FIX
-    {7, five_dot_glyph_table, 6, 0,' ','~','.'},
+    #if defined EN_FIVE_DOT_FIX
+    {7, five_dot_glyph_table, 5, 0,' ','~','.'},
     #endif
-    #ifdef EN_SIX_DOT
+    #if defined EN_SIX_DOT
     {8, six_dot_glyph_table, 0, six_dot_width_table,' ','~','.'},
     #endif
-    #ifdef EN_SIX_DOT_FIX
+    #if defined EN_SIX_DOT_FIX
     {8, six_dot_glyph_table, 6, six_dot_width_table,' ','~','.'},        // share width table for exceptions
     #endif
-    #ifdef EN_SEVEN_DOT
+    #if defined EN_SEVEN_DOT
     {8, seven_dot_glyph_table, 0, seven_dot_width_table,' ', ('~' + USER_SPECIAL_SEVEN_DOT) ,'.'}, // {4}
     #endif
-    #ifdef EN_CHAR_LCD_DOT
+    #if defined EN_CHAR_LCD_DOT
     {8, seven_five_lcd_glyph_table, 6, 0,' ',0xff,0xff},                 // fixed 5 pixel width with one pixel space to right
     #endif
-    #ifdef EN_NINE_DOT
+    #if defined EN_NINE_DOT
     {12, nine_dot_glyph_table, 8, 0,' ', ('~' + USER_SPECIAL_NINE_DOT), '.'}, // {4}
     #endif
-    #ifdef EN_TEN_DOT
+    #if defined EN_TEN_DOT
     {12, ten_dot_glyph_table,  9, 0,' ', ('~' + USER_SPECIAL_TEN_DOT), '.'}, // {4}
     #endif
-    #ifdef EN_FIFTEEN_DOT
+    #if defined EN_FIFTEEN_DOT
     {18, fifteen_dot_glyph_table, 0, fifteen_dot_width_table,' ', ('~' + USER_SPECIAL_FIFTEEN_DOT), '.'}, // {4}
     #endif
-    #ifdef EN_EIGHTEEN_DOT
+    #if defined EN_EIGHTEEN_DOT
     {18, eighteen_dot_glyph_table, 0, eighteen_dot_width_table,' ', ('9' + USER_SPECIAL_EIGHTEEN_DOT), '.'}, // {4}
+    #endif
+    #if defined EN_USER_DOT
+    {USER_DOT_HEIGHT, user_dot_glyph_table, USER_DOT_WIDTH, 0, USER_DOT_START, USER_DOT_END,'.'},
+    #endif
+    #if defined EN_USER_DOT
+    {USER_DOT2_HEIGHT, user_dot2_glyph_table, USER_DOT2_WIDTH, 0, USER_DOT2_START, USER_DOT2_END,'.'},
     #endif
 };
 #endif
 
 
-#ifdef EN_CHAR_LCD_DOT
+#if defined EN_CHAR_LCD_DOT
 const unsigned char seven_five_lcd_glyph_table[] = {                     // {3}
     // ' ' charwidth: 5
     0x00 << 3,
@@ -2253,7 +2271,7 @@ const unsigned char seven_five_lcd_glyph_table[] = {                     // {3}
 #endif
 
 
-#ifdef EN_FIVE_DOT
+#if defined EN_FIVE_DOT
 const unsigned char five_dot_glyph_table[] = {
     // ' ' charwidth: 2 
     0x00, 	//  [  ]  
@@ -3211,7 +3229,7 @@ const unsigned short five_dot_width_table[] = {                          // {2}
 #endif
 
 
-#ifdef EN_SIX_DOT
+#if defined EN_SIX_DOT
 const unsigned char six_dot_glyph_table[] = {
 		// ' ' charwidth: 2
 		0x00, 	//  [  ] 
@@ -4264,7 +4282,7 @@ const unsigned short six_dot_width_table[] = {                           // {2}
 };
 #endif
 
-#ifdef EN_SEVEN_DOT
+#if defined EN_SEVEN_DOT
 const unsigned char seven_dot_glyph_table[] = {
 		// ' ' charwidth: 5 
 		0x00, 	//  [     ]  
@@ -5327,7 +5345,7 @@ const unsigned short seven_dot_width_table[] = {                         // {2}
 };
 #endif
 
-#ifdef EN_NINE_DOT
+#if defined EN_NINE_DOT
 const unsigned char nine_dot_glyph_table[] = {
 		// ' ' charwidth: 8 
 		0x00, 	//  [        ]  
@@ -6667,7 +6685,7 @@ const unsigned char nine_dot_glyph_table[] = {
 };
 #endif
 
-#ifdef EN_TEN_DOT
+#if defined EN_TEN_DOT
 const unsigned char ten_dot_glyph_table[] = {
 		// ' ' charwidth: 9,            
 		0x00, 0x00, 	//  [         ] ,            
@@ -8007,7 +8025,7 @@ const unsigned char ten_dot_glyph_table[] = {
 };
 #endif
 
-#ifdef EN_FIFTEEN_DOT
+#if defined EN_FIFTEEN_DOT
 const unsigned char fifteen_dot_glyph_table[] = {
 		// ' ' charwidth: 6
 		0x00,	//  [      ] 
@@ -10020,7 +10038,7 @@ const unsigned short fifteen_dot_width_table[] = {                       // {2}
 };
 #endif
 
-#ifdef EN_EIGHTEEN_DOT
+#if defined EN_EIGHTEEN_DOT
 const unsigned char eighteen_dot_glyph_table[] = {
 		// ' ' charwidth: 16
 		0x00, 0x00,	//  [      ] 

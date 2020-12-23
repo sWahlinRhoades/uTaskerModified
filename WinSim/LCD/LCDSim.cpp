@@ -11,7 +11,7 @@
     File:      LCDSim.cpp
     Project:   Single Chip Embedded Internet
     ---------------------------------------------------------------------
-    Copyright (C) M.J.Butcher Consulting 2004..2016
+    Copyright (C) M.J.Butcher Consulting 2004..2020
     *********************************************************************
     13.02.2007 Improve LCD re-draw {1} and correct initialisation in 4-line mode {2}
     05.05.2009 Add graphic LCD support - T6963C controller - SUPPORT_GLCD
@@ -34,6 +34,12 @@
     03.08.2011 Add return value to CollectCommand() and return LCD RAM content on address write {17}
     13.08.2013 Add ST7565S_GLCD_MODE                                     {18}
     15.03.2015 Introduce faster bitmap based LCD                         {19}
+    19.02.2017 Add FT800 emulation                                       {20}
+    28.08.2018 Add segment LED simulation                                {21}
+    11.03.2019 Add AVAGO_HCMS_CHAR_LCD simulation mode                   {22}
+    14.03.2019 Add Crystal Fontz UART display simulation [CRYSTAL_FONTZ_UART_LCD_SIMULATION]
+    06.07.2019 Add ILI9341_GLCD_MODE support
+    31.10.2019 Add MGCF16404B support
 
     */
 
@@ -47,8 +53,15 @@
 #include "config.h"
 #include "lcd.h"
 
+//#define _GENERATE_C_FONT_TABLE
 
-#if defined SUPPORT_LCD || defined SUPPORT_GLCD || defined SUPPORT_OLED || defined SUPPORT_TFT || defined GLCD_COLOR || defined SLCD_FILE // {16}
+#if defined CRYSTAL_FONTZ_UART_LCD_SIMULATION
+static void fnInitialiseCrystalFontz(void);
+#endif
+
+extern HWND ghWnd;
+
+#if (defined SUPPORT_LCD || defined CRYSTAL_FONTZ_UART_LCD_SIMULATION || defined SUPPORT_GLCD || defined SUPPORT_OLED || defined SUPPORT_TFT || defined GLCD_COLOR || defined SLCD_FILE) && !((defined FT800_EMULATOR || defined BT800_EMULATOR) && defined FT800_GLCD_MODE)  // {16}
 
 #if defined SLCD_FILE
     static void fnLoadSLCD(void);
@@ -59,13 +72,11 @@
 
 extern void fnRedrawDisplay(void);
 
-extern HWND ghWnd;
-
 #if (defined SUPPORT_GLCD || defined SUPPORT_TFT || defined TFT_GLCD_MODE || defined GLCD_COLOR || defined SLCD_FILE) && !defined OLED_GLCD_MODE  // {6}{7}
     #define NON_DISPLAYED_X  0                                           // no non-visible pixels at the start of the display field
     #define LCD_PIXEL_X_REAL (GLCD_X + NON_DISPLAYED_X)
-    //                                      [ page addr.  ][ Col. addr.]
-    #if defined GLCD_COLOR || defined TFT_GLCD_MODE || defined NOKIA_GLCD_MODE || defined CGLCD_GLCD_MODE || defined KITRONIX_GLCD_MODE || defined TFT2N0369_GLCD_MODE || defined MB785_GLCD_MODE || defined SLCD_FILE // {7}{8}{13}
+    //                                      [ page addr.  ][ col. addr.]
+    #if defined GLCD_COLOR || defined TFT_GLCD_MODE || defined NOKIA_GLCD_MODE || defined CGLCD_GLCD_MODE || defined KITRONIX_GLCD_MODE || defined TFT2N0369_GLCD_MODE || defined ST7789S_GLCD_MODE || defined ILI9341_GLCD_MODE || defined MB785_GLCD_MODE || defined SLCD_FILE // {7}{8}{13}
         static unsigned long ulGraphicPixels[GLCD_Y][GLCD_X];
     #else
         static unsigned char ucGraphicPixels[GLCD_Y/8][GLCD_X];
@@ -88,7 +99,7 @@ extern HWND ghWnd;
     #define DISPLAY_COMMON_OUTPUT_REV 0x10
 
     #define PIXEL_16_BIT    0x05
-    #if defined GLCD_COLOR || defined NOKIA_GLCD_MODE || defined CGLCD_GLCD_MODE || defined KITRONIX_GLCD_MODE || defined TFT2N0369_GLCD_MODE || defined MB785_GLCD_MODE // {8}{13}
+    #if defined GLCD_COLOR || defined NOKIA_GLCD_MODE || defined CGLCD_GLCD_MODE || defined KITRONIX_GLCD_MODE || defined TFT2N0369_GLCD_MODE || defined ST7789S_GLCD_MODE || defined ILI9341_GLCD_MODE || defined MB785_GLCD_MODE // {8}{13}
         #define PIXEL_8_BIT     0x02
         #define PIXEL_12_BITA   0x03
         #define PIXEL_12_BITB   0x04
@@ -133,7 +144,7 @@ extern HWND ghWnd;
     static unsigned char ucRowEnd = 0;
     static unsigned char ucDisplayRamStart = 0;
     static unsigned char ucDisplayOffset = 0;
-    static unsigned char ucRemap = 0;
+    static unsigned char ucRemap[2] = {0};
     static unsigned char ucMCU_protection_status = 0x12;
     static unsigned char ucMuxRatio = 15;
     static unsigned char ucContrast = 0x80;
@@ -155,9 +166,12 @@ static CRITICAL_SECTION cs;
 static tLCD_MEM   tDisplayMem;
 static tLCD_Info  LCD_Info;
 static RECT rectLcd;
+#if defined SUPPORT_TOUCH_SCREEN
+    extern RECT rectTouch = {0};
+#endif
 
-static tLCDFONT       font_tbl[(16*16)];
-static unsigned int   font5x11[(16*16)][8];
+static tLCDFONT       font_tbl[(16 * 16)];
+static unsigned int   font5x11[(16 * 16)][8];
 #if defined LCD_SIMULATE_BACKLIGHT
     static int        nNewBacklight = 0;
     static int        nBackLightOn = 0;
@@ -174,19 +188,88 @@ static RECT rectLines[4];
 
 static ULONG cmd = 0;
 static int nibbel = 1;
-
-static void Initfont(void);    
+#if defined SUPPORT_LCD || defined CRYSTAL_FONTZ_UART_LCD_SIMULATION
+    static void Initfont(void);    
+#endif
 static void DrawLcdLine(HWND hwnd);
 extern void fnSizeLCD(int iProcessorHeight, int iProcessorWidth);
 
 static int iLCD_initialise = 0;
+#if defined AVAGO_HCMS_CHAR_LCD                                          // {22}
+    static unsigned char ucCommandWord[2] = {0};
+    static int iPixelBufferIndex = 0;
+    static unsigned char ucPixelBuffer[5 * LCD_CHARACTERS] = {0};
+    static unsigned char ucPixelBufferBackup[5 * LCD_CHARACTERS] = {0};
+#endif
 
+#if defined _GENERATE_C_FONT_TABLE
+#include "conio.h"
+#include "Fcntl.h"
+#include "io.h"
+#include <sys/stat.h>
+
+static void fnGenerateFontTable(tLCDFONT *font_tbl)
+{
+    int i = 0;
+    unsigned char ucChar[5];
+    int iFile;
+    char ucBuffer[1024];
+    _sopen_s(&iFile, "font.c", (_O_TRUNC | _O_CREAT | _O_WRONLY), _SH_DENYWR, _S_IWRITE);
+
+    while (i++ < 256) {
+        ucChar[0] = (((font_tbl->font_y6 & 0x10) != 0) << 6);
+        ucChar[0] |= (((font_tbl->font_y5 & 0x10) != 0) << 5);
+        ucChar[0] |= (((font_tbl->font_y4 & 0x10) != 0) << 4);
+        ucChar[0] |= (((font_tbl->font_y3 & 0x10) != 0) << 3);
+        ucChar[0] |= (((font_tbl->font_y2 & 0x10) != 0) << 2);
+        ucChar[0] |= (((font_tbl->font_y1 & 0x10) != 0) << 1);
+        ucChar[0] |= (((font_tbl->font_y0 & 0x10) != 0));
+
+        ucChar[1] = (((font_tbl->font_y6 & 0x08) != 0) << 6);
+        ucChar[1] |= (((font_tbl->font_y5 & 0x08) != 0) << 5);
+        ucChar[1] |= (((font_tbl->font_y4 & 0x08) != 0) << 4);
+        ucChar[1] |= (((font_tbl->font_y3 & 0x08) != 0) << 3);
+        ucChar[1] |= (((font_tbl->font_y2 & 0x08) != 0) << 2);
+        ucChar[1] |= (((font_tbl->font_y1 & 0x08) != 0) << 1);
+        ucChar[1] |= (((font_tbl->font_y0 & 0x08) != 0));
+
+        ucChar[2] = (((font_tbl->font_y6 & 0x04) != 0) << 6);
+        ucChar[2] |= (((font_tbl->font_y5 & 0x04) != 0) << 5);
+        ucChar[2] |= (((font_tbl->font_y4 & 0x04) != 0) << 4);
+        ucChar[2] |= (((font_tbl->font_y3 & 0x04) != 0) << 3);
+        ucChar[2] |= (((font_tbl->font_y2 & 0x04) != 0) << 2);
+        ucChar[2] |= (((font_tbl->font_y1 & 0x04) != 0) << 1);
+        ucChar[2] |= (((font_tbl->font_y0 & 0x04) != 0));
+
+        ucChar[3] = (((font_tbl->font_y6 & 0x02) != 0) << 6);
+        ucChar[3] |= (((font_tbl->font_y5 & 0x02) != 0) << 5);
+        ucChar[3] |= (((font_tbl->font_y4 & 0x02) != 0) << 4);
+        ucChar[3] |= (((font_tbl->font_y3 & 0x02) != 0) << 3);
+        ucChar[3] |= (((font_tbl->font_y2 & 0x02) != 0) << 2);
+        ucChar[3] |= (((font_tbl->font_y1 & 0x02) != 0) << 1);
+        ucChar[3] |= (((font_tbl->font_y0 & 0x02) != 0));
+
+        ucChar[4] = (((font_tbl->font_y6 & 0x01) != 0) << 6);
+        ucChar[4] |= (((font_tbl->font_y5 & 0x01) != 0) << 5);
+        ucChar[4] |= (((font_tbl->font_y4 & 0x01) != 0) << 4);
+        ucChar[4] |= (((font_tbl->font_y3 & 0x01) != 0) << 3);
+        ucChar[4] |= (((font_tbl->font_y2 & 0x01) != 0) << 2);
+        ucChar[4] |= (((font_tbl->font_y1 & 0x01) != 0) << 1);
+        ucChar[4] |= (((font_tbl->font_y0 & 0x01) != 0));
+
+        sprintf(ucBuffer, "{ 0x%02x, 0x%02x, 0x%02x, 0x%02x, 0x%02x },\n", ucChar[0], ucChar[1], ucChar[2], ucChar[3], ucChar[4]);
+        _write(iFile, ucBuffer, strlen(ucBuffer));
+        font_tbl++;
+    }
+    _close(iFile);
+}
+#endif
 
 
 extern int fnInitLCD(RECT &rt, int iHeight, int iWidth)
 {
 #if (defined SUPPORT_GLCD || defined SUPPORT_TFT || defined TFT_GLCD_MODE || defined GLCD_COLOR || defined SLCD_FILE) && !defined OLED_GLCD_MODE
-    #if defined GLCD_COLOR || defined TFT_GLCD_MODE || defined NOKIA_GLCD_MODE || defined CGLCD_GLCD_MODE || defined KITRONIX_GLCD_MODE || defined TFT2N0369_GLCD_MODE || defined MB785_GLCD_MODE || defined SLCD_FILE // {13}
+    #if defined GLCD_COLOR || defined TFT_GLCD_MODE || defined NOKIA_GLCD_MODE || defined CGLCD_GLCD_MODE || defined KITRONIX_GLCD_MODE || defined TFT2N0369_GLCD_MODE || defined ST7789S_GLCD_MODE || defined ILI9341_GLCD_MODE || defined MB785_GLCD_MODE || defined SLCD_FILE // {13}
     memset(ulGraphicPixels, 0x55, sizeof(ulGraphicPixels));              // {9} fill the graphic buffer with a pattern so that uninitialised pixels are visible
     #else
     memset(ucGraphicPixels, 0x55, sizeof(ucGraphicPixels));              // {9} fill the graphic buffer with a pattern so that uninitialised pixels are visible
@@ -250,57 +333,60 @@ extern void LCDinit(int iLines, int iChars)
     tDisplayMem.ucCursorInc__Dec = 1;
 
     InitializeCriticalSection(&cs);                                      // start of critical region
-
-    Initfont();                                                          // initialise the font table
-    
+#if defined SUPPORT_LCD || defined CRYSTAL_FONTZ_UART_LCD_SIMULATION
+    Initfont();                                                          // initialise the font table    
     memset(tDisplayMem.ddrRam, ' ', sizeof(tDisplayMem.ddrRam));         // clear contents of character RAM
-    
+#endif
     tDisplayMem.init = 1;
     iLCD_initialise = 1;
+#if defined CRYSTAL_FONTZ_UART_LCD_SIMULATION
+    fnInitialiseCrystalFontz();
+#endif
 }
-
 
 static void fnInvalidateLCD(void)
 {
+#if defined SUPPORT_LCD || defined CRYSTAL_FONTZ_UART_LCD_SIMULATION
     for (int x = 0; x < 4; x++) {                                        // we mark all characters as invalid to ensure that they re-draw
         for (int y = 0; y < 40; y++) {
             usOldValue[x][y] = 0xffff;                                   // mark value invalid and must be re-freshed
         }
     }
+#endif
 }
 
-
 #if defined SUPPORT_TOUCH_SCREEN
-
-extern "C" void fnPenPressed(int iX, int iY);
-extern "C" void fnPenMoved(int iX, int iY);
-extern "C" void fnPenLifted(void);
+extern "C" void fnPenPressed(int iX, int iY, int iPenRef);
+extern "C" void fnPenMoved(int iX, int iY, int iPenRef);
+extern "C" void fnPenLifted(int iPenRef);
 
 // Check whether pen down on touch screen
 //
-extern int fnPenDown(int x, int y, int iPenState)
+extern int fnPenDown(int x, int y, int iPenState, int iPenRef)
 {
     if (iPenState < 0) {                                                 // pen has just been lifted
-        fnPenLifted();
+        fnPenLifted(iPenRef);
         return 0;
     }
-    if ((x < rectLcd.left) || (x >= rectLcd.right)) {
-        if (iPenState != 0) {                                            // pen has left screen - treat as lifted
-            fnPenLifted();
+    if ((x < rectTouch.left) || (x >= rectTouch.right)) {
+        if (iPenState == 1) {                                            // pen has left screen - treat as lifted
+            fnPenLifted(iPenRef);
         }
         return 0;
     }
-    if ((y < rectLcd.top) || (y >= rectLcd.bottom)) {
-        if (iPenState != 0) {                                            // pen has left screen - treat as lifted
-            fnPenLifted();
+    if ((y < rectTouch.top) || (y >= rectTouch.bottom)) {
+        if (iPenState == 1) {                                            // pen has left screen - treat as lifted
+            fnPenLifted(iPenRef);
         }
         return 0;
     }
-    if (iPenState == 0) {                                                // pen has just been applied
-        fnPenPressed((x - rectLcd.left), (y - rectLcd.top));
-        return 1;
+    if (iPenState != 2) {
+        if (iPenState == 0) {                                            // pen has just been applied
+            fnPenPressed((x - rectTouch.left), (y - rectTouch.top), iPenRef);
+            return 1;
+        }
+        fnPenMoved((x - rectTouch.left), (y - rectTouch.top), iPenRef);
     }
-    fnPenMoved((x - rectLcd.left), (y - rectLcd.top));
     return 1;
 }
 #endif
@@ -316,13 +402,6 @@ extern int DisplayLCD(HWND hwnd, RECT rect)
     if ((rect.top != 0) || (rect.left != 0)) {                           // {3}
         return rectLcd.bottom;
     }
-/*
-    if ((rect.bottom < rectLcd.top) || (rect.top > rectLcd.bottom)) {    // only redraw when invalidated {1}{3} removed
-        return rectLcd.bottom;
-    }
-    if ((rect.right < rectLcd.left) || (rect.left > rectLcd.right)) {    // only redraw when invalidated
-        return rectLcd.bottom;
-    }*/
 
     HDC hdc = GetDC(hwnd);
     DWORD error;
@@ -330,15 +409,19 @@ extern int DisplayLCD(HWND hwnd, RECT rect)
     fnInvalidateLCD();                                                   // ensure complete text is re-drawn
 
     HBRUSH hBrush, hOldBrush;
-#if defined LCD_SIMULATE_BACKLIGHT
+    #if defined LCD_SIMULATE_BACKLIGHT
     nBackLightOn = nNewBacklight;                                        // new backlight state is only accepted when the redraw takes place
-#endif
+    #endif
+    #if defined SUPPORT_GLCD  || defined SUPPORT_TFT
+    hBrush = CreateSolidBrush((COLORREF)RGB(180, 180, 180));             // border color
+    #else
     if (nBackLightOn != 0) {
         hBrush = CreateSolidBrush(LCD_ON_COLOUR);                        // set ON colour
     }
     else {
         hBrush = CreateSolidBrush(LCD_OFF_COLOUR);                       // OFF colour
     }
+    #endif
 
     if (hBrush == 0) {
         error = GetLastError(); 
@@ -357,15 +440,16 @@ extern int DisplayLCD(HWND hwnd, RECT rect)
     return rectLcd.bottom;
 }
 
+
 //
 // Redefine the size of the frame when the window is moved or resized
 //
 static void fnSizeLCD(int iProcessorHeight, int iProcessorWidth)
 {
-#define CHAR_PIXEL_WIDTH  22
-#define CHAR_PIXEL_HEIGHT 38
-#define FRAME_PIXEL_EDGE 13
-#define LIN_PIXEL_SPACE  5
+    #define CHAR_PIXEL_WIDTH  22
+    #define CHAR_PIXEL_HEIGHT 38
+    #define FRAME_PIXEL_EDGE  13
+    #define LIN_PIXEL_SPACE   5
 
     static POINT pLCD;
 
@@ -379,20 +463,30 @@ static void fnSizeLCD(int iProcessorHeight, int iProcessorWidth)
 
 #if (defined SUPPORT_GLCD || defined SUPPORT_TFT || defined GLCD_COLOR || defined SLCD_FILE) && !defined OLED_GLCD_MODES // {6}{16}
     #if defined BIG_PIXEL
-        #define LCD_PIXEL_X  2
-        #define LCD_PIXEL_Y  2
         #define SIDE_SPACE   20
         #define TOP_SPACE    14
+        #define LCD_PIXEL_X  2
+        #define LCD_PIXEL_Y  (LCD_PIXEL_X)
     #else
         #define SIDE_SPACE   10
         #define TOP_SPACE    7
         #define LCD_PIXEL_X  1
-        #define LCD_PIXEL_Y  1
+        #define LCD_PIXEL_Y  (LCD_PIXEL_X)
     #endif
     rectLcd.left = pLCD.x;
     rectLcd.top = pLCD.y;
     rectLcd.right = (rectLcd.left + (GLCD_X * LCD_PIXEL_X) + (SIDE_SPACE * 2));
     rectLcd.bottom = (rectLcd.top + (GLCD_Y * LCD_PIXEL_Y) + (TOP_SPACE * 2));
+    #if defined SUPPORT_TOUCH_SCREEN
+    rectTouch.left = (rectLcd.left + SIDE_SPACE);
+    rectTouch.right = (rectLcd.right - SIDE_SPACE);
+    rectTouch.top = (rectLcd.top + TOP_SPACE);
+    rectTouch.bottom = (rectLcd.bottom - TOP_SPACE);
+    #endif
+    #if defined ST7565S_GLCD_MODE && defined MGCF16404B
+    rectLcd.right += (((GLCD_X / 5) - 1) * LCD_PIXEL_X);                 // add space for blank lines between character groups
+    rectLcd.bottom += (((GLCD_Y / 8) - 1) * LCD_PIXEL_Y);
+    #endif
     #if defined BIG_PIXEL
     rectLcd.right += LCD_PIXEL_X;
     rectLcd.bottom += LCD_PIXEL_Y;
@@ -467,7 +561,7 @@ static void fnSizeLCD(int iProcessorHeight, int iProcessorWidth)
 #endif
 }
 
-
+#if defined SUPPORT_LCD || defined CRYSTAL_FONTZ_UART_LCD_SIMULATION
 // Character LCD Font initialisation
 //
 static void Initfont(void)
@@ -802,13 +896,13 @@ static void Initfont(void)
     font_tbl[0x2F].font_y7 = 0x00;    font_tbl[0x3F].font_y7 = 0x00;    font_tbl[0x4F].font_y7 = 0x00;    font_tbl[0x5F].font_y7 = 0x00;    font_tbl[0x6F].font_y7 = 0x00;    font_tbl[0x7F].font_y7 = 0x00;    font_tbl[0xAF].font_y7 = 0x00;    font_tbl[0xBF].font_y7 = 0x00;    font_tbl[0xCF].font_y7 = 0x00;    font_tbl[0xDF].font_y7 = 0x00;    font_tbl[0xEF].font_y7 = 0x00;    font_tbl[0xFF].font_y7 = 0x1f;        
 #endif
                    
-    for(UINT i = 0; i<16; i++) {                                         // invalid pattern 
+    for (int i = 0; i < 16; i++) {                                       // invalid pattern 
         font_tbl[i] = font_tbl[0x00];
         font_tbl[i+0x80] = font_tbl[0x20];
         font_tbl[i+0x90] = font_tbl[0x20];        
     }
    
-    font5x11[0xF0][0] = 0x10;    font5x11[0xF0][1] =    0x10, font5x11[0xF0][2] = 0x10; // extended charcters
+    font5x11[0xF0][0] = 0x10;    font5x11[0xF0][1] =    0x10, font5x11[0xF0][2] = 0x10; // extended characters
     font5x11[0xF1][0] = 0x01;    font5x11[0xF1][1] =    0x01, font5x11[0xF1][2] = 0x01;
     font5x11[0xE2][0] = 0x10;    font5x11[0xE2][1] =    0x10, font5x11[0xE2][2] = 0x10;
     font5x11[0xE4][0] = 0x10;    font5x11[0xE4][1] =    0x10, font5x11[0xE4][2] = 0x10;
@@ -817,18 +911,40 @@ static void Initfont(void)
     font5x11[0xF9][0] = 0x01;    font5x11[0xF9][1] =    0x01, font5x11[0xF9][2] = 0x0E;
     font5x11[0xEA][0] = 0x02;    font5x11[0xEA][1] =    0x12, font5x11[0xEA][2] = 0x0C;
     font5x11[0xFF][0] = 0x1F;    font5x11[0xFF][1] =    0x1F, font5x11[0xFF][2] = 0x1F;
+#if defined _GENERATE_C_FONT_TABLE
+    fnGenerateFontTable(font_tbl);
+#endif
 }
-
 
 // Interpretation of received command
 //
 static unsigned char LCDCommand(BOOL bRS, ULONG ulCmd)
 {
+    #if !defined AVAGO_HCMS_CHAR_LCD
     unsigned char ucAddr;
-
-    if (bRS == 0) {                                                      // is is a command ?
+    #endif
+    if (bRS == 0) {                                                      // is it a command ?
+    #if defined AVAGO_HCMS_CHAR_LCD                                      // {22}
+        if ((ulCmd & 0x80) != 0) {
+            // Command word 1
+            //
+            ucCommandWord[1] = (unsigned char)(ulCmd & 0x7f);
+        }
+        else {
+            // Command word 0
+            //
+            if ((ucCommandWord[0] & 0x40) == 0) {
+                if ((ulCmd & 0x40) != 0) {
+                    // Leaving sleep mode so draw screen content
+                    //
+                    DrawLcdLine(ghWnd);
+                }
+            }
+            ucCommandWord[0] = (unsigned char)ulCmd;
+        }
+    #else
         unsigned char i;
-        if (ulCmd & LCD_DDR_RAM_ADR) {                                   // set the RAM address
+        if ((ulCmd & LCD_DDR_RAM_ADR) != 0) {                            // set the RAM address
             tDisplayMem.ucRAMselect = DDRAM;
             ucAddr = (unsigned char) (((ulCmd - LCD_DDR_RAM_ADR) & 0xff));
            
@@ -845,36 +961,36 @@ static unsigned char LCDCommand(BOOL bRS, ULONG ulCmd)
             tDisplayMem.ucLocX = ucAddr;
             return (tDisplayMem.ddrRam[ucAddr]);                         // {17} return the RAM content in order to support reading this value
         }
-        else if(ulCmd & LCD_CG_RAM_ADR) {
+        else if ((ulCmd & LCD_CG_RAM_ADR) != 0) {
             tDisplayMem.ucRAMselect = CGRAM;
             tDisplayMem.ucCGRAMaddr = (unsigned char)(ulCmd - LCD_CG_RAM_ADR);
         }
-        else if (ulCmd & LCD_FUNCTION_SET) {
-            if((ulCmd & LCD_FONT_TYPE) && !(ulCmd & LCD_2_LINE)) {
+        else if ((ulCmd & LCD_FUNCTION_SET) != 0) {
+            if (((ulCmd & LCD_FONT_TYPE) != 0) && ((ulCmd & LCD_2_LINE) == 0)) {
                 tDisplayMem.ucFontType = FONT_5X11;                      // 1 line                                                                
             }
             else {                
                 tDisplayMem.ucFontType = FONT_5X8;                       // 2 line                                                               
             }
 
-            if(ulCmd & LCD_2_LINE) {
+            if ((ulCmd & LCD_2_LINE) != 0) {
                 tDisplayMem.ucLines = 2;
             }
             else {
                 tDisplayMem.ucLines = 1;
             }
             tDisplayMem.bmode = ((ulCmd & 0x10) != 0);                   // set 4 or 8 bit mode
-            tDisplayMem.ucDDRAMLineLength = LCD_Info.ucDDRAMLineLength[tDisplayMem.ucLines-1];
-            tDisplayMem.uiDDRamLength = LCD_Info.uiDDRamLength[tDisplayMem.ucLines-1];
+            tDisplayMem.ucDDRAMLineLength = LCD_Info.ucDDRAMLineLength[tDisplayMem.ucLines - 1];
+            tDisplayMem.uiDDRamLength = LCD_Info.uiDDRamLength[tDisplayMem.ucLines - 1];
         }
-        else if (ulCmd & LCD_CURSOR_OR_LCD_SHIFT) {                      // shift right
-            if (!(ulCmd & LCD_DDRRAM_SHIFT_RIGHT)) {
-                if (ulCmd & LCD_DDRRAM_DISPLAYSHIFT) {
+        else if ((ulCmd & LCD_CURSOR_OR_LCD_SHIFT) != 0) {               // shift left
+            if ((ulCmd & LCD_DDRRAM_SHIFT_RIGHT) == 0) {
+                if ((ulCmd & LCD_DDRRAM_DISPLAYSHIFT) != 0) {
                     if (++tDisplayMem.ucShiftPosition > (tDisplayMem.ucDDRAMLineLength-1)) { //shift whole display
                         tDisplayMem.ucShiftPosition = 0;
                     }
                 }
-                else{
+                else {
                     if (tDisplayMem.ucLocX > 0)                          // shift cursor only
                         tDisplayMem.ucLocX--;
                     else {
@@ -888,16 +1004,16 @@ static unsigned char LCDCommand(BOOL bRS, ULONG ulCmd)
                     }
                 }
             }
-            else {                                                       //shift left
-                if (ulCmd & LCD_DDRRAM_DISPLAYSHIFT) {
-                    if (tDisplayMem.ucShiftPosition > 0) {               //shift whole display
+            else {                                                       // shift right
+                if ((ulCmd & LCD_DDRRAM_DISPLAYSHIFT) != 0) {
+                    if (tDisplayMem.ucShiftPosition > 0) {               // shift whole display
                         tDisplayMem.ucShiftPosition--;
                     }
                     else {
                         tDisplayMem.ucShiftPosition = (tDisplayMem.ucDDRAMLineLength - 1);
                     }
                 }
-                else {                                                   //shift cursor only
+                else {                                                   // shift cursor only
                     if (++tDisplayMem.ucLocX > (tDisplayMem.ucDDRAMLineLength - 1)) {
                         tDisplayMem.ucLocX = 0;
                         if (++tDisplayMem.ucLocY >= tDisplayMem.ucLines) {
@@ -907,7 +1023,7 @@ static unsigned char LCDCommand(BOOL bRS, ULONG ulCmd)
                 }
             }
         }
-        else if (ulCmd & LCD_ONOFF) {    
+        else if ((ulCmd & LCD_ONOFF) != 0) {    
             unsigned char ucOldCursor = tDisplayMem.ucCursorOn;
             unsigned char ucOldBlink = tDisplayMem.ucCursorBlinkOn;
             unsigned char ucOldOn = tDisplayMem.ucLCDon;
@@ -924,21 +1040,21 @@ static unsigned char LCDCommand(BOOL bRS, ULONG ulCmd)
                 fnInvalidateLCD();
             }
 
-            if (!tDisplayMem.ucCursorBlinkOn) {
+            if (tDisplayMem.ucCursorBlinkOn == 0) {
                 ucBlinkCursor = 0;
             }
         }
-        else if (ulCmd & LCD_ENTRY_MODE) {
+        else if ((ulCmd & LCD_ENTRY_MODE) != 0) {
             tDisplayMem.ucLCDshiftEnable = ((ulCmd & LCD_DISPLAY_SHIFT) == LCD_DISPLAY_SHIFT); // set shift mode
             tDisplayMem.ucCursorInc__Dec = ((ulCmd & LCD_CURSOR_INCREMENT) == LCD_CURSOR_INCREMENT);
         }
-        else if(ulCmd & LCD_RETURN_HOME) {
+        else if ((ulCmd & LCD_RETURN_HOME) != 0) {
             tDisplayMem.ucLocX = 0;
             tDisplayMem.ucLocY = 0;
             tDisplayMem.ucCursorInc__Dec = 1;
             tDisplayMem.ucShiftPosition = 0;
         }
-        else if(ulCmd == LCD_CLEAR) {                                    // clear display and return to home position
+        else if (ulCmd == LCD_CLEAR) {                                    // clear display and return to home position
             memset((void*)&tDisplayMem.ddrRam[0], ' ', tDisplayMem.uiDDRamLength) ;
             tDisplayMem.ucLocX = 0;
             tDisplayMem.ucLocY = 0;
@@ -947,8 +1063,21 @@ static unsigned char LCDCommand(BOOL bRS, ULONG ulCmd)
             tDisplayMem.ucRAMselect = DDRAM;
             fnInvalidateLCD();
         }
+    #endif
     }
-    else {                                                               //read/write command
+    else {                                                               // read/write command
+    #if defined AVAGO_HCMS_CHAR_LCD                                      // {22}
+        ucPixelBuffer[iPixelBufferIndex++] = (unsigned char)ulCmd;       // collect the complete set of pixels
+        if (iPixelBufferIndex >= sizeof(ucPixelBuffer)) {
+            iPixelBufferIndex = 0;
+            if ((ucCommandWord[0] & 0x40) != 0) {
+                // Not in sleep mode so redraw the screen content
+                //
+                tDisplayMem.ucLCDon = 1;
+                DrawLcdLine(ghWnd);
+            }
+        }
+    #else
         if (tDisplayMem.ucRAMselect == CGRAM) {
             unsigned int *pCharLine = (UINT*)&font_tbl[tDisplayMem.ucCGRAMaddr/8].font_y0;
             pCharLine += (tDisplayMem.ucCGRAMaddr % 8);
@@ -962,12 +1091,11 @@ static unsigned char LCDCommand(BOOL bRS, ULONG ulCmd)
             }
         }        
         else {
-            ulCmd &= 0xFF;           
                                                                          // save character
-            tDisplayMem.ddrRam[LCD_Info.uiDDRAMStartLine[tDisplayMem.ucLocY]+tDisplayMem.ucLocX] = (unsigned char)(ulCmd);
+            tDisplayMem.ddrRam[LCD_Info.uiDDRAMStartLine[tDisplayMem.ucLocY] + tDisplayMem.ucLocX] = (unsigned char)(ulCmd);
 
-            if (tDisplayMem.ucLCDshiftEnable) {
-                if (!tDisplayMem.ucCursorInc__Dec) {
+            if (tDisplayMem.ucLCDshiftEnable != 0) {
+                if (tDisplayMem.ucCursorInc__Dec == 0) {
                     if (tDisplayMem.ucShiftPosition > 0) {
                         tDisplayMem.ucShiftPosition--;
                     }
@@ -983,15 +1111,15 @@ static unsigned char LCDCommand(BOOL bRS, ULONG ulCmd)
             }
         }
 
-        if (tDisplayMem.ucCursorInc__Dec) {                              //new cursor position
-            if (++tDisplayMem.ucLocX > (tDisplayMem.ucDDRAMLineLength-1)) {
+        if ((tDisplayMem.ucCursorInc__Dec != 0)) {                       // new cursor position
+            if (++tDisplayMem.ucLocX > (tDisplayMem.ucDDRAMLineLength - 1)) {
                 tDisplayMem.ucLocX = 0;
                 if (++tDisplayMem.ucLocY >= tDisplayMem.ucLines) {
                     tDisplayMem.ucLocY = 0;
                 }
             }
         }
-        else {                                                           //shift cursor only
+        else {                                                           // shift cursor only
             if (tDisplayMem.ucLocX > 0) {
                 tDisplayMem.ucLocX--;
             }
@@ -1016,9 +1144,11 @@ static unsigned char LCDCommand(BOOL bRS, ULONG ulCmd)
                 }
             }
         }
+    #endif
     }
     return 0;
 }
+#endif
 
 #if defined SUPPORT_GLCD || defined SUPPORT_TFT || defined GLCD_COLOR
     static unsigned short usAddressPointer = 0;
@@ -1036,21 +1166,48 @@ static unsigned int    uiBlockCursor[8] = {0x1f, 0x1f, 0x1f, 0x1f, 0x1f, 0x1f, 0
 static unsigned int    uiLargeCursor[8] = {0x1f, 0x1f, 0x1f, 0x00, 0x00, 0x00, 0x00, 0x00};
 static unsigned int    uiLowCursor[8]   = {0x00, 0x00, 0x1f, 0x00, 0x00, 0x00, 0x00, 0x00};
 
+#if defined AVAGO_HCMS_CHAR_LCD                                          // {22}
+static void DisplayCharNew(HDC hdc, RECT rect, POINT point, unsigned char *pBits, UINT nPixels, UINT nFactor, int iShort)
+{
+    DWORD dwTextColor = LCD_PIXEL_COLOUR, dwCurColor = LCD_ON_COLOUR, dwThisCol;
+    if (nBackLightOn == 0) {
+        dwCurColor = LCD_OFF_COLOUR;                                     // without backlight the pixel color is modified
+    }
+
+    UINT z1 =0, z2 = 0;
+                                                                         // draw a character
+    for (UINT k = 0; k < 5; k++) {                                       // rows
+        for (UINT shift = 0x01; shift <= 0x80; shift <<= 1) {            // columns
+            dwThisCol = ((*pBits & shift) ? dwTextColor :  dwCurColor);
+            for (z1 = 0; z1 < nFactor; z1++) {
+                for (z2 = 0; z2 < nPixels; z2++) {
+                    SetPixelV(hdc, (point.x + z2), (point.y + z1), dwThisCol);
+                }
+            }
+            point.y += nFactor;                                          // new pixel for the column
+        }
+        *pBits++;
+        point.x += nPixels;                                              // new pixel for the line
+        point.y = rect.top;                                              // next pixel for the column 
+    }
+}
+
+#else
 static void DisplayCharNew(HDC hdc, RECT rect, POINT point, UINT *pBits, UINT nPixels, UINT nFactor, int iShort)
 {
     DWORD dwTextColor = LCD_PIXEL_COLOUR, dwCurColor = LCD_ON_COLOUR, dwThisCol;
     if (nBackLightOn == 0) {
-        dwCurColor = LCD_OFF_COLOUR;
+        dwCurColor = LCD_OFF_COLOUR;                                     // without backlight the pixel color is modified
     }
 
     UINT z1 =0, z2 = 0;
                                                                          // draw a character
     for (UINT k = 0; k < 8; k++) {                                       // lines
-        for (UINT shift = 0x10; shift>0; shift>>=1) {                    // columns
+        for (UINT shift = 0x10; shift > 0; shift >>= 1) {                // columns
             dwThisCol = ((*pBits & shift) ? dwTextColor :  dwCurColor);
             for (z1 = 0; z1 < nFactor; z1++) {
                 for (z2 = 0; z2 < nPixels; z2++) {
-                    SetPixelV(hdc, point.x+z2, point.y+z1, dwThisCol);
+                    SetPixelV(hdc, (point.x + z2), (point.y + z1), dwThisCol);
                 }
             }
             point.x += nPixels;;                                         // new pixel for the column
@@ -1060,6 +1217,7 @@ static void DisplayCharNew(HDC hdc, RECT rect, POINT point, UINT *pBits, UINT nP
         point.x = rect.left;                                             // next pixel for the column 
     }
 }
+#endif
 
 
 // Redraw the LCD
@@ -1067,7 +1225,7 @@ static void DisplayCharNew(HDC hdc, RECT rect, POINT point, UINT *pBits, UINT nP
 static void DrawLcdLine(HWND hwnd)
 {
 #if defined SUPPORT_GLCD || defined SUPPORT_OLED || defined SUPPORT_TFT || defined GLCD_COLOR
-    #if defined GLCD_COLOR || defined TFT_GLCD_MODE || defined NOKIA_GLCD_MODE || defined CGLCD_GLCD_MODE || defined KITRONIX_GLCD_MODE || defined TFT2N0369_GLCD_MODE // {7}{8}
+    #if defined GLCD_COLOR || defined TFT_GLCD_MODE || defined NOKIA_GLCD_MODE || defined CGLCD_GLCD_MODE || defined KITRONIX_GLCD_MODE || defined TFT2N0369_GLCD_MODE || defined ST7789S_GLCD_MODE || defined ILI9341_GLCD_MODE // {7}{8}
         #if !defined SUPPORT_TFT && !defined TFT_GLCD_MODE               // {7}
     unsigned long ulPixel;
         #endif
@@ -1077,7 +1235,7 @@ static void DrawLcdLine(HWND hwnd)
     unsigned char ucBit;
     unsigned char ucColBit = 0x01;
     #endif
-#else
+#elif !defined AVAGO_HCMS_CHAR_LCD
     unsigned int save;
 #endif
     int i,j;
@@ -1090,12 +1248,22 @@ static void DrawLcdLine(HWND hwnd)
     RECT rect;
     POINT point;
 
-    UINT *pBits = NULL; 
+    UINT *pBits = NULL;
+#if defined ST7565S_GLCD_MODE && defined MGCF16404B
+    int iColumnSpace = 0;
+    int iOffsetX = 0;
+    int iOffsetY = 0;
+    #if !defined LCD_FRAME_COLOUR
+        #define LCD_FRAME_COLOUR  (COLORREF)RGB(205, 205, 35)
+    #endif
+#endif
 #if defined SUPPORT_GLCD || defined SUPPORT_OLED || defined SUPPORT_OLED || defined SUPPORT_TFT || defined GLCD_COLOR
 	unsigned long ulGraphicAdd = 0;
 #else
     UCHAR pCurrent;
+    #if !defined AVAGO_HCMS_CHAR_LCD
     int iHandleCursor;
+    #endif
 #endif
 
     nFactor = 4;
@@ -1107,10 +1275,10 @@ static void DrawLcdLine(HWND hwnd)
 
     EnterCriticalSection(&cs);                                           // protect from task switching
     
-#if (defined SUPPORT_GLCD || defined SUPPORT_TFT || defined TFT_GLCD_MODE || defined GLCD_COLOR || defined KITRONIX_GLCD_MODE || defined TFT2N0369_GLCD_MODE) && !defined OLED_GLCD_MODE || defined CGLCD_GLCD_MODE // {6}{7}
-    #if defined GLCD_COLOR || defined TFT_GLCD_MODE || defined NOKIA_GLCD_MODE || defined CGLCD_GLCD_MODE || defined KITRONIX_GLCD_MODE || defined TFT2N0369_GLCD_MODE // {7}{8}
+#if (defined SUPPORT_GLCD || defined SUPPORT_TFT || defined TFT_GLCD_MODE || defined GLCD_COLOR || defined KITRONIX_GLCD_MODE || defined TFT2N0369_GLCD_MODE || defined ST7789S_GLCD_MODE || defined ILI9341_GLCD_MODE) && !defined OLED_GLCD_MODE || defined CGLCD_GLCD_MODE // {6}{7}
+    #if defined GLCD_COLOR || defined TFT_GLCD_MODE || defined NOKIA_GLCD_MODE || defined CGLCD_GLCD_MODE || defined KITRONIX_GLCD_MODE || defined TFT2N0369_GLCD_MODE || defined ST7789S_GLCD_MODE || defined ILI9341_GLCD_MODE // {7}{8}
     if (pPixels != 0) {                                                  // {19}
-        LCD_draw_bmp((rectLcd.left + 7), (rectLcd.top + 6),  GLCD_X, GLCD_Y); // redraw complete bitmap
+        LCD_draw_bmp((rectLcd.left + SIDE_SPACE), (rectLcd.top + TOP_SPACE),  GLCD_X, GLCD_Y); // redraw complete bitmap
         LeaveCriticalSection(&cs);
     
         ReleaseDC(hwnd, hdc);
@@ -1136,7 +1304,7 @@ static void DrawLcdLine(HWND hwnd)
             #else
             if (ucPixelFormat == PIXEL_16_BIT) {
                 dwPixelColor = ((unsigned char)(ulPixel << 3) | ((ulPixel << 5) & 0x0000fc00) | ((ulPixel << 8) & 0x00f80000));
-                #if defined _HX8347 || defined KITRONIX_GLCD_MODE || defined TFT2N0369_GLCD_MODE || defined MB785_GLCD_MODE // {15}
+                #if defined _HX8347 || defined KITRONIX_GLCD_MODE || defined TFT2N0369_GLCD_MODE || defined ST7789S_GLCD_MODE || defined ILI9341_GLCD_MODE || defined MB785_GLCD_MODE // {15}
                 dwPixelColor = ((dwPixelColor << 16) | (dwPixelColor & 0x0000ff00) | (dwPixelColor >> 16));
                 #endif
             }
@@ -1162,7 +1330,7 @@ static void DrawLcdLine(HWND hwnd)
     #elif defined _GLCD_SAMSUNG || defined ST7565S_GLCD_MODE             // {18}
     rect = rectLines[0];
         #if defined BIG_PIXEL
-    point.x = (rect.left + 2*NON_DISPLAYED_X);
+    point.x = (rect.left + (2 * NON_DISPLAYED_X));
         #else
     point.x = (rect.left + NON_DISPLAYED_X);
         #endif
@@ -1174,14 +1342,80 @@ static void DrawLcdLine(HWND hwnd)
             if (j >= (LCD_PIXEL_X_REAL/SAMSUNG_CHIPS)) {
                 iChip = 1;
             }
-            if (iGraphicFlags[iChip] & DISPLAY_IS_ON) {
+            if ((iGraphicFlags[iChip] & DISPLAY_IS_ON) != 0) {
                 ucBit = 0x01;
             }
             else {
                 ucBit = 0;
             }
-            for (k = 0; k < 8; k++) {
-                if (ucGraphicPixels[i][j] & ucBit) {
+        #if defined ST7565S_GLCD_MODE && defined MGCF16404B
+            for (k = 0; k < 8; k++) {                                    // for each bit in the byte
+                if ((ucGraphicPixels[i][j] & ucBit) != 0) {              // if the pixel is to be on
+        #if defined BIG_PIXEL
+                    SetPixelV(hdc, (point.x + ((j - NON_DISPLAYED_X) * 2) + iOffsetX), (point.y + (k * 2)) + (i * 8 * 2) + iOffsetY, LCD_PIXEL_COLOUR);
+                    SetPixelV(hdc, (point.x + 1 + ((j - NON_DISPLAYED_X) * 2) + iOffsetX), (point.y + (k * 2)) + (i * 8 * 2) + iOffsetY, LCD_PIXEL_COLOUR);
+                    SetPixelV(hdc, (point.x + ((j - NON_DISPLAYED_X) * 2) + iOffsetX), (point.y + 1 + (k * 2)) + (i * 8 * 2) + iOffsetY, LCD_PIXEL_COLOUR);
+                    SetPixelV(hdc, (point.x + 1 + ((j - NON_DISPLAYED_X) * 2) + iOffsetX), (point.y + 1 + (k * 2)) + (i * 8 * 2) + iOffsetY, LCD_PIXEL_COLOUR);
+        #else
+                    SetPixelV(hdc, (point.x + (j - NON_DISPLAYED_X) + iOffset), (point.y + k) + (i * 8) + iOffsetY, LCD_PIXEL_COLOUR);
+        #endif
+                }
+                else {                                                   // pixel is off
+        #if defined BIG_PIXEL
+                    SetPixelV(hdc, (point.x + ((j - NON_DISPLAYED_X) * 2) + iOffsetX), (point.y + (k * 2)) + (i * 8 * 2) + iOffsetY, LCD_ON_COLOUR);
+                    SetPixelV(hdc, (point.x + 1 + ((j - NON_DISPLAYED_X) * 2) + iOffsetX), (point.y + (k * 2)) + (i * 8 * 2) + iOffsetY, LCD_ON_COLOUR);
+                    SetPixelV(hdc, (point.x + ((j - NON_DISPLAYED_X) * 2) + iOffsetX), (point.y + 1 + (k * 2)) + (i * 8 * 2) + iOffsetY, LCD_ON_COLOUR);
+                    SetPixelV(hdc, (point.x + 1 + ((j - NON_DISPLAYED_X) * 2) + iOffsetX), (point.y + 1 + (k * 2)) + (i * 8 * 2) + iOffsetY, LCD_ON_COLOUR);
+        #else
+                    SetPixelV(hdc, (point.x + (j - NON_DISPLAYED_X) + iOffset), (point.y + k) + (i * 8) + iOffsetY, LCD_ON_COLOUR);
+        #endif
+                }
+                ucBit <<= 1;
+            }
+            if (++iColumnSpace%5 == 0) {                                 // after each 5 columns add a space (with exception of very last line)
+                if (iColumnSpace == GLCD_X) {
+                    iColumnSpace = 0;
+                }
+                else {
+                    if (i != ((GLCD_Y / 8) - 1)) {
+            #if defined BIG_PIXEL
+                        SetPixelV(hdc, (point.x + ((j - NON_DISPLAYED_X) * 2) + iOffsetX), (point.y + (k * 2)) + (i * 8 * 2) + iOffsetY, LCD_FRAME_COLOUR);
+                        SetPixelV(hdc, (point.x + 1 + ((j - NON_DISPLAYED_X) * 2) + iOffsetX), (point.y + (k * 2)) + (i * 8 * 2) + iOffsetY, LCD_FRAME_COLOUR);
+                        SetPixelV(hdc, (point.x + ((j - NON_DISPLAYED_X) * 2) + iOffsetX), (point.y + 1 + (k * 2)) + (i * 8 * 2) + iOffsetY, LCD_FRAME_COLOUR);
+                        SetPixelV(hdc, (point.x + 1 + ((j - NON_DISPLAYED_X) * 2) + iOffsetX), (point.y + 1 + (k * 2)) + (i * 8 * 2) + iOffsetY, LCD_FRAME_COLOUR);
+            #else
+                        SetPixelV(hdc, (point.x + (j - NON_DISPLAYED_X) + iOffset), (point.y + k) + (i * 8) + iOffsetY, LCD_FRAME_COLOUR);
+            #endif
+                    }
+            #if defined BIG_PIXEL
+                    iOffsetX += 2;
+                    for (k = 0; k < 8; k++) {
+                        SetPixelV(hdc, (point.x + ((j - NON_DISPLAYED_X) * 2) + iOffsetX), (point.y + (k * 2)) + (i * 8 * 2) + iOffsetY, LCD_FRAME_COLOUR);
+                        SetPixelV(hdc, (point.x + 1 + ((j - NON_DISPLAYED_X) * 2) + iOffsetX), (point.y + (k * 2)) + (i * 8 * 2) + iOffsetY, LCD_FRAME_COLOUR);
+                        SetPixelV(hdc, (point.x + ((j - NON_DISPLAYED_X) * 2) + iOffsetX), (point.y + 1 + (k * 2)) + (i * 8 * 2) + iOffsetY, LCD_FRAME_COLOUR);
+                        SetPixelV(hdc, (point.x + 1 + ((j - NON_DISPLAYED_X) * 2) + iOffsetX), (point.y + 1 + (k * 2)) + (i * 8 * 2) + iOffsetY, LCD_FRAME_COLOUR);
+                    }
+            #else
+                    iOffsetX++;
+                    for (k = 0; k < 8; k++) {
+                        SetPixelV(hdc, (point.x + (j - NON_DISPLAYED_X) + iOffsetX), (point.y + k) + (i * 8) + iOffsetY, LCD_FRAME_COLOUR);
+                    }
+            #endif
+                }
+            }
+            if (i != ((GLCD_Y/8) - 1)) {
+            #if defined BIG_PIXEL
+                SetPixelV(hdc, (point.x + ((j - NON_DISPLAYED_X) * 2) + iOffsetX), (point.y + (k * 2)) + (i * 8 * 2) + iOffsetY, LCD_FRAME_COLOUR);
+                SetPixelV(hdc, (point.x + 1 + ((j - NON_DISPLAYED_X) * 2) + iOffsetX), (point.y + (k * 2)) + (i * 8 * 2) + iOffsetY, LCD_FRAME_COLOUR);
+                SetPixelV(hdc, (point.x + ((j - NON_DISPLAYED_X) * 2) + iOffsetX), (point.y + 1 + (k * 2)) + (i * 8 * 2) + iOffsetY, LCD_FRAME_COLOUR);
+                SetPixelV(hdc, (point.x + 1 + ((j - NON_DISPLAYED_X) * 2) + iOffsetX), (point.y + 1 + (k * 2)) + (i * 8 * 2) + iOffsetY, LCD_FRAME_COLOUR);
+            #else
+                SetPixelV(hdc, (point.x + (j - NON_DISPLAYED_X) + iOffset), (point.y + k) + (i * 8) + iOffsetY, LCD_FRAME_COLOUR);
+            #endif
+            }
+        #else
+            for (k = 0; k < 8; k++) {                                    // for each bit in the byte
+                if ((ucGraphicPixels[i][j] & ucBit) != 0) {              // if the pixel is to be on
         #if defined BIG_PIXEL
                     SetPixelV(hdc, point.x + (j - NON_DISPLAYED_X)*2, (point.y + k*2) + i*8*2, LCD_PIXEL_COLOUR);
                     SetPixelV(hdc, point.x + 1 + (j - NON_DISPLAYED_X)*2, (point.y + k*2) + i*8*2, LCD_PIXEL_COLOUR);
@@ -1191,7 +1425,7 @@ static void DrawLcdLine(HWND hwnd)
                     SetPixelV(hdc, point.x + (j - NON_DISPLAYED_X), (point.y + k) + i*8, LCD_PIXEL_COLOUR);
         #endif
                 }
-                else {
+                else {                                                   // pixel is off
         #if defined BIG_PIXEL
                     SetPixelV(hdc, point.x + (j - NON_DISPLAYED_X)*2, (point.y + k*2) + i*8*2, LCD_ON_COLOUR);
                     SetPixelV(hdc, point.x + 1 + (j - NON_DISPLAYED_X)*2, (point.y + k*2) + i*8*2, LCD_ON_COLOUR);
@@ -1203,8 +1437,17 @@ static void DrawLcdLine(HWND hwnd)
                 }
                 ucBit <<= 1;
             }
+        #endif
         }
         ucColBit <<= 1;
+        #if defined ST7565S_GLCD_MODE && defined MGCF16404B
+        iOffsetX = 0;
+            #if defined BIG_PIXEL
+        iOffsetY += 2;
+            #else
+        iOffsetY++;
+            #endif
+        #endif
     }
     #else
 	rect = rectLines[0];
@@ -1311,7 +1554,7 @@ static void DrawLcdLine(HWND hwnd)
     #endif
     }
 #else    
-    if(tDisplayMem.ucLCDon) {
+    if (tDisplayMem.ucLCDon != 0) {
         SetBkMode(hdc, OPAQUE);                                          // display values
     }
     else {
@@ -1319,22 +1562,38 @@ static void DrawLcdLine(HWND hwnd)
     }
     
     for (i = 0; i < LCD_Info.ucNrOfLCDLines; i++) {
-        if ((tDisplayMem.ucLines == 1) && (i & 0x01)) {
+        if ((tDisplayMem.ucLines == 1) && ((i & 0x01) != 0)) {
             continue;
         }
 
-        pCurrent = tDisplayMem.ucShiftPosition+LCD_Info.uiLCDStartLine[i];
+        pCurrent = (tDisplayMem.ucShiftPosition + LCD_Info.uiLCDStartLine[i]);
 
-        if (pCurrent >= (LCD_Info.uiDDRAMStartLine[i%2]+tDisplayMem.ucDDRAMLineLength)) {
-                pCurrent = pCurrent-tDisplayMem.ucDDRAMLineLength;
+        if (pCurrent >= (LCD_Info.uiDDRAMStartLine[i%2] + tDisplayMem.ucDDRAMLineLength)) {
+            pCurrent = pCurrent-tDisplayMem.ucDDRAMLineLength;
         }
 
         rect = rectLines[i];
         point.x = rect.left;
         point.y = rect.top;
 
-        for (j = 0; j < LCD_Info.ucNrOfVisibleCharacters; j++) {
-            if ((pCurrent == (LCD_Info.uiDDRAMStartLine[tDisplayMem.ucLocY]+tDisplayMem.ucLocX)) && (tDisplayMem.ucCursorOn || tDisplayMem.ucCursorBlinkOn)) {
+        for (j = 0; j < LCD_Info.ucNrOfVisibleCharacters; j++) {         // for each chanarcter on the present line
+    #if defined AVAGO_HCMS_CHAR_LCD                                      // {22}
+            int iCharacterStart = (j * 5);
+            int k;
+            rect.left = uiCharStart[j];                                  // point.x = rect.left; 
+            point.x = uiCharStart[j];
+            point.y = rect.top;
+            for (k = 0; k < 5; k++) {
+                if (ucPixelBuffer[iCharacterStart + k] != ucPixelBufferBackup[iCharacterStart + k]) {
+                    // Change found in a character
+                    //
+                    memcpy(&ucPixelBufferBackup[iCharacterStart], &ucPixelBuffer[iCharacterStart], 5);
+                    DisplayCharNew(hdc, rect, point, &ucPixelBufferBackup[iCharacterStart], nPixels, nFactor, 0);
+                    break;
+                }
+            }
+    #else
+            if ((pCurrent == (LCD_Info.uiDDRAMStartLine[tDisplayMem.ucLocY] + tDisplayMem.ucLocX)) && ((tDisplayMem.ucCursorOn != 0) || (tDisplayMem.ucCursorBlinkOn != 0))) {
                 iHandleCursor = 1;
             }
             else {
@@ -1345,11 +1604,12 @@ static void DrawLcdLine(HWND hwnd)
             // and odd RAM locations are used for lower half
             //
             if ((tDisplayMem.ucFontType == 2) && (tDisplayMem.ddrRam[pCurrent] < 0x10)) {
-                pBits = (UINT*)&font_tbl[tDisplayMem.ddrRam[pCurrent]  & 0xFFFE];
+                pBits = (UINT*)&font_tbl[tDisplayMem.ddrRam[pCurrent]  & 0xfffe];
             }
             else {
-                if ((usOldValue[i][j] == (unsigned short)((unsigned char)(tDisplayMem.ddrRam[pCurrent]))) &&
-                    !iHandleCursor) goto dont_display;                   // don't bother drawing this one
+                if ((usOldValue[i][j] == (unsigned short)((unsigned char)(tDisplayMem.ddrRam[pCurrent]))) && (iHandleCursor == 0)) {
+                    goto dont_display;                                   // don't bother drawing this one since it hasn't changed
+                }
                 usOldValue[i][j] = (unsigned short)((unsigned char)(tDisplayMem.ddrRam[pCurrent])); // validate
                 pBits = (UINT*)&font_tbl[tDisplayMem.ddrRam[pCurrent]];
             }
@@ -1358,45 +1618,44 @@ static void DrawLcdLine(HWND hwnd)
             point.x = uiCharStart[j];
             point.y = rect.top;                        
             
-            if (iHandleCursor) {
+            if (iHandleCursor != 0) {
                 usOldValue[i][j] |= 0x8000;                              // ensure updated next time around to avoid cursor left on
-                if (ucBlinkCursor) {
+                if (ucBlinkCursor != 0) {
                     pBits = uiBlockCursor;
                     DisplayCharNew(hdc, rect, point, pBits, nPixels, nFactor, 0);
-
-                        if ((tDisplayMem.ucLines == 1) && (tDisplayMem.ucFontType == FONT_5X11)) {
-                            point.y = rectLines[i+1].top;
-                            pBits = uiLargeCursor;
-                            DisplayCharNew(hdc, rect, point, pBits, nPixels, nFactor, 0);
-                        }
+                    if ((tDisplayMem.ucLines == 1) && (tDisplayMem.ucFontType == FONT_5X11)) {
+                        point.y = rectLines[i + 1].top;
+                        pBits = uiLargeCursor;
+                        DisplayCharNew(hdc, rect, point, pBits, nPixels, nFactor, 0);
+                    }
                 }
                 else {
                     if (tDisplayMem.ucFontType == FONT_5X11) {
                         DisplayCharNew(hdc, rect, point, pBits, nPixels, nFactor, 0);
-                        point.y = rectLines[i+1].top;
+                        point.y = rectLines[i + 1].top;
 
-                        if (tDisplayMem.ddrRam[pCurrent & 0xFFFE] < 0x10) {
+                        if (tDisplayMem.ddrRam[pCurrent & 0xfffe] < 0x10) {
                             pBits = (UINT*)&font_tbl[tDisplayMem.ddrRam[pCurrent | 0x01]];
                         }
                         else {                        
                             pBits = (UINT*)&font5x11[tDisplayMem.ddrRam[pCurrent]];
                         }
-                        if (tDisplayMem.ucCursorOn) {
-                            save = *(pBits+2);
-                            *(pBits+2) = 0xFF;
+                        if (tDisplayMem.ucCursorOn != 0) {
+                            save = *(pBits + 2);
+                            *(pBits + 2) = 0xff;
                             DisplayCharNew(hdc, rect, point, pBits, nPixels, nFactor, 1);
-                            *(pBits+2) = save;
+                            *(pBits + 2) = save;
                         }
                         else {
                             DisplayCharNew(hdc, rect, point, pBits, nPixels, nFactor, 1);
                         }
                     }
                     else {
-                       if (tDisplayMem.ucCursorOn) {
-                           save = *(pBits+7);
-                           *(pBits+7) = 0xFF;
+                       if (tDisplayMem.ucCursorOn != 0) {
+                           save = *(pBits + 7);
+                           *(pBits + 7) = 0xff;
                            DisplayCharNew(hdc, rect, point, pBits, nPixels, nFactor, 0);
-                           *(pBits+7) = save;
+                           *(pBits + 7) = save;
                        }
                        else {
                            DisplayCharNew(hdc, rect, point, pBits, nPixels, nFactor, 0);
@@ -1406,11 +1665,10 @@ static void DrawLcdLine(HWND hwnd)
             }
             else {
                 DisplayCharNew(hdc, rect, point, pBits, nPixels, nFactor, 0);
-
                 if (tDisplayMem.ucFontType == 2) {                       // show also lower part of the character
-                    point.y = rectLines[i+1].top;
+                    point.y = rectLines[i + 1].top;
                     
-                    if (tDisplayMem.ddrRam[pCurrent & 0xFFFE] < 0x10) {  // special handling for user defined characters
+                    if (tDisplayMem.ddrRam[pCurrent & 0xfffe] < 0x10) {  // special handling for user defined characters
                         pBits = (UINT*)&font_tbl[tDisplayMem.ddrRam[pCurrent] | 0x01];
                     }
                     else {                    
@@ -1422,9 +1680,10 @@ static void DrawLcdLine(HWND hwnd)
             }
         
 dont_display:
-            if (++pCurrent == (LCD_Info.uiDDRAMStartLine[i%2]+tDisplayMem.ucDDRAMLineLength)) {
+            if (++pCurrent == (LCD_Info.uiDDRAMStartLine[i%2] + tDisplayMem.ucDDRAMLineLength)) {
                 pCurrent = LCD_Info.uiDDRAMStartLine[i%2];
             }
+    #endif
         }
     }
 #endif
@@ -1499,8 +1758,12 @@ static void GraphicOLEDCommand(bool bRS, unsigned char ucByte)
 			}
 			ReleaseDC(ghWnd, hdc);  
 		} 
-
-        if (!(ucRemap & 0x04)) {                                         // horizontal address increment enabled
+    #if defined OLED_SSD1322
+        if ((ucRemap[0] & 0x01) == 0)                                    // horizontal address increment enabled
+    #else
+        if ((ucRemap[0] & 0x04) == 0)                                    // horizontal address increment enabled
+    #endif
+        {
             ulGraphicAdd++;
             if ((ulGraphicAdd % (GLCD_X/2)) > ucColumnEnd) {             // {11}
                 ulGraphicAdd += ((ulGraphicAdd % (GLCD_X/2) - ucColumnEnd) * 2);// {11}
@@ -1569,7 +1832,16 @@ static void GraphicOLEDCommand(bool bRS, unsigned char ucByte)
                 ucDisplayRamStart = ucByte;
                 break;
             case 0xa0:                                                   // remap setting in graphic display data ram
-                ucRemap = ucByte;
+    #if defined OLED_SSD1322
+                if (iCmdCnt == 1) {
+                    ucRemap[0] = ucByte;
+                }
+                else {
+                    ucRemap[1] = ucByte;
+                }
+    #else
+                ucRemap[0] = ucByte;
+    #endif
                 break;
             case 0x94:                                                   // icon register
                 switch (ucByte & 0xc0) {
@@ -1598,6 +1870,11 @@ static void GraphicOLEDCommand(bool bRS, unsigned char ucByte)
             case 0xb8:                                                   // gray scale pulse width lookup table
                 iCmdCnt = 15;                                            // command accepted, now collect fifteen command data bytes
                 break;
+    #if defined OLED_SSD1322
+            case 0xb4:                                                   // VSL selection
+            case 0xa0:                                                   // remap setting in graphic display data ram
+            case 0xd1:                                                   // display enhancement
+    #endif
             case 0x75:                                                   // set up row start and end address
             case 0x15:                                                   // set up column start and end address
                 iCmdCnt = 2;                                             // command accepted, now collect two command data bytes
@@ -1611,7 +1888,17 @@ static void GraphicOLEDCommand(bool bRS, unsigned char ucByte)
             case 0xa8:                                                   // set MUX ratio
             case 0xa2:                                                   // set display offset
             case 0xa1:                                                   // set display start line
+    #if defined OLED_SSD1322
+            case 0xab:                                                   // Vdd selection
+            case 0xb5:                                                   // set GPIO
+            case 0xb6:                                                   // second precharge period
+            case 0xbe:                                                   // set VCOM
+            case 0xc1:                                                   // set contrast
+            case 0xc7:                                                   // master contrast current
+            case 0xca:                                                   // MUX ratio
+    #else
             case 0xa0:                                                   // remap setting in graphic display data ram
+    #endif
             case 0x94:                                                   // icon register
             case 0x82:                                                   // second pre-charge speed
             case 0x81:                                                   // set contrast
@@ -1652,6 +1939,14 @@ static void GraphicOLEDCommand(bool bRS, unsigned char ucByte)
             case 0xa4:                                                   // set display mode - normal
                 iDisplayMode = MODE_NORMAL;
                 break;
+    #if defined OLED_SSD1322
+            case 0xa9:                                                   // exit partial display mode
+                break;
+            case 0xb9:                                                   // set default gray-scale table
+                break;
+            case 0x5c:                                                   // enable MCU to write data into RAM
+                break;
+    #endif
             default:
                 *(unsigned char *)0 = 0;                                 // non-implemented command
                 return;
@@ -1666,20 +1961,22 @@ static void GraphicOLEDCommand(bool bRS, unsigned char ucByte)
 static void fnWriteDisplay(unsigned long ulByte)
 {
     if ((usPresentColumn < GLCD_Y) && (usPresetRow < GLCD_X)) {
-    #if defined MB785_GLCD_MODE
+    #if defined MB785_GLCD_MODE || (defined GLCD_DATA_BUS_WIDTH && (GLCD_DATA_BUS_WIDTH == 16))
         if (1) 
     #else
         if ((ucPixelFormat == PIXEL_16_BIT) && (iDataCnt == 1)) 
     #endif
         {
 			unsigned long ulChangedBits;
-    #if (defined _HX8347 || defined KITRONIX_GLCD_MODE || defined TFT2N0369_GLCD_MODE || defined MB785_GLCD_MODE) && !defined ST7789S_GLCD_MODE
+    #if defined GLCD_DATA_BUS_WIDTH && (GLCD_DATA_BUS_WIDTH == 16)
+            ulNewPixel = ulByte;
+    #elif (defined _HX8347 || defined KITRONIX_GLCD_MODE || defined TFT2N0369_GLCD_MODE || defined MB785_GLCD_MODE) && !defined ST7789S_GLCD_MODE && !defined ILI9341_GLCD_MODE
             ulNewPixel = ulByte;
     #else
             ulNewPixel <<= 8;
             ulNewPixel |= (unsigned char)(ulByte);
     #endif
-    #if defined GLCD_COLOR || defined TFT_GLCD_MODE || defined NOKIA_GLCD_MODE || defined CGLCD_GLCD_MODE || defined KITRONIX_GLCD_MODE || defined TFT2N0369_GLCD_MODE || defined MB785_GLCD_MODE // {7}{8}{13}
+    #if defined GLCD_COLOR || defined TFT_GLCD_MODE || defined NOKIA_GLCD_MODE || defined CGLCD_GLCD_MODE || defined KITRONIX_GLCD_MODE || defined TFT2N0369_GLCD_MODE || defined ST7789S_GLCD_MODE || defined ILI9341_GLCD_MODE || defined MB785_GLCD_MODE // {7}{8}{13}
             ulChangedBits = (ulGraphicPixels[usPresentColumn][usPresetRow] ^ ulNewPixel);
             ulGraphicPixels[usPresentColumn][usPresetRow] = ulNewPixel;
     #else
@@ -1692,7 +1989,7 @@ static void fnWriteDisplay(unsigned long ulByte)
                 POINT point;
                 HDC hdc = GetDC(ghWnd);
                 DWORD dwPixelColor = ((unsigned char)(ulNewPixel << 3) | ((ulNewPixel << 5) & 0x0000fc00) | ((ulNewPixel << 8) & 0x00f80000));
-    #if defined _HX8347 || defined KITRONIX_GLCD_MODE || defined TFT2N0369_GLCD_MODE || defined MB785_GLCD_MODE
+    #if defined _HX8347 || defined KITRONIX_GLCD_MODE || defined TFT2N0369_GLCD_MODE || defined ST7789S_GLCD_MODE || defined ILI9341_GLCD_MODE || defined MB785_GLCD_MODE
                 dwPixelColor = ((dwPixelColor << 16) | (dwPixelColor & 0x0000ff00) | (dwPixelColor >> 16));
     #endif
     #if defined BIG_PIXEL
@@ -1737,7 +2034,7 @@ static void fnWriteDisplay(unsigned long ulByte)
 static void GraphicLCDCommand(bool bRS, unsigned long ulByte)
 {
     unsigned char ucByte = (unsigned char)ulByte;
-    #if defined GLCD_COLOR || defined NOKIA_GLCD_MODE || defined CGLCD_GLCD_MODE || defined KITRONIX_GLCD_MODE || defined TFT2N0369_GLCD_MODE || defined MB785_GLCD_MODE // {8}{13}
+    #if defined GLCD_COLOR || defined NOKIA_GLCD_MODE || defined CGLCD_GLCD_MODE || defined KITRONIX_GLCD_MODE || defined TFT2N0369_GLCD_MODE || defined ST7789S_GLCD_MODE || defined ILI9341_GLCD_MODE || defined MB785_GLCD_MODE // {8}{13}
         #if defined MB785_GLCD_MODE
     static unsigned char ucState = 0xff;                                 // state controlled via SPI data value
     static unsigned char ucIndex = 0;
@@ -1768,7 +2065,7 @@ static void GraphicLCDCommand(bool bRS, unsigned long ulByte)
         return;
         #endif
 		switch (ucCmd) {
-        #if (defined KITRONIX_GLCD_MODE || defined TFT2N0369_GLCD_MODE) && !defined ST7789S_GLCD_MODE // {12}
+        #if (defined KITRONIX_GLCD_MODE || defined TFT2N0369_GLCD_MODE) && !defined ST7789S_GLCD_MODE && !defined ILI9341_GLCD_MODE // {12}
         case 0x01:                                                       // driver output control
             break;
         case 0x02:                                                       // LCD driver AC control
@@ -1814,7 +2111,7 @@ static void GraphicLCDCommand(bool bRS, unsigned long ulByte)
         case 0x46:                                                       // horizontal RAM address end position
             usEndRow = (unsigned short)ulByte;
             break;
-            #if defined TFT2N0369_GLCD_MODE
+            #if defined TFT2N0369_GLCD_MODE || defined ST7789S_GLCD_MODE || defined ILI9341_GLCD_MODE
         case 0x4f:                                                       // set GDDRAM X address counter
             usPresetRow = (unsigned short)ulByte;
             break;
@@ -1924,36 +2221,14 @@ static void GraphicLCDCommand(bool bRS, unsigned long ulByte)
             usEndRow |= ucByte;
             break;
         #else
+            #if defined ST7789S_GLCD_MODE || defined ILI9341_GLCD_MODE
+        case 0x2c:
+            #endif
         case 0x3c:                                                       // write to display memory
             fnWriteDisplay(ulByte);                                      // draw new display content
             break;
         case 0x2a:                                                       // column address start
-            #if defined ST7789S_GLCD_MODE
-            switch (iCommand2--) {
-            case 4:
-                usStartColumn = (ucByte << 8);
-                break;
-            case 3:
-                usStartColumn |= (ucByte);
-                break;
-            case 2:
-                usEndColumn = (ucByte << 8);
-                break;
-            case 1:
-                usEndColumn |= (ucByte);
-                break;
-            }
-            #else
-            if (iCommand2-- != 0) {
-                usStartRow = ucByte;
-            }
-            else {
-                usEndRow = ucByte;
-            }
-            #endif
-            break;
-        case 0x2b:                                                       // row address start
-            #if defined ST7789S_GLCD_MODE
+            #if defined ST7789S_GLCD_MODE || defined ILI9341_GLCD_MODE
             switch (iCommand2--) {
             case 4:
                 usStartRow = (ucByte << 8);
@@ -1966,6 +2241,31 @@ static void GraphicLCDCommand(bool bRS, unsigned long ulByte)
                 break;
             case 1:
                 usEndRow |= (ucByte);
+                break;
+            }
+            #else
+            if (iCommand2-- != 0) {
+                usStartRow = ucByte;
+            }
+            else {
+                usEndRow = ucByte;
+            }
+            #endif
+            break;
+        case 0x2b:                                                       // row address start
+            #if defined ST7789S_GLCD_MODE || defined ILI9341_GLCD_MODE
+            switch (iCommand2--) {
+            case 4:
+                usStartColumn = (ucByte << 8);
+                break;
+            case 3:
+                usStartColumn |= (ucByte);
+                break;
+            case 2:
+                usEndColumn = (ucByte << 8);
+                break;
+            case 1:
+                usEndColumn |= (ucByte);
                 break;
             }
             #else
@@ -1985,19 +2285,19 @@ static void GraphicLCDCommand(bool bRS, unsigned long ulByte)
             break;
         #endif
         #if !defined NOKIA_GLCD_MODE
-            #if defined _HX8347 || defined KITRONIX_GLCD_MODE || defined TFT2N0369_GLCD_MODE
+            #if defined _HX8347 || defined KITRONIX_GLCD_MODE || defined TFT2N0369_GLCD_MODE || defined ST7789S_GLCD_MODE || defined ILI9341_GLCD_MODE
         case 0x22:                                                       // write to display memory
             iDataCnt = 1;                                                // always 16 bit mode
             #else
         case 0x2c:                                                       // write to display memory
             #endif
-            #if defined _HX8347 || defined KITRONIX_GLCD_MODE || defined TFT2N0369_GLCD_MODE
+            #if defined _HX8347 || defined KITRONIX_GLCD_MODE || defined TFT2N0369_GLCD_MODE || defined ST7789S_GLCD_MODE || defined ILI9341_GLCD_MODE
             fnWriteDisplay(ulByte);                                      // draw new display content
             #else
             fnWriteDisplay(ucByte);                                      // draw new display content
             #endif
             break;
-            #if !defined KITRONIX_GLCD_MODE && !defined TFT2N0369_GLCD_MODE
+            #if !defined KITRONIX_GLCD_MODE && !defined TFT2N0369_GLCD_MODE && !defined ST7789S_GLCD_MODE && !defined ILI9341_GLCD_MODE
         case 0x36:                                                       // memory data access control
             ucMemoryDataAccessControl = ucByte;
             break;
@@ -2042,7 +2342,7 @@ static void GraphicLCDCommand(bool bRS, unsigned long ulByte)
 		switch (ucCmd) 
         #endif
         {
-        #if defined KITRONIX_GLCD_MODE || defined TFT2N0369_GLCD_MODE && !defined ST7789S_GLCD_MODE // {12}
+        #if defined KITRONIX_GLCD_MODE || defined TFT2N0369_GLCD_MODE && !defined ST7789S_GLCD_MODE && !defined ILI9341_GLCD_MODE // {12}
         case 0x00:                                                       // oscillator start
         case 0x01:                                                       // driver output control
         case 0x02:                                                       // LCD driver AC control
@@ -2333,6 +2633,8 @@ static void GraphicLCDCommand(bool bRS, unsigned long ulByte)
             break;
         case 0x29:                                                       // display on
             break;
+        case 0x35:
+            break;
         case 0x36:                                                       // memory data access control
             break;
         case 0x3a:                                                       // interface pixel format
@@ -2341,7 +2643,8 @@ static void GraphicLCDCommand(bool bRS, unsigned long ulByte)
             break;
         case 0xe3:                                                       // read from OTP
             break;
-            #if defined ST7789S_GLCD_MODE
+            #if defined ST7789S_GLCD_MODE || defined ILI9341_GLCD_MODE
+        case 0x2c:
         case 0x3c:                                                       // write to display memory
             if (ucMemoryDataAccessControl == 0) {
                 usPresentColumn = usStartColumn;
@@ -2365,6 +2668,22 @@ static void GraphicLCDCommand(bool bRS, unsigned long ulByte)
             break;
         case 0xc0:                                                       // LCM control
             break;
+    #if defined ILI9341_GLCD_MODE
+        case 0xc1:                                                       // power control 2
+            break;
+        case 0xc5:                                                       // VCOM control 1
+            break;
+        case 0xc7:                                                       // VCOM control 2
+            break;
+        case 0xb1:                                                       // frame rate control (normal) - with 2 parameters
+            break;
+        case 0xb6:                                                       // display function control - with 2 parameters
+            break;
+        case 0x26:                                                       // gamma set - with 1 parameter
+            break;
+        case 0x21:                                                       // display inversion on
+            break;
+    #endif
         case 0xc2:                                                       // VDV and VRH command enable
             break;
         case 0xc3:                                                       // VRH set
@@ -2411,6 +2730,16 @@ static void GraphicLCDCommand(bool bRS, unsigned long ulByte)
             break;
             #endif
         #endif
+        #if defined ILI9341_GLCD_MODE
+        case 0xcb:                                                       // unknown command with 5 bytes following
+        case 0xcf:                                                       // unknown command with 3 bytes following
+        case 0xe8:                                                       // unknown command with 3 bytes following
+        case 0xea:                                                       // unknown command with 2 bytes following
+        case 0xed:                                                       // unknown command with 4 bytes following
+        case 0xf7:                                                       // unknown command with 1 byte following
+        case 0xf2:                                                       // unknown command with 1 byte following
+            break;
+        #endif
 		default:
             _EXCEPTION("Non-implemented command!");                      // exception to warn of error or non-implemented command
 			break;
@@ -2441,6 +2770,10 @@ static void GraphicLCDCommand(bool bRS, unsigned long ulByte)
             break;
         case 0xf0:                                                       // Test - this should not be used
             break;
+    #if defined ST7565S_GLCD_MODE
+        case 0xf8:                                                       // set booster level
+            break;
+    #endif
         }
         return;
     }
@@ -2455,25 +2788,44 @@ static void GraphicLCDCommand(bool bRS, unsigned long ulByte)
         case 0x26:                                                       // default contrast
         case 0x40:                                                       // display start
             break;
-    #endif
-        case 0xe2: // reset LCD
+        case 0xa1:                                                       // reverse segment driver direction
+            iGraphicFlags[ulByte] |= DISPLAY_IS_REVERSE;
+            break;
+        case 0xa0:                                                       // normal segment driver direction
+            iGraphicFlags[ulByte] &= ~DISPLAY_IS_REVERSE;
+            break;
+        case 0xa5:                                                       // LCD display all dots on
+            break;
+        case 0xac:                                                       // LCD flashing mode off
+        case 0xad:                                                       // LCD flashing mode on
+            break;
+        case 0xa6:                                                       // LCD display normal
+        case 0xa7:                                                       // LCD display normal
+        case 0xa2:                                                       // LCD bias ratio 1/9
+        case 0xa3:                                                       // LCD bias ratio 1/7
+            break;
+        case 0xae:                                                       // display off
             iGraphicFlags[ulByte] &= ~DISPLAY_IS_ON;
             break;
-        case 0xaf: // display on
+    #endif
+        case 0xa4:                                                       // LCD display dots normal
+            break;
+        case 0xe2:                                                       // reset LCD
+            iGraphicFlags[ulByte] &= ~DISPLAY_IS_ON;
+            break;
+        case 0xaf:                                                       // display on
             iGraphicFlags[ulByte] |= DISPLAY_IS_ON;
             break;
-        case 0xa4: // static drive on
-            break;
-        case 0xb8: // set page 0
+        case 0xb8:                                                       // set page 0
             ucPageAddress[ulByte] = 0;
             break;
-        case 0xb9: // set page 1
+        case 0xb9:                                                       // set page 1
             ucPageAddress[ulByte] = 1;
             break;
-        case 0xba: // set page 2
+        case 0xba:                                                       // set page 2
             ucPageAddress[ulByte] = 2;
             break;
-        case 0xbb: // set page 3
+        case 0xbb:                                                       // set page 3
             ucPageAddress[ulByte] = 3;
             break;
     #if !defined ST7565S_GLCD_MODE
@@ -2494,8 +2846,30 @@ static void GraphicLCDCommand(bool bRS, unsigned long ulByte)
             iGraphicFlags[ulByte] = DISPLAY_IS_ON;
             fnRedrawDisplay();                                           // refresh display
             break;
+    #if defined ST7565S_GLCD_MODE
+        case 0x81:                                                       // electronic volume mode set (followed by 6 bit value)
+            iDoubleByteCommand = 1;
+            ucPresentCommand = ucByte;
+            break;
+    #endif
         default:
             switch (ucByte & 0xf8) {
+    #if defined ST7565S_GLCD_MODE
+            case 0x20:                                                   // select regulation resistor ratio (mask 0x07)
+                break;
+            case 0x28:                                                   // power controller set
+                if (ucByte & 0x04) {                                     // booster circuit on
+                }
+                if (ucByte & 0x02) {                                     // voltage regulator circuit on
+                }
+                if (ucByte & 0x01) {                                     // voltage follower circuit on
+                }
+                break;
+            case 0xf8:                                                   // set booster level
+                iDoubleByteCommand = 1;
+                ucPresentCommand = ucByte;
+                break;
+    #endif
             case 0xc0:                                                   // common output mode select normal
                 break;
             case 0xb8:
@@ -2512,6 +2886,9 @@ static void GraphicLCDCommand(bool bRS, unsigned long ulByte)
                     break;
                 case 0xb0:                                               // page address                    
                     ucPageAddress[0] = (ucByte & 0x07);
+                    if (ucPageAddress[0] >= (GLCD_Y/8)) {
+                        _EXCEPTION("Bad page address");
+                    }
                     break;
     #else
                 case 0xb0:                                               // page address                    
@@ -2550,38 +2927,77 @@ static void GraphicLCDCommand(bool bRS, unsigned long ulByte)
         HDC hdc = GetDC(ghWnd);
         int k;
         unsigned char ucBit;
-        if (iGraphicFlags[ulByte] & DISPLAY_IS_ON) {
+    #if defined ST7565S_GLCD_MODE && defined MGCF16404B
+        int iOffsetX;
+        int iOffsetY;
+    #endif
+        if ((iGraphicFlags[ulByte] & DISPLAY_IS_ON) != 0) {
             ucBit = 0x01;
         }
         else {
             ucBit = 0x00;
         }
+        if (ucColumn[ulByte] >= GLCD_X) {
+            _EXCEPTION("Bad addressing");
+        }
         ucGraphicPixels[ucPageAddress[ulByte]][ucColumn[ulByte]] = ucByte;
         point.x = rect.left;
         point.y = rect.top;
+        #if defined ST7565S_GLCD_MODE && defined MGCF16404B
+        iOffsetX = (ucColumn[ulByte] / 5);
+        iOffsetY = ucPageAddress[ulByte];
+            #if defined BIG_PIXEL
+        iOffsetX *= 2;
+        iOffsetY *= 2;
+            #endif
         for (k = 0; k < 8; k++) {
-            if (ucByte & ucBit) {
-    #if defined BIG_PIXEL
-                SetPixelV(hdc, point.x + ucColumn[ulByte]*2, (point.y + k*2) + ucPageAddress[ulByte]*8*2, LCD_PIXEL_COLOUR);
-                SetPixelV(hdc, point.x + 1 + ucColumn[ulByte]*2, (point.y + k*2) + ucPageAddress[ulByte]*8*2, LCD_PIXEL_COLOUR);
-                SetPixelV(hdc, point.x + ucColumn[ulByte]*2, (point.y + 1 + k*2) + ucPageAddress[ulByte]*8*2, LCD_PIXEL_COLOUR);
-                SetPixelV(hdc, point.x + 1 + ucColumn[ulByte]*2, (point.y + 1 + k*2) + ucPageAddress[ulByte]*8*2, LCD_PIXEL_COLOUR);
-    #else
-                SetPixelV(hdc, point.x + ucColumn[ulByte], (point.y + k) + ucPageAddress[ulByte]*8, LCD_PIXEL_COLOUR);
-    #endif
+            if ((ucByte & ucBit) != 0) {                                 // if the pixel is on
+            #if defined BIG_PIXEL
+                SetPixelV(hdc, (point.x + iOffsetX +(ucColumn[ulByte] * 2)), (point.y + iOffsetY + (k * 2)) + ucPageAddress[ulByte]*8*2, LCD_PIXEL_COLOUR);
+                SetPixelV(hdc, (point.x + iOffsetX + 1 + (ucColumn[ulByte] * 2)), (point.y + iOffsetY + (k * 2)) + ucPageAddress[ulByte]*8*2, LCD_PIXEL_COLOUR);
+                SetPixelV(hdc, (point.x + iOffsetX + (ucColumn[ulByte] * 2)), (point.y + iOffsetY + 1 + k*2) + ucPageAddress[ulByte]*8*2, LCD_PIXEL_COLOUR);
+                SetPixelV(hdc, (point.x + iOffsetX + 1 + (ucColumn[ulByte] * 2)), (point.y + iOffsetY + 1 + k*2) + ucPageAddress[ulByte]*8*2, LCD_PIXEL_COLOUR);
+            #else
+                SetPixelV(hdc, (point.x + iOffsetX + ucColumn[ulByte]), (point.y + iOffsetY + k) + ucPageAddress[ulByte]*8, LCD_PIXEL_COLOUR);
+            #endif
             }
-            else {
-    #if defined BIG_PIXEL
+            else {                                                       // pixel is off
+        #if defined BIG_PIXEL
+                SetPixelV(hdc, point.x + iOffsetX + ucColumn[ulByte]*2, (point.y + iOffsetY + k*2) + ucPageAddress[ulByte]*8*2, LCD_ON_COLOUR);
+                SetPixelV(hdc, point.x + iOffsetX + 1 + ucColumn[ulByte]*2, (point.y + iOffsetY + k*2) + ucPageAddress[ulByte]*8*2, LCD_ON_COLOUR);
+                SetPixelV(hdc, point.x + iOffsetX + ucColumn[ulByte]*2, (point.y + iOffsetY + 1 + k*2) + ucPageAddress[ulByte]*8*2, LCD_ON_COLOUR);
+                SetPixelV(hdc, point.x + iOffsetX + 1 + ucColumn[ulByte]*2, (point.y + iOffsetY + 1 + k*2) + ucPageAddress[ulByte]*8*2, LCD_ON_COLOUR);
+        #else
+                SetPixelV(hdc, point.x + iOffsetX + ucColumn[ulByte], (point.y + iOffsetY + k) + ucPageAddress[ulByte]*8, LCD_ON_COLOUR);
+        #endif
+            }
+            ucBit <<= 1;
+        }
+        #else
+        for (k = 0; k < 8; k++) {
+            if ((ucByte & ucBit) != 0) {                                 // if the pixel is on
+        #if defined BIG_PIXEL
+                SetPixelV(hdc, (point.x + (ucColumn[ulByte] * 2)), (point.y + (k * 2)) + ucPageAddress[ulByte]*8*2, LCD_PIXEL_COLOUR);
+                SetPixelV(hdc, (point.x + 1 + (ucColumn[ulByte] * 2)), (point.y + (k * 2)) + ucPageAddress[ulByte]*8*2, LCD_PIXEL_COLOUR);
+                SetPixelV(hdc, (point.x + (ucColumn[ulByte] * 2)), (point.y + 1 + k*2) + ucPageAddress[ulByte]*8*2, LCD_PIXEL_COLOUR);
+                SetPixelV(hdc, (point.x + 1 + (ucColumn[ulByte] * 2)), (point.y + 1 + k*2) + ucPageAddress[ulByte]*8*2, LCD_PIXEL_COLOUR);
+        #else
+                SetPixelV(hdc, (point.x + ucColumn[ulByte]), (point.y + k) + ucPageAddress[ulByte]*8, LCD_PIXEL_COLOUR);
+        #endif
+            }
+            else {                                                       // pixel is off
+        #if defined BIG_PIXEL
                 SetPixelV(hdc, point.x + ucColumn[ulByte]*2, (point.y + k*2) + ucPageAddress[ulByte]*8*2, LCD_ON_COLOUR);
                 SetPixelV(hdc, point.x + 1 + ucColumn[ulByte]*2, (point.y + k*2) + ucPageAddress[ulByte]*8*2, LCD_ON_COLOUR);
                 SetPixelV(hdc, point.x + ucColumn[ulByte]*2, (point.y + 1 + k*2) + ucPageAddress[ulByte]*8*2, LCD_ON_COLOUR);
                 SetPixelV(hdc, point.x + 1 + ucColumn[ulByte]*2, (point.y + 1 + k*2) + ucPageAddress[ulByte]*8*2, LCD_ON_COLOUR);
-    #else
+        #else
                 SetPixelV(hdc, point.x + ucColumn[ulByte], (point.y + k) + ucPageAddress[ulByte]*8, LCD_ON_COLOUR);
-    #endif
+        #endif
             }
             ucBit <<= 1;
         }
+        #endif
         ReleaseDC(ghWnd, hdc);
 
         if (++ucColumn[ulByte] >= LCD_PIXEL_X_REAL) {
@@ -2680,20 +3096,52 @@ static void GraphicLCDCommand(bool bRS, unsigned long ulByte)
     POINT point;
 	RECT rect = rectLines[0];
     point.y = rect.top;
-    unsigned long *ptrSDRAM = (unsigned long *)ulByte;
-    unsigned long ulPixelTest;
+    #if defined eLCD_IN_16_BIT_MODE
+    static unsigned short *ptrSDRAM;
+    unsigned short PixelTest;
+    #else
+    static unsigned long *ptrSDRAM;
+    unsigned long PixelTest;
+    #endif
     unsigned char *ptrPix = (unsigned char *)pPixels;
+    if (ulByte != 0) {
+    #if defined eLCD_IN_16_BIT_MODE
+        ptrSDRAM = (unsigned short *)ulByte;
+    #else
+        ptrSDRAM = (unsigned long *)ulByte;
+    #endif
+    }
+    if (ptrSDRAM == 0) {
+        return;
+    }
 
-    if (pPixels != 0) {                                                  // {19} fast method - draw complete LCD content
+    if (ptrPix != 0) {                                                   // {19} fast method - draw complete LCD content
         for (i = (GLCD_Y - 1); i >= 0; i--) {                            // for each line
             for (j = 0; j < GLCD_X; j++) {
-                ulPixelTest = *(ptrSDRAM + j +(GLCD_X * i));
-                *ptrPix++ = (unsigned char)(ulPixelTest >> 16);
-                *ptrPix++ = (unsigned char)(ulPixelTest >> 8);
-                *ptrPix++ = (unsigned char)(ulPixelTest);
+                PixelTest = *(ptrSDRAM + j + (GLCD_X * i));
+    #if defined eLCD_IN_16_BIT_MODE
+                *ptrPix++ = (unsigned char)((PixelTest & 0x001f) << 3);  // blue
+                *ptrPix++ = (unsigned char)((PixelTest & 0x07e0) >> 3);  // green
+                *ptrPix++ = (unsigned char)((PixelTest & 0xf800) >> 8);  // red
+    #else
+                *ptrPix++ = (unsigned char)(PixelTest >> 16);
+                *ptrPix++ = (unsigned char)(PixelTest >> 8);
+                *ptrPix++ = (unsigned char)(PixelTest);
+    #endif
+    #if defined LCD_SIMULATE_BACKLIGHT
+                if (nBackLightPercentage != 0) {
+                    ptrPix -= 3;
+                    *ptrPix = ((*ptrPix * nBackLightPercentage) / 100);
+                    ptrPix++;
+                    *ptrPix = ((*ptrPix * nBackLightPercentage) / 100);
+                    ptrPix++;
+                    *ptrPix = ((*ptrPix * nBackLightPercentage) / 100);
+                    ptrPix++;
+                }
+    #endif
             }
         }
-        LCD_draw_bmp((rectLcd.left + 7), (rectLcd.top + 6),  GLCD_X, GLCD_Y); // redraw complete bitmap
+        LCD_draw_bmp((rectLcd.left + SIDE_SPACE), (rectLcd.top + TOP_SPACE),  GLCD_X, GLCD_Y); // redraw complete bitmap
     }
     else {                                                               // original pixel based drawing - to be phased out
 
@@ -2771,14 +3219,17 @@ extern "C" int CollectCommand(bool bRS, unsigned long ulByte)            // {17}
 #elif defined SUPPORT_GLCD || defined SUPPORT_TFT || defined GLCD_COLOR || defined SLCD_FILE
     GraphicLCDCommand(bRS, ulByte);
     return 0;
+#elif defined AVAGO_HCMS_CHAR_LCD
+    LCDCommand(bRS, (unsigned char)ulByte);
+    return 0;
 #else                                                                    // character LCD
     int iReturn = 0xff;
-    if (tDisplayMem.bmode) {                                             // 8-bit mode - byte complete
+    if (tDisplayMem.bmode != 0) {                                        // 8-bit mode - byte complete
         iReturn = LCDCommand(bRS, (unsigned char)ulByte);
         DrawLcdLine(ghWnd);
     }
     else {
-        if (nibbel) {                                                    // save most significant nibble
+        if (nibbel != 0) {                                               // save most significant nibble
             nibbel = 0;
             cmd = (unsigned char)(ulByte & 0xf0);
         }
@@ -2793,10 +3244,298 @@ extern "C" int CollectCommand(bool bRS, unsigned long ulByte)            // {17}
 #endif
 }
 
+#if defined CRYSTAL_FONTZ_UART_LCD_SIMULATION
+static void fnInitialiseCrystalFontz(void)
+{
+    LCDCommand(0, 0x38);                                                 // display initialisation;
+}
+
+static void fnCrystalFontzText(unsigned char *ptrTxt, unsigned char ucLen)
+{
+    while (ucLen-- != 0) {
+        LCDCommand(1, *ptrTxt++);
+    }
+    DrawLcdLine(ghWnd);
+}
+
+static unsigned char keypadstate = 0;
+
+unsigned int get_crc(unsigned char *bufptr, unsigned int len)
+{
+    static const unsigned int crcLookupTable[256] = {
+        0x00000,0x01189,0x02312,0x0329B,0x04624,0x057AD,0x06536,0x074BF,
+        0x08C48,0x09DC1,0x0AF5A,0x0BED3,0x0CA6C,0x0DBE5,0x0E97E,0x0F8F7,
+        0x01081,0x00108,0x03393,0x0221A,0x056A5,0x0472C,0x075B7,0x0643E,
+        0x09CC9,0x08D40,0x0BFDB,0x0AE52,0x0DAED,0x0CB64,0x0F9FF,0x0E876,
+        0x02102,0x0308B,0x00210,0x01399,0x06726,0x076AF,0x04434,0x055BD,
+        0x0AD4A,0x0BCC3,0x08E58,0x09FD1,0x0EB6E,0x0FAE7,0x0C87C,0x0D9F5,
+        0x03183,0x0200A,0x01291,0x00318,0x077A7,0x0662E,0x054B5,0x0453C,
+        0x0BDCB,0x0AC42,0x09ED9,0x08F50,0x0FBEF,0x0EA66,0x0D8FD,0x0C974,
+        0x04204,0x0538D,0x06116,0x0709F,0x00420,0x015A9,0x02732,0x036BB,
+        0x0CE4C,0x0DFC5,0x0ED5E,0x0FCD7,0x08868,0x099E1,0x0AB7A,0x0BAF3,
+        0x05285,0x0430C,0x07197,0x0601E,0x014A1,0x00528,0x037B3,0x0263A,
+        0x0DECD,0x0CF44,0x0FDDF,0x0EC56,0x098E9,0x08960,0x0BBFB,0x0AA72,
+        0x06306,0x0728F,0x04014,0x0519D,0x02522,0x034AB,0x00630,0x017B9,
+        0x0EF4E,0x0FEC7,0x0CC5C,0x0DDD5,0x0A96A,0x0B8E3,0x08A78,0x09BF1,
+        0x07387,0x0620E,0x05095,0x0411C,0x035A3,0x0242A,0x016B1,0x00738,
+        0x0FFCF,0x0EE46,0x0DCDD,0x0CD54,0x0B9EB,0x0A862,0x09AF9,0x08B70,
+        0x08408,0x09581,0x0A71A,0x0B693,0x0C22C,0x0D3A5,0x0E13E,0x0F0B7,
+        0x00840,0x019C9,0x02B52,0x03ADB,0x04E64,0x05FED,0x06D76,0x07CFF,
+        0x09489,0x08500,0x0B79B,0x0A612,0x0D2AD,0x0C324,0x0F1BF,0x0E036,
+        0x018C1,0x00948,0x03BD3,0x02A5A,0x05EE5,0x04F6C,0x07DF7,0x06C7E,
+        0x0A50A,0x0B483,0x08618,0x09791,0x0E32E,0x0F2A7,0x0C03C,0x0D1B5,
+        0x02942,0x038CB,0x00A50,0x01BD9,0x06F66,0x07EEF,0x04C74,0x05DFD,
+        0x0B58B,0x0A402,0x09699,0x08710,0x0F3AF,0x0E226,0x0D0BD,0x0C134,
+        0x039C3,0x0284A,0x01AD1,0x00B58,0x07FE7,0x06E6E,0x05CF5,0x04D7C,
+        0x0C60C,0x0D785,0x0E51E,0x0F497,0x08028,0x091A1,0x0A33A,0x0B2B3,
+        0x04A44,0x05BCD,0x06956,0x078DF,0x00C60,0x01DE9,0x02F72,0x03EFB,
+        0x0D68D,0x0C704,0x0F59F,0x0E416,0x090A9,0x08120,0x0B3BB,0x0A232,
+        0x05AC5,0x04B4C,0x079D7,0x0685E,0x01CE1,0x00D68,0x03FF3,0x02E7A,
+        0x0E70E,0x0F687,0x0C41C,0x0D595,0x0A12A,0x0B0A3,0x08238,0x093B1,
+        0x06B46,0x07ACF,0x04854,0x059DD,0x02D62,0x03CEB,0x00E70,0x01FF9,
+        0x0F78F,0x0E606,0x0D49D,0x0C514,0x0B1AB,0x0A022,0x092B9,0x08330,
+        0x07BC7,0x06A4E,0x058D5,0x0495C,0x03DE3,0x02C6A,0x01EF1,0x00F78
+    };
+    unsigned int newCrc = 0xffff;
+    while (len-- != 0) {
+        newCrc = (newCrc >> 8) ^ crcLookupTable[(newCrc ^ *bufptr++) & 0xff];
+    }
+    return (~newCrc);
+}
+
+#if _VC80_UPGRADE >= 0x0600
+    #define STRCPY(a, b) strcpy_s(a, 32, b)
+#else
+    #define STRCPY strcpy
+#endif
+
+extern void fnProcessRx(unsigned char *ptrData, unsigned short usLength, int iPort);
+static void fnParseCrystalFontzMessage(unsigned char * databuffer)
+{
+  	int reply = 1;
+    int replycnt;
+    char txbuffer[64];
+
+    switch(databuffer[0]) {
+    case 0: // Ping - Return same as sent
+    case 2: // WriteFlash - Return Null
+    case 4: // Store Current State as boot - Return Null
+    case 5: // Reboot - Return Null
+    case 6: // Clear LCD - Return Null
+    case 9: // Set LCD CGRAM - Return Null
+    case 11: // Set LCD Cursor Pos - Return Null
+    case 12: // Set LCD Cursor Style - Return Null
+    case 13: // Set LCD Contrast - Return Null
+    case 14: // Set LCD Backlight - Return Null
+    case 15: // Not Used - Return Null
+    case 16: // Setup Fan - Return Null
+    case 17: // Set Fan Power - Return Null
+    case 19: // Setup Temp Report - Return Null
+    case 21: // Setup Fan Display - Return Null
+    case 22: // Direct LCD Command - Return Null
+    case 23: // Config Key Reporting - Return Null
+    case 25: // Set Fan Power Safe - Return Null
+    case 26: // Set Fan Glitch Filter - Return Null
+    case 28: // Set ATX mode - Return Null
+    case 29: // Set Watchdog - Return Null
+    case 32: // Reserved - Return Null
+    case 33: // Set Baud Rate - Return Null
+    case 34: // Set GPIO pin - Return Null
+        replycnt = 0;
+		break;
+
+    case 3: // ReadFlash - 16 Bytes Returned
+    case 20: // DOW Transaction - Return upto 16 bytes
+        replycnt = 16;
+        // String             1234567890123456
+        STRCPY(&txbuffer[2],"1234567890123456"); // Store return string
+        break;
+
+    case 10: // Read 8 Bytes - Return 9 bytes
+    case 18: // Read DOW - Return 9 bytes
+    case 27: // Query Fan Data - Return 5 Bytes
+    case 30: // Read Status - Return 15 bytes
+    case 35: // Read GPIO pin - Return 4 bytes
+        replycnt = 0;
+        // String             1234567890123456
+//        uStrcpy(&txbuffer[2],"uTasker LCD v1.0"); // Store return string
+        break;
+
+
+    case 1: // Get version number
+		replycnt = 16;
+        // String             1234567890123456
+        STRCPY(&txbuffer[2],"uTasker LCD v1.0"); // Store return string
+		break;
+
+    case 7: // Set LCD Line1 - Return Null
+      //fnDoLCD_com_text(E_LCD_TEXT_LINE1, (unsigned char *)&databuffer[2], 16);
+        LCDCommand(0, 0x80);
+        fnCrystalFontzText((unsigned char *)&databuffer[2], 16);
+        replycnt = 0;
+		break;
+
+    case 8: // Set LCD Line2 - Return Null
+      //fnDoLCD_com_text(E_LCD_TEXT_LINE2, (unsigned char *)&databuffer[2], 16);
+        LCDCommand(0, 0xc0);
+        fnCrystalFontzText((unsigned char *)&databuffer[2], 16);
+        replycnt = 0;
+		break;
+
+    case 24: // Read Keypad - Return 3 Bytes
+        txbuffer[2] = keypadstate;
+        txbuffer[3] = 0;
+        txbuffer[4] = 0;
+        replycnt = 3;
+		break;
+        
+    case 31: // Send data to LCD - Return Null
+        if (databuffer[3] != 0) {   // not line 0
+          //fnDoLCD_com_text(E_LCD_TEXT_LINE2, (unsigned char *)&databuffer[4], databuffer[2]);
+            LCDCommand(0, 0xc0);
+        }
+        else {
+          //fnDoLCD_com_text(E_LCD_TEXT_LINE1, (unsigned char *)&databuffer[4], databuffer[2]);
+            LCDCommand(0, 0x80);
+        }
+        fnCrystalFontzText((unsigned char *)&databuffer[4], 2);
+        replycnt = 0;
+		break;
+
+    default:
+        reply = 0;
+	}
+    
+    if (reply != 0) {
+		unsigned int calccrc;
+        txbuffer[0] = (databuffer[0] | 0x40);                            // reply messages are sent with bit 7 set
+		txbuffer[1] = replycnt;                                          // store number of bytes in reply
+        calccrc = get_crc((unsigned char *)txbuffer, (replycnt + 2));    // Calc CRC
+		txbuffer[replycnt + 2] = calccrc & 0xff;
+		txbuffer[replycnt + 3] = calccrc >> 8;
+        fnProcessRx((unsigned char *)txbuffer, (replycnt + 4), CRYSTAL_FONZ_UART); // send reply packet
+    }
+}
+
+extern void fnRxCrystalFontz(unsigned char *ptrInput, DWORD dwCount)
+{
+    static int iProtState = 0;
+    static UTASK_TICK lasttick = 0;
+    static int iRxCnt = 0;
+    static unsigned char ucInputMessage[32];
+    static unsigned int datasize;
+    static unsigned short datacrc;
+    unsigned char rxdata;
+    unsigned short calccrc;
+    while (dwCount-- != 0) {                                             // each new input
+     /*   if ((lasttick + 2) < uTaskerSystemTick) {
+            iProtState = 0;                                              // if not recieved anything for a while reset iProtState
+            iRxCnt = 0;
+        }
+        lasttick = uTaskerSystemTick;*/
+        if (iProtState == 0) {
+            iRxCnt = 0;
+        }
+        rxdata = *ptrInput++;
+        ucInputMessage[iRxCnt % 32] = rxdata;                            // store data
+
+        switch (iProtState) {
+        case 0:
+            iRxCnt = 0;
+            if (rxdata < 35) {                                           // valid command codes
+                iProtState++;
+                iRxCnt++;
+            }
+            break;
+        case 1:
+            datasize = rxdata;
+            iProtState++;
+            iRxCnt++;                                                    // keep the received byte
+            if (datasize == 0) {                                         // if data size = 0 next state is CRC
+                iProtState++;
+            }
+            break;
+        case 2:
+            iRxCnt++;                                                    // keep the received byte
+            if (datasize > 1) {
+                datasize--;
+            }
+            else iProtState++;
+            break;
+        case 3:
+            iRxCnt++;                                                    // keep the received byte
+            datacrc = rxdata;
+            iProtState++;
+            break;
+        case 4:
+            iRxCnt++;                                                    // keep the received byte
+            datacrc = datacrc | (rxdata << 8);
+            calccrc = get_crc(ucInputMessage, (iRxCnt - 2));
+            if (datacrc == calccrc) {                                    // check CRC
+                fnParseCrystalFontzMessage(ucInputMessage);			     // process data
+            }
+            iProtState = 0;
+            break;
+        default:
+            iProtState = 0;
+            break;
+        }
+        if (iProtState == 5) {
+            iProtState = 0;
+            datasize = rxdata;
+            iRxCnt = 0; 						                         // keep the received byte
+        }
+    }
+}
+
+extern "C" int iOpSysActiveOverride;
+
+extern "C" int fnCrystalFonzKey(unsigned char ucPort, int iChange, unsigned long ulBit)
+{
+    unsigned char txbuffer[32];
+    unsigned short calccrc;
+    switch (ulBit) {
+    case PORT_BIT0:
+        txbuffer[2] = 1;                                                 // up
+        break;
+    case PORT_BIT1:
+        txbuffer[2] = 3;                                                 // left
+        break;
+    case PORT_BIT2:
+        txbuffer[2] = 5;                                                 // OK
+        break;
+    case PORT_BIT3:
+        txbuffer[2] = 4;                                                 // right
+        break;
+    case PORT_BIT4:
+        txbuffer[2] = 6;                                                 // escape
+        break;
+    case PORT_BIT5:
+        txbuffer[2] = 2;                                                 // down
+        break;
+    default:
+        return 0;
+    }
+    if (TOGGLE_INPUT == iChange) {                                       // release
+        txbuffer[2] += 6;
+    }
+    txbuffer[0] = 0x80;                                                  // reply messages are sent with bit 7 set
+    txbuffer[1] = 1;                                                     // store number of bytes in reply
+    calccrc = get_crc(txbuffer, 5);                                      // Calc CRC
+    txbuffer[3] = (unsigned char)calccrc;
+    txbuffer[4] = (unsigned char)(calccrc >> 8);
+    // This presently causes a problem sine the op system flag is already set and so it can't be accepted....
+    //
+    iOpSysActiveOverride = 1;
+    fnProcessRx((unsigned char *)txbuffer, 5, CRYSTAL_FONZ_UART);        // send reply packet
+    return 0;
+}
+#endif
+
 #if defined SUPPORT_GLCD || defined GLCD_COLOR
 static unsigned long fnGetLCDMemory(unsigned char ucType)
 {
-    #if defined GLCD_COLOR || defined CGLCD_GLCD_MODE || defined KITRONIX_GLCD_MODE || defined TFT2N0369_GLCD_MODE // {8}
+    #if defined GLCD_COLOR || defined CGLCD_GLCD_MODE || defined KITRONIX_GLCD_MODE || defined TFT2N0369_GLCD_MODE || defined ST7789S_GLCD_MODE || defined ILI9341_GLCD_MODE // {8}
     static int iColor = 0;
     unsigned long ulNewPixel;
     ulNewPixel = ulGraphicPixels[usPresentColumn][usPresetRow];
@@ -2883,13 +3622,18 @@ extern "C" unsigned long ReadDisplay(bool bRS)
 extern "C" void fnSimBackLights(bool iLightState, int iPercentage)       // {10}
 {
 #if defined LCD_SIMULATE_BACKLIGHT
-    if (nBackLightOn == (int)iLightState) {
+    if ((nBackLightOn == (int)iLightState) && (nBackLightPercentage == iPercentage)) {
         return;                                                          // ignore redraws when no change
     }
     nNewBacklight = iLightState;
     nBackLightPercentage = iPercentage;
+
+    #if defined SUPPORT_TFT || defined TFT_GLCD_MODE
+    GraphicLCDCommand(0, 0);
+    #else
   //fnInvalidateLCD();                                                   // ensure all characters are redrawn
     fnRedrawDisplay();                                                   // provoke a redraw
+    #endif
 #endif
 }
 
@@ -3483,4 +4227,139 @@ static void fnDrawAllSegments(int iDrawType)
 }
 
 #endif
+#endif
+
+#if defined SUPPORT_LED_SEG_SIMULATION                                   // {21}
+
+extern RECT kb_rect;
+
+static const unsigned short font_14_MAX9655[128] = {
+    0x183f, 0x0018, 0x0336, 0x023c, 0x0319, 0x2125, 0x032f, 0x001a, 0x033f, 0x033d, 0x033b, 0x02fc, 0x0027, 0x00fc, 0x0327, 0x0123,
+    0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x03e4, 0x0f80, 0x03e7, 0x0331, 0x0c03, 0x03c4, 0x30c0, 0x0cc0, 
+    0x0000, 0x0018, 0x0041, 0x3fff, 0x03ee, 0x3f09, 0x3c68, 0x0800, 0x2800, 0x1400, 0x33c0, 0x03c0, 0x1000, 0x0300, 0x0186, 0x1800, 
+    0x183f, 0x0018, 0x0336, 0x023c, 0x0319, 0x2125, 0x032f, 0x001a, 0x033f, 0x033d, 0x00c0, 0x1040, 0x2800, 0x0304, 0x1400, 0x02b0,
+    0x0277, 0x033b, 0x02fc, 0x0027, 0x00fc, 0x0327, 0x0123, 0x022f, 0x031b, 0x00c0, 0x001e, 0x2903, 0x0007, 0x0c1b, 0x241b, 0x003f, 
+    0x0333, 0x203f, 0x2333, 0x032d, 0x00e0, 0x001f, 0x1803, 0x301b, 0x3c00, 0x0c80, 0x1824, 0x0027, 0x2400, 0x003c, 0x1830, 0x0004, 
+    0x0400, 0x033b, 0x02fc, 0x0027, 0x00fc, 0x0327, 0x0123, 0x022f, 0x031b, 0x00c0, 0x001e, 0x2903, 0x0007, 0x0c1b, 0x241b, 0x003f,
+    0x0333, 0x203f, 0x2333, 0x032d, 0x00e0, 0x001f, 0x1803, 0x301b, 0x3c00, 0x0c80, 0x1824, 0x2900, 0x00c0, 0x1600, 0x0312, 0x003f
+};
+
+static void fnDrawSegment14_MAX9655(int iX, int iY, int iWidth, unsigned char ucReference)
+{
+    // Draw background
+    //
+    unsigned short usCharacter;
+    int iSegment = 0;
+    int iHeight = (int)(iWidth * 1.4);
+    HDC hdc = GetDC(ghWnd);
+    COLORREF colour = RGB(20, 20, 20);
+    HPEN hPen;
+    HBRUSH brush = (HBRUSH)CreateSolidBrush(colour);                     // create a brush object using the mixture colour
+    SelectObject(hdc, brush);                                            // select the brush style for the LED draw
+    iX += kb_rect.left;
+    iY += kb_rect.top;
+    Rectangle(hdc, iX, iY, (iX + iWidth), (iY + iHeight));
+    usCharacter = font_14_MAX9655[ucReference & 0x7f];
+    hPen = CreatePen(PS_DOT, LCD_SEGMENT_LINE_WIDTH, RGB(230, 0, 0));
+    SelectObject(hdc, hPen);
+    while (usCharacter != 0) {
+        if ((usCharacter & 0x0001) != 0) {
+            switch (iSegment) {
+            case 0:                                                      // top left
+                MoveToEx(hdc, (iX + (LCD_SEGMENT_LINE_WIDTH/2)), (iY + (LCD_SEGMENT_LINE_WIDTH / 2)), 0);
+                LineTo(hdc, (iX + (LCD_SEGMENT_LINE_WIDTH / 2)), (iY + (iHeight / 2)));
+                break;
+            case 1:                                                      // bottom left
+                MoveToEx(hdc, (iX + (LCD_SEGMENT_LINE_WIDTH / 2)), (iY + (iHeight / 2)), 0);
+                LineTo(hdc, (iX + (LCD_SEGMENT_LINE_WIDTH / 2)), (iY + iHeight - (LCD_SEGMENT_LINE_WIDTH / 2)));
+                break;
+            case 2:                                                      // bottom
+                MoveToEx(hdc, (iX + (LCD_SEGMENT_LINE_WIDTH / 2)), (iY + iHeight - (LCD_SEGMENT_LINE_WIDTH / 2)), 0);
+                LineTo(hdc, (iX + iWidth - (LCD_SEGMENT_LINE_WIDTH / 2)), (iY + iHeight - (LCD_SEGMENT_LINE_WIDTH / 2)));
+                break;
+            case 3:                                                      // bottom right
+                MoveToEx(hdc, (iX + iWidth - (LCD_SEGMENT_LINE_WIDTH / 2)), (iY + (iHeight / 2)), 0);
+                LineTo(hdc, (iX + iWidth - (LCD_SEGMENT_LINE_WIDTH / 2)), (iY + iHeight - (LCD_SEGMENT_LINE_WIDTH / 2)));
+                break;
+            case 4:                                                      // top right
+                MoveToEx(hdc, (iX + iWidth - (LCD_SEGMENT_LINE_WIDTH / 2)), (iY + (LCD_SEGMENT_LINE_WIDTH / 2)), 0);
+                LineTo(hdc, (iX + iWidth - (LCD_SEGMENT_LINE_WIDTH / 2)), (iY + (iHeight / 2)));
+                break;
+            case 5:                                                      // top
+                MoveToEx(hdc, (iX + (LCD_SEGMENT_LINE_WIDTH / 2)), (iY + (LCD_SEGMENT_LINE_WIDTH / 2)), 0);
+                LineTo(hdc, (iX + iWidth - (LCD_SEGMENT_LINE_WIDTH / 2)), (iY + (LCD_SEGMENT_LINE_WIDTH / 2)));
+                break;
+            case 6:                                                      // top middle
+                MoveToEx(hdc, (iX + (iWidth/2)), (iY + (LCD_SEGMENT_LINE_WIDTH / 2)), 0);
+                LineTo(hdc, (iX + (iWidth/2)), (iY + (LCD_SEGMENT_LINE_WIDTH / 2) + (iWidth / 2)));
+                break;
+            case 7:                                                      // bottom middle
+                MoveToEx(hdc, (iX + (iWidth/2)), (iY + (LCD_SEGMENT_LINE_WIDTH / 2) + (iWidth / 2)), 0);
+                LineTo(hdc, (iX + (iWidth/2)), (iY + iHeight - (LCD_SEGMENT_LINE_WIDTH / 2)));
+                break;
+            case 8:                                                      // left middle
+                MoveToEx(hdc, (iX + (LCD_SEGMENT_LINE_WIDTH / 2)), (iY + (iHeight/2)), 0);
+                LineTo(hdc, (iX + (iWidth/2) - (LCD_SEGMENT_LINE_WIDTH / 2)), (iY + (iHeight/2)));
+                break;
+            case 9:                                                      // right middle
+                MoveToEx(hdc, (iX + (iWidth / 2)), (iY + (iHeight / 2)), 0);
+                LineTo(hdc, (iX + iWidth - (LCD_SEGMENT_LINE_WIDTH / 2)), (iY + (iHeight / 2)));
+                break;
+            case 10:                                                     // top left diagonal
+                MoveToEx(hdc, (iX + (LCD_SEGMENT_LINE_WIDTH / 2)), (iY + (LCD_SEGMENT_LINE_WIDTH / 2)), 0);
+                LineTo(hdc, (iX + (iWidth / 2)), (iY +  (iHeight / 2)));
+                break;
+            case 11:                                                     // top right diagonal
+                MoveToEx(hdc, (iX + iWidth - (LCD_SEGMENT_LINE_WIDTH / 2)), (iY + (LCD_SEGMENT_LINE_WIDTH / 2)), 0);
+                LineTo(hdc, (iX + (iWidth/2)), (iY + (iHeight/2)));
+                break;
+            case 12:                                                     // bottom left diagonal
+                MoveToEx(hdc, (iX + (iWidth / 2)), (iY +  (iHeight / 2)), 0);
+                LineTo(hdc, (iX + (LCD_SEGMENT_LINE_WIDTH / 2)), (iY + iHeight - (LCD_SEGMENT_LINE_WIDTH / 2)));
+                break;
+            case 13:                                                     // bottom right diagonal
+                MoveToEx(hdc, (iX + (iWidth / 2)), (iY + (iHeight / 2)), 0);
+                LineTo(hdc, (iX + iWidth - (LCD_SEGMENT_LINE_WIDTH / 2)), (iY + iHeight - (LCD_SEGMENT_LINE_WIDTH / 2)));
+                break;
+            }
+        }
+        usCharacter >>= 1;
+        iSegment++;
+    }
+}
+
+extern "C" void fnSegLED(int iDigit, unsigned char ucData, unsigned char ucMaxDigits, int iType)
+{
+    static unsigned char ucDigits[32] = {0};
+    static unsigned long ulDigitInitialised = 0;
+    static unsigned char ucMaxLED_digits = 0;
+    int i;
+    switch (iType) {
+    case LED_SEGMENT_REFRESH:
+        for (i = 0; i <= ucMaxLED_digits; i++) {
+            if ((ulDigitInitialised & (1 << i)) != 0) {
+                ulDigitInitialised &= ~(1 << i);
+                fnSegLED(i, ucDigits[i], ucMaxLED_digits, LED_14_SEGMENT_MAX9655);
+            }
+        }
+        break;
+    case LED_14_SEGMENT_MAX9655:
+        if (ucMaxDigits != 0) {
+            ucMaxLED_digits = ucMaxDigits;
+        }
+        if ((ulDigitInitialised & (1 << iDigit)) == 0) {
+            ulDigitInitialised |= (1 << iDigit);
+        }
+        else if (ucDigits[iDigit] == ucData) {
+            return;
+        }
+        ucDigits[iDigit] = ucData;                                       // new value
+        fnDrawSegment14_MAX9655((LCD_SEGMENT_START_X + (iDigit * (LCD_SEGMENT_WIDTH + 1))), LCD_SEGMENT_START_Y, LCD_SEGMENT_WIDTH, ucData);
+        break;
+    default:
+        _EXCEPTION("Non supported segment LED simulation type!");
+        break;
+    }
+
+}
 #endif

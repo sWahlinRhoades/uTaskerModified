@@ -1,0 +1,276 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project>
+    <fileVersion>4</fileVersion>
+    <fileChecksum>2510336421</fileChecksum>
+    <configuration>
+        <name>RAM</name>
+        <outputs>
+            <file>$PROJ_DIR$\..\..\..\Hardware\iMX\iMX.c</file>
+            <file>$TOOLKIT_DIR$\inc\c\yvals.h</file>
+            <file>$TOOLKIT_DIR$\inc\c\DLib_Product.h</file>
+            <file>$PROJ_DIR$\..\..\..\Hardware\SPI_Memory\spi_flash_interface.h</file>
+            <file>$PROJ_DIR$\..\..\..\Hardware\hardware.h</file>
+            <file>$PROJ_DIR$\..\..\..\Hardware\SPI_Memory\spi_flash_IS25LP.h</file>
+            <file>$TOOLKIT_DIR$\lib\m7M_tlv.a</file>
+            <file>$PROJ_DIR$\RAM\List\uTaskerBoot.map</file>
+            <file>$PROJ_DIR$\RAM\Obj\uTaskerBootLoader.o</file>
+            <file>$PROJ_DIR$\RAM\Obj\iMX.o</file>
+            <file>$PROJ_DIR$\..\..\..\Hardware\Kinetis\kinetis_DMA.h</file>
+            <file>$PROJ_DIR$\..\types.h</file>
+            <file>$TOOLKIT_DIR$\lib\dl7M_tln.a</file>
+            <file>$TOOLKIT_DIR$\inc\c\intrinsics.h</file>
+            <file>$PROJ_DIR$\..\..\..\Hardware\iMX\spi_eeprom_iMX_25AA160.h</file>
+            <file>$PROJ_DIR$\..\..\..\Hardware\packages.h</file>
+            <file>$PROJ_DIR$\..\..\..\Hardware\iMX\iMX_FLASH.h</file>
+            <file>$PROJ_DIR$\..\config.h</file>
+            <file>$TOOLKIT_DIR$\inc\c\iar_intrinsics_common.h</file>
+            <file>$PROJ_DIR$\..\..\..\uTasker\uTasker.h</file>
+            <file>$PROJ_DIR$\..\..\..\Hardware\iMX\iMX_PORTS.h</file>
+            <file>$TOOLKIT_DIR$\inc\c\DLib_Config_Normal.h</file>
+            <file>$PROJ_DIR$\..\..\..\stack\tcpip.h</file>
+            <file>$PROJ_DIR$\RAM\Obj\iMX.xcl</file>
+            <file>$PROJ_DIR$\..\uTaskerBootLoader.c</file>
+            <file>$TOOLKIT_DIR$\lib\rt7M_tl.a</file>
+            <file>$PROJ_DIR$\..\..\..\Hardware\iMX\iMX.h</file>
+            <file>$PROJ_DIR$\..\..\..\Hardware\iMX\iMX_errata.h</file>
+            <file>$PROJ_DIR$\RAM\Exe\uTaskerBoot.bin</file>
+            <file>$TOOLKIT_DIR$\inc\c\iccarm_builtin.h</file>
+            <file>$PROJ_DIR$\settings\iMX_RT_1020_SRAM.icf</file>
+            <file>$TOOLKIT_DIR$\inc\c\DLib_Defaults.h</file>
+            <file>$PROJ_DIR$\RAM\Obj\uTaskerBootLoader.xcl</file>
+            <file>$PROJ_DIR$\..\..\..\uTasker\driver.h</file>
+            <file>$PROJ_DIR$\RAM\Exe\uTaskerBoot.out</file>
+        </outputs>
+        <file>
+            <name>[ROOT_NODE]</name>
+            <outputs>
+                <tool>
+                    <name>ILINK</name>
+                    <file> 7 34</file>
+                </tool>
+            </outputs>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\..\..\Hardware\iMX\iMX.c</name>
+            <outputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 9</file>
+                </tool>
+                <tool>
+                    <name>BICOMP</name>
+                    <file> 23</file>
+                </tool>
+            </outputs>
+            <inputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 17 11 15 26 13 29 1 31 21 2 18 27 19 33 22 4 5 14 16 3 10 20</file>
+                </tool>
+            </inputs>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\uTaskerBootLoader.c</name>
+            <outputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 8</file>
+                </tool>
+                <tool>
+                    <name>BICOMP</name>
+                    <file> 32</file>
+                </tool>
+            </outputs>
+            <inputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 17 11 15 26 13 29 1 31 21 2 18 27 19 33 22 4</file>
+                </tool>
+            </inputs>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\RAM\Exe\uTaskerBoot.out</name>
+            <outputs>
+                <tool>
+                    <name>OBJCOPY</name>
+                    <file> 28</file>
+                </tool>
+                <tool>
+                    <name>ILINK</name>
+                    <file> 7</file>
+                </tool>
+            </outputs>
+            <inputs>
+                <tool>
+                    <name>ILINK</name>
+                    <file> 30 9 8 25 6 12</file>
+                </tool>
+            </inputs>
+        </file>
+        <forcedrebuild>
+            <name>[MULTI_TOOL]</name>
+            <tool>ILINK</tool>
+        </forcedrebuild>
+    </configuration>
+    <configuration>
+        <name>uTaskerBoot - Flash</name>
+        <outputs>
+            <file>$PROJ_DIR$\..\..\..\Hardware\iMX\iMX.c</file>
+            <file>$TOOLKIT_DIR$\inc\c\yvals.h</file>
+            <file>$TOOLKIT_DIR$\inc\c\DLib_Product.h</file>
+            <file>$PROJ_DIR$\..\..\..\Hardware\hardware.h</file>
+            <file>$PROJ_DIR$\..\..\..\Hardware\SPI_Memory\spi_flash_IS25LP.h</file>
+            <file>$TOOLKIT_DIR$\lib\m7M_tlv.a</file>
+            <file>$PROJ_DIR$\..\..\..\Hardware\Kinetis\kinetis_DMA.h</file>
+            <file>$PROJ_DIR$\..\types.h</file>
+            <file>$TOOLKIT_DIR$\lib\dl7M_tln.a</file>
+            <file>$TOOLKIT_DIR$\inc\c\intrinsics.h</file>
+            <file>$PROJ_DIR$\..\..\..\uTasker\crypto.c</file>
+            <file>$PROJ_DIR$\..\..\..\Hardware\packages.h</file>
+            <file>$PROJ_DIR$\..\config.h</file>
+            <file>$TOOLKIT_DIR$\inc\c\iar_intrinsics_common.h</file>
+            <file>$PROJ_DIR$\..\..\..\uTasker\uTasker.h</file>
+            <file>$PROJ_DIR$\..\..\..\stack\SSL\mbedtls-1.3.10\aes_mbedTLS.c</file>
+            <file>$PROJ_DIR$\..\..\..\Hardware\iMX\iMX_PORTS.h</file>
+            <file>$TOOLKIT_DIR$\inc\c\DLib_Config_Normal.h</file>
+            <file>$PROJ_DIR$\..\..\..\stack\tcpip.h</file>
+            <file>$PROJ_DIR$\..\uTaskerBootLoader.c</file>
+            <file>$TOOLKIT_DIR$\lib\rt7M_tl.a</file>
+            <file>$PROJ_DIR$\..\..\..\Hardware\iMX\iMX.h</file>
+            <file>$PROJ_DIR$\..\..\..\Hardware\iMX\iMX_errata.h</file>
+            <file>$TOOLKIT_DIR$\inc\c\iccarm_builtin.h</file>
+            <file>$PROJ_DIR$\..\..\..\stack\SSL\mbedtls-1.3.10\aes.h</file>
+            <file>$PROJ_DIR$\..\..\..\Hardware\iMX\iMX_Loader.h</file>
+            <file>$TOOLKIT_DIR$\inc\c\ysizet.h</file>
+            <file>$PROJ_DIR$\uTaskerBoot - Flash\Obj\uTaskerBootLoader.xcl</file>
+            <file>$PROJ_DIR$\..\..\..\Hardware\iMX\iMX_Clock.h</file>
+            <file>$PROJ_DIR$\..\..\..\Hardware\iMX\iMX_Caches_MPU.h</file>
+            <file>$PROJ_DIR$\uTaskerBoot - Flash\Obj\crypto.xcl</file>
+            <file>$PROJ_DIR$\uTaskerBoot - Flash\Obj\iMX.xcl</file>
+            <file>$PROJ_DIR$\..\..\..\Hardware\SPI_Memory\spi_flash_AT25SF.h</file>
+            <file>$PROJ_DIR$\uTaskerBoot - Flash\List\uTaskerBoot.map</file>
+            <file>$TOOLKIT_DIR$\inc\c\ycheck.h</file>
+            <file>$PROJ_DIR$\uTaskerBoot - Flash\Obj\crypto.o</file>
+            <file>$PROJ_DIR$\..\..\..\Hardware\SPI_Memory\spi_flash_ATXP.h</file>
+            <file>$TOOLKIT_DIR$\inc\c\stdint.h</file>
+            <file>$PROJ_DIR$\uTaskerBoot - Flash\Obj\iMX.o</file>
+            <file>$PROJ_DIR$\uTaskerBoot - Flash\Exe\uTaskerBoot.out</file>
+            <file>$PROJ_DIR$\..\..\..\Hardware\SPI_Memory\spi_flash_w25q.h</file>
+            <file>$PROJ_DIR$\uTaskerBoot - Flash\Obj\aes_mbedTLS.o</file>
+            <file>$PROJ_DIR$\settings\iMX_RT_10xx_FlexSPI_NOR.icf</file>
+            <file>$TOOLKIT_DIR$\inc\c\string.h</file>
+            <file>$PROJ_DIR$\uTaskerBoot - Flash\Exe\uTaskerBoot.bin</file>
+            <file>$TOOLKIT_DIR$\inc\c\DLib_Defaults.h</file>
+            <file>$TOOLKIT_DIR$\inc\c\inttypes.h</file>
+            <file>$PROJ_DIR$\..\..\..\uTasker\driver.h</file>
+            <file>$PROJ_DIR$\uTaskerBoot - Flash\Obj\aes_mbedTLS.xcl</file>
+            <file>$PROJ_DIR$\..\..\..\Hardware\SPI_Memory\spi_flash_S26KL.h</file>
+            <file>$PROJ_DIR$\uTaskerBoot - Flash\Obj\uTaskerBootLoader.o</file>
+            <file>$TOOLKIT_DIR$\inc\c\DLib_Product_string.h</file>
+        </outputs>
+        <file>
+            <name>[ROOT_NODE]</name>
+            <outputs>
+                <tool>
+                    <name>ILINK</name>
+                    <file> 39 33</file>
+                </tool>
+            </outputs>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\..\..\Hardware\iMX\iMX.c</name>
+            <outputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 38</file>
+                </tool>
+                <tool>
+                    <name>BICOMP</name>
+                    <file> 31</file>
+                </tool>
+            </outputs>
+            <inputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 12 7 11 21 9 23 1 45 17 2 13 22 14 47 18 3 32 4 49 36 40 25 29 28 6 16</file>
+                </tool>
+            </inputs>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\..\..\uTasker\crypto.c</name>
+            <outputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 35</file>
+                </tool>
+                <tool>
+                    <name>BICOMP</name>
+                    <file> 30</file>
+                </tool>
+            </outputs>
+            <inputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 12 7 11 21 9 23 1 45 17 2 13 22 14 47 18 3 24 43 34 26 51 46 37</file>
+                </tool>
+            </inputs>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\..\..\stack\SSL\mbedtls-1.3.10\aes_mbedTLS.c</name>
+            <outputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 41</file>
+                </tool>
+                <tool>
+                    <name>BICOMP</name>
+                    <file> 48</file>
+                </tool>
+            </outputs>
+            <inputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 12 7 11 21 9 23 1 45 17 2 13 22 14 47 18 3 24 43 34 26 51 46 37</file>
+                </tool>
+            </inputs>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\..\uTaskerBootLoader.c</name>
+            <outputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 50</file>
+                </tool>
+                <tool>
+                    <name>BICOMP</name>
+                    <file> 27</file>
+                </tool>
+            </outputs>
+            <inputs>
+                <tool>
+                    <name>ICCARM</name>
+                    <file> 12 7 11 21 9 23 1 45 17 2 13 22 14 47 18 3</file>
+                </tool>
+            </inputs>
+        </file>
+        <file>
+            <name>$PROJ_DIR$\uTaskerBoot - Flash\Exe\uTaskerBoot.out</name>
+            <outputs>
+                <tool>
+                    <name>OBJCOPY</name>
+                    <file> 44</file>
+                </tool>
+                <tool>
+                    <name>ILINK</name>
+                    <file> 33</file>
+                </tool>
+            </outputs>
+            <inputs>
+                <tool>
+                    <name>ILINK</name>
+                    <file> 42 41 35 38 50 20 5 8</file>
+                </tool>
+            </inputs>
+        </file>
+    </configuration>
+</project>

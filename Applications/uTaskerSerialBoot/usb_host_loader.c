@@ -11,10 +11,13 @@
     File:      usb_host_loader.c - MSD
     Project:   uTasker project
     ---------------------------------------------------------------------
-    Copyright (C) M.J.Butcher Consulting 2004..2016
+    Copyright (C) M.J.Butcher Consulting 2004..2020
     *********************************************************************
     USB-MSD host loader application
     19.11.2015 Limit UFI_READ_FORMAT_CAPACITY transfer length to a single 64 byte frame {1}
+    22.01.2017 Update fnGetUSB_string_entry() parameter type             {2}
+    13.09.2019 Add USB_MSD_HOST_TIMEOUT option                           {3}
+    06.06.2020 Extended to support dual-USB and make use of new global USB host function fnDisplayEndpoint()
 
 */
 
@@ -26,8 +29,6 @@
 #include "config.h"
 
 #if  (defined USB_INTERFACE && defined USB_MSD_HOST_LOADER && defined USB_HOST_SUPPORT)
-
-extern void fnUSB_ResetCycle(void); // temp
 
 /* =================================================================== */
 /*                          local definitions                          */
@@ -42,13 +43,16 @@ extern void fnUSB_ResetCycle(void); // temp
     #define MODBUS_USB_CDC_COUNT            0
 #endif
 
-#if !defined USB_SPEC_VERSION                                            // {28}
-    #define USB_SPEC_VERSION                USB_SPEC_VERSION_1_1         // default is to report USB1.1 since it is equivalent to USB2.0 but requires one less descriptor exchange
-#endif
-
 #define NUMBER_OF_ENDPOINTS                 3                            // reserve 2 bulk endpoints for USB-MSD host as well as an interrupt endpoint (although not used, some memory sticks request this)
 
 #define STATUS_TRANSPORT                    0x100
+
+#if !defined USB_DEVICE_REF
+    #define USB_DEVICE_REF                  0
+#endif
+#if !defined USB_HOST_REF
+    #define USB_HOST_REF                    0
+#endif
 
 
 // Interrupt events
@@ -63,6 +67,7 @@ extern void fnUSB_ResetCycle(void); // temp
 #define T_GET_STATUS_TEST                   3
 #define T_REPEAT_COMMAND                    4
 #define T_REQUEST_LUN                       5
+#define TIMEOUT_USB_HOST_ENUMERATION        6
 
 
 #if defined _LITTLE_ENDIAN || defined _WINDOWS
@@ -102,8 +107,14 @@ static const USB_HOST_DESCRIPTOR get_max_lum = {
 /* =================================================================== */
 
 static QUEUE_HANDLE USB_control = NO_ID_ALLOCATED;                       // USB default control endpoint handle
+
+#if defined USB_STRING_OPTION && defined USB_RUN_TIME_DEFINABLE_STRINGS
+    static USB_STRING_DESCRIPTOR *SerialNumberDescriptor;                // string built up to contain a variable serial number
+#endif
+
 static unsigned short usExpectedData = 0;                                // used by the control endpoint to collect data
 static unsigned char  ucCollectingMode = 0;
+static unsigned char  ucHostSpeed = 0;
 
 static QUEUE_HANDLE USBPortID_host = NO_ID_ALLOCATED;
 static unsigned char ucMSDBulkInEndpoint = 0;                            // the endpoint that is to be used as MSD bulk IN endpoint
@@ -111,11 +122,6 @@ static unsigned short usMSDBulkInEndpointSize = 0;
 static unsigned char ucMSDBulkOutEndpoint = 0;                           // the endpoint that is to be used as MSD bulk OUT endpoint
 static unsigned short usMSDBulkOutEndpointSize = 0;
 static unsigned char ucRequestCount = 0;
-
-#if defined USB_STRING_OPTION && defined USB_RUN_TIME_DEFINABLE_STRINGS
-    static USB_STRING_DESCRIPTOR *SerialNumberDescriptor;                // string built up to contain a variable serial number
-#endif
-
 static unsigned char ucDeviceLUN = 0;
 static int iUSB_MSD_OpCode = 0;
 static unsigned long ulTag =0 ;
@@ -128,15 +134,15 @@ static unsigned short usBlockCount = 0;
 /*                      local function definitions                     */
 /* =================================================================== */
 
-static void fnConfigureUSB(void);                                        // routine to open and configure USB interface
 #if defined USB_STRING_OPTION && defined USB_RUN_TIME_DEFINABLE_STRINGS
     static void fnSetSerialNumberString(CHAR *ptrSerialNumber);
 #endif
-static void fnConfigureApplicationEndpoints(unsigned char ucConfiguration);
-static void fnRequestLUN(void);
-static int fnSendMSD_host(unsigned char ucOpcode);
-static unsigned char fnDisplayDeviceInfo(void);
 
+    static void fnConfigureUSB(void);                                        // routine to open and configure USB interface
+    static void fnConfigureApplicationEndpoints(unsigned char ucConfiguration);
+    static void fnRequestLUN(void);
+    static int  fnSendMSD_host(unsigned char ucOpcode);
+    static unsigned char fnDisplayDeviceInfo(void);
 
 /* =================================================================== */
 /*                                task                                 */
@@ -152,15 +158,21 @@ extern void fnTaskUSB_host(TTASKTABLE *ptrTaskTable)
     QUEUE_TRANSFER Length;
 
     if (USB_control == NO_ID_ALLOCATED) {                                // initialisation
-#if (defined KWIKSTIK || defined TWR_K40X256 || defined TWR_K40D100M || defined TWR_K53N512 || defined FRDM_KL46Z || defined FRDM_KL43Z || defined TWR_KL43Z48M || defined TWR_KL46Z48M) // {3}{6}
+#if (defined KWIKSTIK || defined TWR_K40X256 || defined TWR_K40D100M || defined TWR_K53N512 || defined FRDM_KL46Z || defined FRDM_KL43Z || defined TWR_KL43Z48M || defined TWR_KL46Z48M || defined FRDM_K32L2B3) // {3}{6}
         CONFIGURE_SLCD();
 #endif
 #if defined USB_STRING_OPTION && defined USB_RUN_TIME_DEFINABLE_STRINGS  // if dynamic strings are supported, prepare a specific serial number ready for enumeration
         fnSetSerialNumberString(temp_pars->temp_parameters.cDeviceIDName); // construct a serial number string for USB use
 #endif
         fnConfigureUSB();                                                // configure the USB host interface
+#if defined USB_MSD_HOST_TIMEOUT                                         // {3} if there is no device detected within a short time we start the application
+        #if defined _WINDOWS
+        uTaskerMonoTimer(OWN_TASK, (DELAY_LIMIT)(3 * SEC), TIMEOUT_USB_HOST_ENUMERATION); // longer time when simulating to allow enumeration to be commanded in the simulator
+        #else
+        uTaskerMonoTimer(OWN_TASK, (DELAY_LIMIT)(0.5 * SEC), TIMEOUT_USB_HOST_ENUMERATION); // 500ms in which the device must enumerate otherwise the application starts
+        #endif
+#endif
     }
-
     while (fnRead(PortIDInternal, ucInputMessage, HEADER_LENGTH) != 0) { // check task input queue
         switch (ucInputMessage[MSG_SOURCE_TASK]) {                       // switch depending on source
         case TIMER_EVENT:
@@ -180,44 +192,52 @@ extern void fnTaskUSB_host(TTASKTABLE *ptrTaskTable)
             }
             else if (T_REQUEST_LUN == ucInputMessage[MSG_TIMER_EVENT]) {
                 fnRequestLUN();
-              //ucDeviceLUN = 1;                                         //WARNING - if the LUM is not requested the host state machine stays in an unexpected state (to improve in host state-machine)
-              //fnInterruptMessage(OWN_TASK, EVENT_LUN_READY);
             }
+    #if defined USB_MSD_HOST_TIMEOUT                                     // {3}
+            else if (TIMEOUT_USB_HOST_ENUMERATION == ucInputMessage[MSG_TIMER_EVENT]) { // there has been no enumeration after an initial delay
+                fnJumpToValidApplication(1);
+            }
+    #endif
             break;
 
         case INTERRUPT_EVENT:                                            // interrupt event without data
             switch (ucInputMessage[MSG_INTERRUPT_EVENT]) {               // specific interrupt event type
+            case EVENT_USB_RESET_1:
             case EVENT_USB_RESET:                                        // active USB connection has been reset
                 fnDebugMsg("USB Reset\n\r");                             // display that the USB bus has been reset
 #if defined DEL_USB_SYMBOL
                 DEL_USB_SYMBOL();                                        // optionally display the new USB state
 #endif
                 break;
-
+            case EVENT_USB_SUSPEND_1:
             case EVENT_USB_SUSPEND:                                      // a suspend condition has been detected. A bus powered device should reduce consumption to <= 500uA or <= 2.5mA (high power device)
-                fnSetUSBConfigState(USB_DEVICE_SUSPEND, 0);              // set all endpoint states to suspended
+                fnSetUSBConfigState(USB_DEVICE_SUSPEND, 0, USB_HOST_REF); // set all endpoint states to suspended
                 fnDebugMsg("USB Suspended\n\r");
 #if defined DEL_USB_SYMBOL
                 DEL_USB_SYMBOL();                                        // optionally display the new USB state
 #endif
                 break;
-
+            case EVENT_USB_RESUME_1:
             case EVENT_USB_RESUME:                                       // a resume sequence has been detected so full power consumption can be resumed
-                fnSetUSBConfigState(USB_DEVICE_RESUME, 0);               // remove suspended state from all endpoints
+                fnSetUSBConfigState(USB_DEVICE_RESUME, 0, USB_HOST_REF); // remove suspended state from all endpoints
                 fnDebugMsg("USB Resume\n\r");
 #if defined SET_USB_SYMBOL
                 SET_USB_SYMBOL();                                        // optionally display the new USB state
 #endif
                 break;
 
-            case EVENT_USB_DETECT_HS:
-            case EVENT_USB_DETECT_LS:
-            case EVENT_USB_DETECT_FS:
+            case EVENT_USB_DETECT_HS_1:
+            case EVENT_USB_DETECT_HS:                                    // high speed device connection has been detected
+            case EVENT_USB_DETECT_LS_1:
+            case EVENT_USB_DETECT_LS:                                    // low speed device connection has been detected
+            case EVENT_USB_DETECT_FS_1:
+            case EVENT_USB_DETECT_FS:                                    // full speed device connection has been detected
                 fnDebugMsg("USB ");
-                if (EVENT_USB_DETECT_HS == ucInputMessage[MSG_INTERRUPT_EVENT]) {
+                ucHostSpeed = (ucInputMessage[MSG_INTERRUPT_EVENT] & ~1);
+                if (EVENT_USB_DETECT_HS == ucHostSpeed) {
                     fnDebugMsg("H");                                     // high speed device attached
                 }
-                else if (EVENT_USB_DETECT_FS == ucInputMessage[MSG_INTERRUPT_EVENT]) {
+                else if (EVENT_USB_DETECT_FS == ucHostSpeed) {
                     fnDebugMsg("F");                                     // full speed device attached
                 }
                 else {
@@ -225,9 +245,10 @@ extern void fnTaskUSB_host(TTASKTABLE *ptrTaskTable)
                 }
                 fnDebugMsg("S device detected\r\n");
                 break;
-
+            case EVENT_USB_REMOVAL_1:
             case EVENT_USB_REMOVAL:
                 fnDebugMsg("USB device removed\r\n");
+                fnEventMessage(TASK_MASS_STORAGE, OWN_TASK, USB_MSD_REMOVED); // inform the mass storage task that the device has been removed and is thus no longer mounted
                 break;
             case EVENT_LUN_READY:
                 fnDebugMsg("LUN =");
@@ -244,6 +265,7 @@ extern void fnTaskUSB_host(TTASKTABLE *ptrTaskTable)
                 fnRead(PortIDInternal, &ucInputMessage[MSG_CONTENT_COMMAND], ucInputMessage[MSG_CONTENT_LENGTH]); // get the content
                 ucEndpointConfiguration = ucInputMessage[MSG_CONTENT_COMMAND + 1];
                 switch (ucInputMessage[MSG_CONTENT_COMMAND]) {           // switch on the event type
+                case E_USB_DEVICE_INFO_1:
                 case E_USB_DEVICE_INFO:                                  // the USB host has collected information ready to decide how to work with a device
                     fnDebugMsg("USB device information ready:\r\n");
                     ucEndpointConfiguration = fnDisplayDeviceInfo();     // analyse and display information
@@ -253,34 +275,42 @@ extern void fnTaskUSB_host(TTASKTABLE *ptrTaskTable)
                         ulTag |= fnRandom();
                         fnDriver(USB_control, (TX_ON), ucEndpointConfiguration); // enable configuration - this causes the generic USB layer to send SetConfiguration
                     }
+#if defined START_APPLICATION_ON_FOREIGN_DEVICE
+                    else {
+                        fnJumpToValidApplication(1);
+                    }
+#endif
                     break;
+                case E_USB_DEVICE_STALLED_1:
                 case E_USB_DEVICE_STALLED:
-                    fnDebugMsg("Stall on EP-");
-                    fnDebugDec(ucEndpointConfiguration, 0);              // display the endpoint that stalled
-                    fnDebugMsg("\n\r");
-                    fnClearFeature(USB_control, ucEndpointConfiguration);// clear the stalled endpoint
+                    fnDebugMsg("Stall on ");
+                    fnShowEndpoint(ucEndpointConfiguration);             // display the endpoint that stalled
+                    fnClearFeature(USB_control, ucEndpointConfiguration, USB_HOST_REF);// clear the stalled endpoint
                     break;
+                case E_USB_DEVICE_CLEARED_1:
                 case E_USB_DEVICE_CLEARED:
-                    fnDebugMsg("EP-");
-                    fnDebugDec(ucEndpointConfiguration, 0);              // display the endpoint that was cleared
-                    fnDebugMsg(" cleared\n\r");
+                    fnDebugMsg("Cleared ");
+                    fnShowEndpoint(ucEndpointConfiguration);              // display the endpoint that was cleared
                     uTaskerMonoTimer(OWN_TASK, (DELAY_LIMIT)(0.05 * SEC), T_GET_STATUS_AFTER_STALL); // collect the status after a short delay
                     break;
+                case E_USB_HOST_ERROR_REPORT_1:
                 case E_USB_HOST_ERROR_REPORT:
                     fnDebugMsg("USB Host error: EP-");
                     fnDebugDec((ucEndpointConfiguration >> 4), 0);
                     fnDebugMsg(" Code: ");
                     fnDebugDec((ucEndpointConfiguration & 0x0f), WITH_CR_LF);
-                    // Attempt a device reset in case it was a spurious error
-                    //
-                    fnUSB_ResetCycle();
+                    fnUSB_DeviceResetCycle(USB_HOST_REF);                // attempt a device reset in case it was a spurious error
                     break;
+                case E_USB_ACTIVATE_CONFIGURATION_1:
                 case E_USB_ACTIVATE_CONFIGURATION:
                     fnDebugMsg("Enumerated (");                          // the interface has been activated and enumeration has completed
                     fnDebugDec(ucEndpointConfiguration, 0);              // the configuration
                     fnDebugMsg(")\n\r");
 #if defined SET_USB_SYMBOL
                     SET_USB_SYMBOL();                                    // display connection in LCD, on LED etc.
+#endif
+#if defined USB_MSD_HOST_TIMEOUT                                         // {3}
+                    uTaskerStopTimer(OWN_TASK);                          // stop the enumeration monitor timer so that we stay in USB-MSD host mode
 #endif
                     fnConfigureApplicationEndpoints(ucEndpointConfiguration); // configure endpoints according to configuration
                     iUSB_MSD_OpCode = 0;
@@ -289,13 +319,12 @@ extern void fnTaskUSB_host(TTASKTABLE *ptrTaskTable)
                 }
             }
             break;
-
         default:
             break;
         }
     }
 
-    if (USBPortID_host == NO_ID_ALLOCATED) {                             // don't check bulk input queue until host is configured
+    if (USBPortID_host == NO_ID_ALLOCATED) {                             // don't check bulk input queue until device has been connected (enumerated) and the host configured accordingly
         return;
     }
 
@@ -449,7 +478,7 @@ extern void fnTaskUSB_host(TTASKTABLE *ptrTaskTable)
 // The application must always supply this routine and return its device descriptor when requested
 // This example shows a single fixed device configuration but multiple configurations could be selected (eg. for experimental use)
 //
-extern void *fnGetUSB_device_descriptor(unsigned short *usLength)
+extern void *fnGetUSB_device_descriptor(unsigned short *usLength, int iChannel)
 {
     return 0;                                                            // dummy for host
 }
@@ -457,7 +486,7 @@ extern void *fnGetUSB_device_descriptor(unsigned short *usLength)
 // The application must always supply this routine and return its configuration descriptor when requested
 // This example shows a single fixed configuration but multiple configurations could be selected (eg. for programmable device types)
 //
-extern void *fnGetUSB_config_descriptor(unsigned short *usLength)
+extern void *fnGetUSB_config_descriptor(unsigned short *usLength, int iChannel)
 {
     return 0;                                                            // in host mode we return a zero so that the generic driver uses its own information
 }
@@ -499,15 +528,12 @@ static void fnSetSerialNumberString(CHAR *ptrSerialNumber) {             // {12}
 
 // This routine must always be supplied by the user if usb strings are supported
 //
-extern unsigned char *fnGetUSB_string_entry(unsigned char ucStringRef, unsigned short *usLength)
+extern unsigned char *fnGetUSB_string_entry(unsigned char ucStringRef, unsigned short *usLength, int iChannel) // {2}
 {
     return 0;                                                            // dummy for host
 }
 #endif
 #endif
-
-
-
 
 // Endpoint 0 call-back for any non-supported control transfers.
 // This can be called with either setup frame content (iType != 0) or with data belonging to following OUT frames.
@@ -518,7 +544,7 @@ extern unsigned char *fnGetUSB_string_entry(unsigned char ucStringRef, unsigned 
 //
 // If further data is to be received, this may arrive in multiple frames and the call-back needs to manage this to be able to know when the data is complete
 //
-static int control_callback(unsigned char *ptrData, unsigned short length, int iType)
+static int control_callback(unsigned char *ptrData, unsigned short length, int iType, int iChannel)
 {
     static unsigned char ucLocalEvent = 0;
     int iRtn = BUFFER_CONSUMED;
@@ -612,8 +638,8 @@ static unsigned char fnDisplayDeviceInfo(void)
     USB_INTERFACE_DESCRIPTOR *ptr_interface_desc;
     unsigned char *ptr_string;
     unsigned short usVendor_product;
-    ptr_device_descriptor = (USB_DEVICE_DESCRIPTOR *)fnGetDeviceInfo(REQUEST_USB_DEVICE_DESCRIPTOR);
-    ptr_config_desc = (USB_CONFIGURATION_DESCRIPTOR *)fnGetDeviceInfo(REQUEST_USB_CONFIG_DESCRIPTOR);
+    ptr_device_descriptor = (USB_DEVICE_DESCRIPTOR *)fnGetDeviceInfo(REQUEST_USB_DEVICE_DESCRIPTOR, USB_HOST_REF);
+    ptr_config_desc = (USB_CONFIGURATION_DESCRIPTOR *)fnGetDeviceInfo(REQUEST_USB_CONFIG_DESCRIPTOR, USB_HOST_REF);
     fnDebugMsg("USB");
     if (ptr_device_descriptor->bcdUSB[1] == 2) {
         fnDebugMsg("2.0");
@@ -630,19 +656,19 @@ static unsigned char fnDisplayDeviceInfo(void)
     usVendor_product = ((ptr_device_descriptor->idProduct[1] << 8) | ptr_device_descriptor->idProduct[0]);
     fnDebugHex(usVendor_product, (WITH_LEADIN | WITH_CR_LF | sizeof(usVendor_product)));
     #if defined USB_STRING_OPTION
-    ptr_string = (unsigned char *)fnGetDeviceInfo(REQUEST_USB_STRING_DESCRIPTOR + ptr_device_descriptor->iManufacturer);
+    ptr_string = (unsigned char *)fnGetDeviceInfo((REQUEST_USB_STRING_DESCRIPTOR + ptr_device_descriptor->iManufacturer), USB_HOST_REF);
     if (ptr_string != 0) {
         fnDebugMsg("Manufacturer = \x22");
         fnDisplayUSB_string(ptr_string);
         fnDebugMsg("\x22\r\n");
     }
-    ptr_string = (unsigned char *)fnGetDeviceInfo(REQUEST_USB_STRING_DESCRIPTOR + ptr_device_descriptor->iProduct);
+    ptr_string = (unsigned char *)fnGetDeviceInfo((REQUEST_USB_STRING_DESCRIPTOR + ptr_device_descriptor->iProduct), USB_HOST_REF);
     if (ptr_string != 0) {
         fnDebugMsg("Product = \x22");
         fnDisplayUSB_string(ptr_string);
         fnDebugMsg("\x22\r\n");
     }
-    ptr_string = (unsigned char *)fnGetDeviceInfo(REQUEST_USB_STRING_DESCRIPTOR + ptr_device_descriptor->iSerialNumber);
+    ptr_string = (unsigned char *)fnGetDeviceInfo((REQUEST_USB_STRING_DESCRIPTOR + ptr_device_descriptor->iSerialNumber), USB_HOST_REF);
     if (ptr_string != 0) {
         fnDebugMsg("Serial Number = \x22");
         fnDisplayUSB_string(ptr_string);
@@ -671,50 +697,18 @@ static unsigned char fnDisplayDeviceInfo(void)
         fnDebugHex(ptr_interface_desc->bInterfaceProtocol, (WITH_SPACE | WITH_LEADIN | WITH_CR_LF | sizeof(ptr_interface_desc->bInterfaceProtocol)));
         fnDebugMsg("Endpoints:\r\n");
         ptr_endpoint_desc = (USB_ENDPOINT_DESCRIPTOR *)(ptr_interface_desc + 1);
-        while (iEndpoints--) {
-            unsigned short usEndpointLength = (ptr_endpoint_desc->wMaxPacketSize[0] | (ptr_endpoint_desc->wMaxPacketSize[1] << 8));
-            unsigned char ucEndpointNumber = (ptr_endpoint_desc->bEndpointAddress & ~(IN_ENDPOINT));
-            fnDebugDec(ucEndpointNumber, 0);
-            fnDebugMsg(" = ");
-            switch (ptr_endpoint_desc->bmAttributes) {
-            case ENDPOINT_BULK:
-                fnDebugMsg("BULK");
-                break;
-            case ENDPOINT_INTERRUPT:
-                fnDebugMsg("INTERRUPT");
-                break;
-            case ENDPOINT_ISOCHRONOUS:
-                fnDebugMsg("ISOCHRONOUS");
-                break;
-            case ENDPOINT_CONTROL:
-                fnDebugMsg("CONTROL");
-                break;
-            default:
-                fnDebugMsg("??");
-                break;
+
+        while (iEndpoints-- != 0) {
+            USB_ENDPOINT_INFO EndpointInfo;
+            fnDisplayEndpoint(ptr_endpoint_desc, &EndpointInfo, ucHostSpeed, 1);
+            if (EndpointInfo.ucEndpointType == ENDPOINT_BULK_IN) { // it is expected that CDC has only one bulk IN endpoint
+                ucMSDBulkInEndpoint = EndpointInfo.ucEndpointNumber; // the endpoint that is to be used as IN endpoint
+                usMSDBulkInEndpointSize = EndpointInfo.usEndpointSize; // the length of the IN endpoint
             }
-            if (ptr_endpoint_desc->bEndpointAddress & IN_ENDPOINT) {
-                fnDebugMsg(" IN");
-                if (ptr_endpoint_desc->bmAttributes == ENDPOINT_BULK) {  // it is expected that MSD has only one IN endpoint
-                    ucMSDBulkInEndpoint = ucEndpointNumber;              // the endpoint that is to be used as IN endpoint
-                    usMSDBulkInEndpointSize = usEndpointLength;
-                }
+            else if (EndpointInfo.ucEndpointType == ENDPOINT_BULK_OUT) { // it is expected that CDC has only one bulk OUT endpoint
+                ucMSDBulkOutEndpoint = EndpointInfo.ucEndpointNumber; // the endpoint that is to be used as OUT endpoint
+                usMSDBulkOutEndpointSize = EndpointInfo.usEndpointSize; // the length of the OUT endpoint
             }
-            else {
-                fnDebugMsg(" OUT");
-                if (ptr_endpoint_desc->bmAttributes == ENDPOINT_BULK) {  // it is expected that MSD has only one OUT endpoint
-                    ucMSDBulkOutEndpoint = ucEndpointNumber;             // the endpoint that is to be used as OUT endpoint
-                    usMSDBulkOutEndpointSize = usEndpointLength;
-                }
-            }
-            fnDebugMsg(" with size");
-            fnDebugDec(usEndpointLength, WITH_SPACE);
-            if (ptr_endpoint_desc->bmAttributes == ENDPOINT_INTERRUPT) {
-                fnDebugMsg(" (polling interval =");
-                fnDebugDec(ptr_endpoint_desc->bInterval, WITH_SPACE);
-                fnDebugMsg("ms)");
-            }
-            fnDebugMsg("\r\n");
             ptr_endpoint_desc++;
         }
         return (ptr_config_desc->bConfigurationValue);                   // the valid configuration to be enabled
@@ -828,6 +822,9 @@ static void fnConfigureApplicationEndpoints(unsigned char ucActiveConfiguration)
     USBTABLE tInterfaceParameters;                                       // table for passing information to driver
 
     if (NO_ID_ALLOCATED == USBPortID_host) {
+    #if defined _iMX && (HSUSB_CONTROLLERS > 1)
+        tInterfaceParameters.ucUSB_controller = USB_HOST_REF;            // the HS USB controller used
+    #endif
         tInterfaceParameters.owner_task = OWN_TASK;                      // wake usb task on receptions
         tInterfaceParameters.Endpoint = ucMSDBulkOutEndpoint;            // set USB endpoints to act as an input/output pair - transmitter (OUT)
         tInterfaceParameters.Paired_RxEndpoint = ucMSDBulkInEndpoint;    // receiver (IN)
@@ -841,7 +838,7 @@ static void fnConfigureApplicationEndpoints(unsigned char ucActiveConfiguration)
         #endif
         USBPortID_host = fnOpen(TYPE_USB, 0, &tInterfaceParameters);     // open the endpoints with defined configurations (initially inactive)
     }
-    fnSetUSBConfigState(USB_CONFIG_ACTIVATE, ucActiveConfiguration);     // now activate the configuration
+    fnSetUSBConfigState(USB_CONFIG_ACTIVATE, ucActiveConfiguration, USB_HOST_REF); // now activate the configuration
 }
 
 static int utReadMSD(unsigned char *ptrBuffer, unsigned long ulSectorNumber)
@@ -857,14 +854,14 @@ static int utReadMSD(unsigned char *ptrBuffer, unsigned long ulSectorNumber)
     fnSendMSD_host(UFI_READ_10);                                         // request the read (and enable IN polling for the read data)
     fnDriver(USBPortID_host, (RX_ON), 0);                                // enable IN polling so that we can receive data response
     iWait = 0;
-    while (1) {                                                          // wait until the data has been received
+    FOREVER_LOOP() {                                                     // wait until the data has been received
         Length = fnRead(USBPortID_host, (ptrBuffer + (512 - byte_length)), byte_length); // read received data
         if (Length != 0) {                                               // all or part of the requested data is ready
             byte_length -= Length;                                       // the remaining length
             fnDriver(USBPortID_host, (RX_ON), 0);                        // enable IN polling so that we can receive further data, or the status stage
             iWait = 0;
             if (byte_length == 0) {                                      // data has been completely received so we are waiting for the status stage
-                while (1) {                                              // wait until the status stage has been received
+                FOREVER_LOOP() {                                         // wait until the status stage has been received
                     if (fnRead(USBPortID_host, (unsigned char *)&status_stage, sizeof(status_stage)) != 0) { // read status stage
                         if ((status_stage.dCBWSignatureL == USBS_SIGNATURE) && (status_stage.dCBWTagL == ulTag)) {
                           //fnDebugMsg(" OK\r\n");
@@ -931,15 +928,18 @@ static int utWriteMSD(unsigned char *ptrBuffer, unsigned long ulSectorNumber)
     usBlockCount = 1;                                                    // write a single block
   //fnDebugHex(ulSectorNumber, (sizeof(ulSectorNumber) | WITH_SPACE | WITH_LEADIN));
     fnSendMSD_host(UFI_WRITE_10);                                        // request the write
+#if defined _iMX
+    fnDelayLoop(1000); // temporary to ensure the command was sent before sending the data
+#endif
     fnWrite(USBPortID_host, ptrBuffer, 512);                             // write data (buffered on this bulk endpoint)
     iWait = 0;
     while (fnWrite(USBPortID_host, 0, 512) < 512) {                      // wait until the buffer has been transmitted before enabling IN tokens
     #if defined _WINDOWS
-            fnSimInts(0);                                                // allow the USB interrupts to be simulated
+        fnSimInts(0);                                                    // allow the USB interrupts to be simulated
     #endif
     }
     fnDriver(USBPortID_host, (RX_ON), 0);                                // enable IN polling so that we can receive data/status response (this will block until the trnsmission has completed)
-    while (1) {                                                          // wait until the status stage has been received
+    FOREVER_LOOP() {                                                     // wait until the status stage has been received
         if (fnRead(USBPortID_host, (unsigned char *)&status_stage, sizeof(status_stage)) != 0) { // read status stage
             if ((status_stage.dCBWSignatureL == USBS_SIGNATURE) && (status_stage.dCBWTagL == ulTag)) {
               //fnDebugMsg(" OK\r\n");
@@ -991,6 +991,9 @@ static void fnConfigureUSB(void)
     //
     tInterfaceParameters.Endpoint = 0;                                   // set USB default control endpoint for configuration
     tInterfaceParameters.usConfig = USB_HOST_MODE;                       // configure host mode of operation
+    #if defined _iMX && (HSUSB_CONTROLLERS > 1)
+    tInterfaceParameters.ucUSB_controller = USB_HOST_REF;                // the HS USB controller used
+    #endif
     tInterfaceParameters.usb_callback = control_callback;                // call-back for control endpoint to enable class exchanges to be handled
     tInterfaceParameters.queue_sizes.TxQueueSize = 0;                    // no tx buffering on control endpoint
     tInterfaceParameters.queue_sizes.RxQueueSize = 0;                    // no rx buffering on control endpoint
@@ -1012,4 +1015,3 @@ static void fnConfigureUSB(void)
 }
 __PACK_OFF
 #endif
-

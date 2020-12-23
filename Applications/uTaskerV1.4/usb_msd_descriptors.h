@@ -11,14 +11,20 @@
     File:      usb_msd_descriptors.h
     Project:   uTasker project
     ---------------------------------------------------------------------
-    Copyright (C) M.J.Butcher Consulting 2004..2016
+    Copyright (C) M.J.Butcher Consulting 2004..2020
     *********************************************************************
+    22.20.2020 Increase USB bulk endpoint size to 512 when HS USB is in use
 
 */
 
 
 #if defined INCLUDE_USB_DEFINES
     #define USB_PRODUCT_RELEASE_NUMBER      0x0100                       // V1.0 (binary coded decimal)
+    #if defined USB_HS_INTERFACE && !defined USB_FS_INTERFACE            // {1}
+        #define USB_MSD_DEVICE_ENDPOINT_SIZE  512
+    #else
+        #define USB_MSD_DEVICE_ENDPOINT_SIZE  64
+    #endif
 
     #if defined USB_SIMPLEX_ENDPOINTS
         #define NUMBER_OF_MSD_ENDPOINTS     (1)                          // uses 1 endpoint (1 bulk IN/OUT) in addition to the default control endpoint 0
@@ -248,7 +254,7 @@ static const USB_CONFIGURATION_DESCRIPTOR_COLLECTION config_descriptor = {
     (OUT_ENDPOINT | 0x01),                                               // direction and address of endpoint
     #endif
     ENDPOINT_BULK,                                                       // endpoint attributes
-    {LITTLE_SHORT_WORD_BYTES(64)},                                       // endpoint FIFO size (little-endian - 64 bytes)
+    {LITTLE_SHORT_WORD_BYTES(USB_MSD_DEVICE_ENDPOINT_SIZE)},             // endpoint FIFO size (little-endian)
     0                                                                    // polling interval in ms - ignored for bulk
     },
 
@@ -261,7 +267,7 @@ static const USB_CONFIGURATION_DESCRIPTOR_COLLECTION config_descriptor = {
     (IN_ENDPOINT | USB_MSD_IN_ENDPOINT_NUMBER),                          // direction and address of endpoint
     #endif
     ENDPOINT_BULK,                                                       // endpoint attributes
-    {LITTLE_SHORT_WORD_BYTES(64)},                                       // endpoint FIFO size (little-endian - 64 bytes)
+    {LITTLE_SHORT_WORD_BYTES(USB_MSD_DEVICE_ENDPOINT_SIZE)},             // endpoint FIFO size (little-endian)
     0                                                                    // polling interval in ms - ignored for bulk
     },
     #if defined USE_USB_HID_MOUSE

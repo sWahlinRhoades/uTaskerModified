@@ -11,7 +11,7 @@
     File:      FreeRTOSapplication.c
     Project:   uTasker project
     ---------------------------------------------------------------------
-    Copyright (C) M.J.Butcher Consulting 2004..2018
+    Copyright (C) M.J.Butcher Consulting 2004..2020
     *********************************************************************
 */
 
@@ -183,7 +183,7 @@ static void uart_task(void *pvParameters)
             fnWrite(uart_handle, dataBuffer, length);                    // send the reception back
             fnDebugMsg("\r\n");                                          // with termination
         }
-#if defined UART_SUPPORT_IDLE_LINE_INTERRUPT || defined FREE_RUNNING_RX_DMA_RECEPTION
+#if !defined UART_SUPPORT_IDLE_LINE_INTERRUPT && defined FREE_RUNNING_RX_DMA_RECEPTION
         else {                                                           // nothing in the input buffer
             vTaskDelay(1);                                               // wait a single tick to allow other tasks to execute
         }

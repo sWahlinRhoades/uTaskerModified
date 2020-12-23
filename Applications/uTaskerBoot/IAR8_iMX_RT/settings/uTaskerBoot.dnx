@@ -1,0 +1,213 @@
+<?xml version="1.0"?>
+<settings>
+    <Stack>
+        <FillEnabled>0</FillEnabled>
+        <OverflowWarningsEnabled>1</OverflowWarningsEnabled>
+        <WarningThreshold>90</WarningThreshold>
+        <SpWarningsEnabled>1</SpWarningsEnabled>
+        <WarnLogOnly>1</WarnLogOnly>
+        <UseTrigger>1</UseTrigger>
+        <TriggerName>main</TriggerName>
+        <LimitSize>0</LimitSize>
+        <ByteLimit>50</ByteLimit>
+    </Stack>
+    <DebugChecksum>
+        <Checksum>367458314</Checksum>
+    </DebugChecksum>
+    <Exceptions>
+        <StopOnUncaught>_ 0</StopOnUncaught>
+        <StopOnThrow>_ 0</StopOnThrow>
+    </Exceptions>
+    <CallStack>
+        <ShowArgs>0</ShowArgs>
+    </CallStack>
+    <Disassembly>
+        <MixedMode>1</MixedMode>
+    </Disassembly>
+    <Log_file>
+        <LoggingEnabled>_ 0</LoggingEnabled>
+        <LogFile>_ ""</LogFile>
+        <Category>_ 0</Category>
+    </Log_file>
+    <PEMICRODriver>
+        <PEM_LeaveTargetRunning>0x00000000</PEM_LeaveTargetRunning>
+    </PEMICRODriver>
+    <Disassemble_mode>
+        <mode>1</mode>
+    </Disassemble_mode>
+    <Breakpoints>
+        <Bp0>_ "STD_CODE" "{C:\MJBC\Internal\Freescale\Kinetis\workspace\uTaskerV1.4\Applications\uTaskerBoot\uTaskerBootLoader.c}.324.5" 0 0 0 0 "" 0 "" 0</Bp0>
+        <Bp1>_ "STD_CODE" "0x000005A8" 0 0 0 0 "" 0 "" 0</Bp1>
+        <Bp2>_ "STD_CODE" "0x00005F94" 0 0 0 0 "" 0 "" 0</Bp2>
+        <Count>3</Count>
+    </Breakpoints>
+    <PlDriver>
+        <FirstRun>0</FirstRun>
+        <MemConfigValue>C:\Program Files (x86)\IAR Systems\Embedded Workbench 8.4\arm\CONFIG\debugger\NXP\MIMXRT1021xxx5A.ddf</MemConfigValue>
+    </PlDriver>
+    <Jet>
+        <JetConnSerialNo>CMSIS-DAP:02290000070b481c00000000000000000000000097969905</JetConnSerialNo>
+        <JetConnFoundProbes />
+        <PrevWtdReset>System</PrevWtdReset>
+        <OnlineReset>Software</OnlineReset>
+        <DisableInterrupts>0</DisableInterrupts>
+        <LeaveRunning>0</LeaveRunning>
+        <MultiCoreRunAll>0</MultiCoreRunAll>
+    </Jet>
+    <ArmDriver>
+        <EnableCache>1</EnableCache>
+    </ArmDriver>
+    <SWOManager>
+        <SamplingDivider>8192</SamplingDivider>
+        <OverrideClock>0</OverrideClock>
+        <CpuClock>808466230</CpuClock>
+        <SwoClock>808465718</SwoClock>
+        <DataLogMode>0</DataLogMode>
+        <ItmPortsEnabled>63</ItmPortsEnabled>
+        <ItmTermIOPorts>1</ItmTermIOPorts>
+        <ItmLogPorts>0</ItmLogPorts>
+        <ItmLogFile>$PROJ_DIR$\ITM.log</ItmLogFile>
+        <PowerForcePC>1</PowerForcePC>
+        <PowerConnectPC>1</PowerConnectPC>
+    </SWOManager>
+    <PE_STARTUP>
+        <jtag_numbits_pre_ir>_ "0"</jtag_numbits_pre_ir>
+        <jtag_tap_num>_ "0"</jtag_tap_num>
+        <user_specified_daisy_chain>_ "0"</user_specified_daisy_chain>
+        <CPUTARGETTYPENAME>_ "ARM Processor - Autodetect"</CPUTARGETTYPENAME>
+        <USE_CYCLONEPRO_RELAYS>_ "0"</USE_CYCLONEPRO_RELAYS>
+        <CyclonePro_poweroffonexit>_ "0"</CyclonePro_poweroffonexit>
+        <CyclonePro_currentvoltage>_ "128"</CyclonePro_currentvoltage>
+        <CyclonePro_PowerDownDelay>_ "250"</CyclonePro_PowerDownDelay>
+        <CyclonePro_PowerUpDelay>_ "250"</CyclonePro_PowerUpDelay>
+        <Multilink_PowerDownDelay>_ "250"</Multilink_PowerDownDelay>
+        <Multilink_PowerUpDelay>_ "1000"</Multilink_PowerUpDelay>
+        <USE_SWD>_ "1"</USE_SWD>
+        <IO_DELAY_CNT>_ "0"</IO_DELAY_CNT>
+        <FREQ_FX>_ "4"</FREQ_FX>
+        <FREQ_NORMAL>_ "0"</FREQ_NORMAL>
+        <FREQ_OSJTAG>_ "0"</FREQ_OSJTAG>
+        <FREQ_CYCLONE>_ "3"</FREQ_CYCLONE>
+        <FREQ_TRACELINK>_ "3"</FREQ_TRACELINK>
+        <FREQ_LIGHTNING>_ "1"</FREQ_LIGHTNING>
+        <FREQ_OPENSDA>_ "0"</FREQ_OPENSDA>
+        <RESET_DELAY>_ "0"</RESET_DELAY>
+        <PORT>_ "21"</PORT>
+        <PORT_NAME_STRING>_ ""</PORT_NAME_STRING>
+        <interface_selection>_ "7"</interface_selection>
+        <TraceLink_MaxBufferSize>_ "1"</TraceLink_MaxBufferSize>
+        <SHOWDIALOG>_ "1"</SHOWDIALOG>
+        <SWO_BAUDRATE_SWITCH_MULTILINK_VALUE>_ "-1.000000"</SWO_BAUDRATE_SWITCH_MULTILINK_VALUE>
+        <SWO_BAUDRATE_SWITCH_TARGET_VALUE>_ "-1.000000"</SWO_BAUDRATE_SWITCH_TARGET_VALUE>
+    </PE_STARTUP>
+    <PE_STORED_DEVICES>
+        <device0>_ "NXP_iMX_IMXRT1062"</device0>
+    </PE_STORED_DEVICES>
+    <PE_PEDEBUG>
+        <ERASE_PROGRAM_WITHOUT_ASKING>_ "1"</ERASE_PROGRAM_WITHOUT_ASKING>
+        <ENABLE_FLASH_PROGRAMMING_DIALOG>_ "1"</ENABLE_FLASH_PROGRAMMING_DIALOG>
+        <CURRENTDEVICE>_ "NXP_iMX_IMXRT1062"</CURRENTDEVICE>
+        <CURRENTCORE>_ "1"</CURRENTCORE>
+        <CURRENTMODE>_ "4"</CURRENTMODE>
+    </PE_PEDEBUG>
+    <PE_DEVICE>
+        <CHIPMODE>_ "NXP_iMX_IMXRT1062"</CHIPMODE>
+    </PE_DEVICE>
+    <PE_STARTUP12>
+        <show_hstep_assembly_details_new>_ "0"</show_hstep_assembly_details_new>
+    </PE_STARTUP12>
+    <PE_ARM>
+        <FILE1>_ ""</FILE1>
+        <BINTORAM>_ "1"</BINTORAM>
+        <BINTOFLASH>_ "0"</BINTOFLASH>
+        <BINTOFLASHDEFAULT>_ "0"</BINTOFLASHDEFAULT>
+        <GOTILMAINDEFAULTON>_ "1"</GOTILMAINDEFAULTON>
+        <KEEPCPROGOPEN>_ "0"</KEEPCPROGOPEN>
+    </PE_ARM>
+    <PEMicroDriver>
+        <CStepIntDis>_ 0</CStepIntDis>
+        <LeaveTargetRunning>_ 0</LeaveTargetRunning>
+    </PEMicroDriver>
+    <PE_SETTINGS>
+        <MEMORYSTART1>_ "0"</MEMORYSTART1>
+        <MEMORYSTART2>_ "0"</MEMORYSTART2>
+        <MEMORYSTART3>_ "0"</MEMORYSTART3>
+        <DEFAULT_SOURCE_PATH>_ "C:\Program Files (x86)\IAR Systems\Embedded Workbench 8.4\arm\bin\pemicro\P&amp;E"</DEFAULT_SOURCE_PATH>
+        <DEFAULT_MACRO_PATH>_ "C:\Program Files (x86)\IAR Systems\Embedded Workbench 8.4\arm\bin\pemicro\P&amp;E"</DEFAULT_MACRO_PATH>
+        <DEFAULT_LOGFILE_PATH>_ "C:\Program Files (x86)\IAR Systems\Embedded Workbench 8.4\arm\bin\pemicro\P&amp;E"</DEFAULT_LOGFILE_PATH>
+    </PE_SETTINGS>
+    <struct_types>
+        <Fmt0>iMX_BOOT_HEADER-ulCodeLength	4	0</Fmt0>
+        <Fmt1>iMX_BOOT_HEADER-usCRC	4	0</Fmt1>
+        <Fmt2>iMX_BOOT_HEADER-usMagicNumber	4	0</Fmt2>
+    </struct_types>
+    <array_types>
+        <Fmt0>uint32_t[68]	4	0</Fmt0>
+        <Fmt1>unsigned long[20]	4	0</Fmt1>
+        <Fmt2>unsigned long[4]	4	0</Fmt2>
+        <Fmt3>unsigned long[512]	4	0</Fmt3>
+    </array_types>
+    <CallStackLog>
+        <Enabled>0</Enabled>
+    </CallStackLog>
+    <CallStackStripe>
+        <ShowTiming>1</ShowTiming>
+    </CallStackStripe>
+    <Trace1>
+        <Enabled>0</Enabled>
+        <ShowSource>1</ShowSource>
+    </Trace1>
+    <ETMTraceWindow>
+        <PortWidth>4</PortWidth>
+        <PortMode>0</PortMode>
+        <CaptureDataValues>0</CaptureDataValues>
+        <CaptureDataAddresses>0</CaptureDataAddresses>
+        <CaptureDataRange>0</CaptureDataRange>
+        <DataFirst>0</DataFirst>
+        <DataLast>4294967295</DataLast>
+        <StopWhen>0</StopWhen>
+        <StallCPU>0</StallCPU>
+        <NoPCCapture>0</NoPCCapture>
+    </ETMTraceWindow>
+    <Trace2>
+        <Enabled>0</Enabled>
+        <ShowSource>0</ShowSource>
+    </Trace2>
+    <SWOTraceWindow>
+        <ForcedPcSampling>0</ForcedPcSampling>
+        <ForcedInterruptLogs>0</ForcedInterruptLogs>
+        <ForcedItmLogs>0</ForcedItmLogs>
+        <EventCPI>0</EventCPI>
+        <EventEXC>0</EventEXC>
+        <EventFOLD>0</EventFOLD>
+        <EventLSU>0</EventLSU>
+        <EventSLEEP>0</EventSLEEP>
+    </SWOTraceWindow>
+    <TermIOLog>
+        <LoggingEnabled>_ 0</LoggingEnabled>
+        <LogFile>_ ""</LogFile>
+    </TermIOLog>
+    <LogFile>
+        <LoggingEnabled>_ 0</LoggingEnabled>
+        <LogFile>_ ""</LogFile>
+        <Category>_ 0</Category>
+    </LogFile>
+    <DisassembleMode>
+        <mode>3</mode>
+    </DisassembleMode>
+    <Breakpoints2>
+        <Bp0>_ 0 "EMUL_CODE" "0x60020456" 0 0 1 "" 0 "" 0</Bp0>
+        <Bp1>_ 0 "EMUL_CODE" "0x60060CCE" 0 0 1 "" 0 "" 0</Bp1>
+        <Bp2>_ 0 "EMUL_CODE" "0x6011B70A" 0 0 1 "" 0 "" 0</Bp2>
+        <Bp3>_ 0 "EMUL_CODE" "0x60040CAA" 0 0 1 "" 0 "" 0</Bp3>
+        <Bp4>_ 0 "EMUL_CODE" "0x6002FE62" 0 0 1 "" 0 "" 0</Bp4>
+        <Bp5>_ 0 "EMUL_CODE" "0x60117346" 0 0 1 "" 0 "" 0</Bp5>
+        <Bp6>_ 0 "EMUL_CODE" "0x6003308A" 0 0 1 "" 0 "" 0</Bp6>
+        <Bp7>_ 0 "EMUL_CODE" "0x6003308E" 0 0 1 "" 0 "" 0</Bp7>
+        <Count>8</Count>
+    </Breakpoints2>
+    <Aliases>
+        <Count>0</Count>
+        <SuppressDialog>0</SuppressDialog>
+    </Aliases>
+</settings>

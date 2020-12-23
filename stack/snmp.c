@@ -8,16 +8,17 @@
     www.uTasker.com    Skype: M_J_Butcher
 
     ---------------------------------------------------------------------
-    File:        snmp.c (SNMPv1, SNMPv2c)
-    Project:     Single Chip Embedded Internet
+    File:      snmp.c (SNMPv1, SNMPv2c)
+    Project:   Single Chip Embedded Internet
     ---------------------------------------------------------------------
-    Copyright (C) M.J.Butcher Consulting 2004..2016
+    Copyright (C) M.J.Butcher Consulting 2004..2018
     *********************************************************************
     30.03.2014 Modify handling single variable binding items in the request since some SNMP managers count ASN1_NULL_CODE as part of the sequence length and some don't {1}
-    30.03.2014 Correct ASN1_TIME_STAMP_CODE insersion to use the same format as ucANS1_type {2}
+    30.03.2014 Correct ASN1_TIME_STAMP_CODE insertion to use the same format as ucANS1_type {2}
     30.03.2014 Modify trap generation to send to each specific manager rather than collect first a list of managers {3}
     24.09.2014 Extend value that can be handled by fnAddASN1_identifier_string() and fnExtractVariableBinding() {4}
     25.09.2014 Added community for read and write                        {5}
+    02.02.2017 Adapt for us tick resolution                              {6}
 
 */
 
@@ -120,7 +121,7 @@ extern void fnSNMP(TTASKTABLE *ptrTaskTable)
     QUEUE_HANDLE PortIDInternal = ptrTaskTable->TaskID;                  // queue ID for task input
     unsigned char ucInputMessage[SMALL_QUEUE];                           // reserve space for receiving messages
 
-    while (fnRead(PortIDInternal, ucInputMessage, HEADER_LENGTH)) {      // check input queue
+    while (fnRead(PortIDInternal, ucInputMessage, HEADER_LENGTH)) {      // check task input queue
         if (ucInputMessage[MSG_SOURCE_TASK] == TASK_ARP) {
             USOCKET socket;
             fnRead(PortIDInternal, ucInputMessage, ucInputMessage[MSG_CONTENT_LENGTH]); // read the contents
@@ -157,7 +158,11 @@ static unsigned short fnAddTimeStamp(unsigned char *ptrBuffer)
     unsigned long ulHundredths = uTaskerSystemTick;
     *ptrBuffer++ = ASN1_TIME_STAMP_CODE;
     *ptrBuffer++ = sizeof(unsigned long);                                // content length
-    ulHundredths *= TICK_RESOLUTION;
+    #if TICK_RESOLUTION >= 1000                                          // {6}
+    ulHundredths *= (TICK_RESOLUTION/1000);
+    #else
+    ulHundredths /= (1000/TICK_RESOLUTION);
+    #endif
     ulHundredths /= 100;                                                 // up time in 100th of second
     *ptrBuffer++ = (unsigned char)(ulHundredths >> 24);
     *ptrBuffer++ = (unsigned char)(ulHundredths >> 16);
@@ -569,7 +574,7 @@ static unsigned char *fnAddASN1_string(const CHAR *cPtrString, unsigned char *uc
         usStringLength = 0;
     }
     else {
-        usStringLength = uStrlen(cPtrString);
+        usStringLength = (unsigned short)uStrlen(cPtrString);
     }
 
     if (iBufferSpace != 0) {
@@ -616,7 +621,7 @@ static unsigned char *fnAddASN1_identifier_string(const CHAR *cPtrString, unsign
     ptrStart = ++ucData;                                                 // start of the object identifier
     *ucData++ = 0x2b;                                                    // 1.3. (iso.org.)
 
-    while (1) {                                                          // the object identifier string assume leading 1.3. (which is not present)
+    FOREVER_LOOP() {                                                     // the object identifier string assume leading 1.3. (which is not present)
         if (*cPtrString < '0') {                                         // 0..9 and separating dots are assumed < '0' assumes a dot has been encountered
             ucData = fnInsertOID_value(ucData, ulValue, iBufferSpace);   // {4}
             if (ucData == 0) {
@@ -957,7 +962,7 @@ static int fnSendTrap(unsigned char ucTrap, unsigned char ucSpecificCode, int iM
 
     ucVariableBindingRef = 0;
 
-    while (1) {
+    FOREVER_LOOP() {
 #if defined SUPPORT_SNMPV2C
         if (ucTrapVersion == SNMPV2) {                                   // always return variable bindings sysUpTime and snmpTrapOID in SNMPv2-Trap-PDU
             if (ucVariableBindingRef == 0) {
@@ -1140,8 +1145,8 @@ extern void fnSendSNMPTrap(unsigned char ucTrap, unsigned char ucSpecificCode, u
     unsigned long ulValidManager = 0x00000001;
     int iManagerNumber = 0;
     while (iManagerNumber < SNMP_MANAGER_COUNT) {                        // enter the trap into the queue
-        if (ulManagers & ulValidManager) {                               // if this manager is to be informed
-            if ((ucTrapCnt[iManagerNumber] < SNMP_TRAP_QUEUE_LENGTH) && (temp_pars->temp_parameters.usServers & (ACTIVE_SNMP_0 << iManagerNumber)) && (uMemcmp(ptrSNMP_manager_details[iManagerNumber].snmp_manager_ip_address, cucNullMACIP, IPV4_LENGTH) != 0)) { // if there is space in its trap queue and the manager's IP address is valid
+        if ((ulManagers & ulValidManager) != 0) {                        // if this manager is to be informed
+            if ((ucTrapCnt[iManagerNumber] < SNMP_TRAP_QUEUE_LENGTH) && (temp_pars->temp_parameters.usServers[DEFAULT_NETWORK] & (ACTIVE_SNMP_0 << iManagerNumber)) && (uMemcmp(ptrSNMP_manager_details[iManagerNumber].snmp_manager_ip_address, cucNullMACIP, IPV4_LENGTH) != 0)) { // if there is space in its trap queue and the manager's IP address is valid
                 trap_list[iManagerNumber][ucTrapCnt[iManagerNumber]].ucTrapType = ucTrap; // enter the trap details
                 trap_list[iManagerNumber][ucTrapCnt[iManagerNumber]].ucTrapSpecificCode = ucSpecificCode;
                 if (ucTrapCnt[iManagerNumber]++ == 0) {                  // first in queue

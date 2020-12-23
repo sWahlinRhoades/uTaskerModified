@@ -11,7 +11,7 @@
     File:      ftp_client.c
     Project:   Single Chip Embedded Internet
     ---------------------------------------------------------------------
-    Copyright (C) M.J.Butcher Consulting 2004..2016
+    Copyright (C) M.J.Butcher Consulting 2004..2018
     *********************************************************************
     03.06.2012 Return to state FTP_CLIENT_STATE_LOGGED_IN when response 200 is not received when expected {1}
     03.06.2012 Listing and Getting requires both the server's success response and the data connection to be closed before terminating and informing of success {2}
@@ -24,7 +24,7 @@
 
 #include "config.h"
 
-#ifdef USE_FTP_CLIENT
+#if defined USE_FTP_CLIENT
 
 /* =================================================================== */
 /*                          local definitions                          */
@@ -324,7 +324,7 @@ extern int fnFTP_client_dir(CHAR *ptrPath, int iAction)
 }
 
 // Command a data transfer, which can be a get, put or append type
-// - a valid <path name and> file name must be given and the mode can be defined to be either ascii or binary
+// - a valid path name and file name must be given and the mode can be defined to be either ascii or binary
 //
 extern int fnFTP_client_transfer(CHAR *ptrFilePath, int iMode)
 {
@@ -332,10 +332,10 @@ extern int fnFTP_client_transfer(CHAR *ptrFilePath, int iMode)
     if (ucFTP_client_state != FTP_CLIENT_STATE_LOGGED_IN) {              // the control connection must be in idle state to start
         return SOCKET_STATE_INVALID;
     }
-    if (iMode & (FTP_DO_PUT | FTP_DO_APPEND)) {                          // not get
-        if (iMode & FTP_DO_APPEND) {                                     // append
+    if ((iMode & (FTP_DO_PUT | FTP_DO_APPEND)) != 0) {                   // not get
+        if ((iMode & FTP_DO_APPEND) != 0) {                              // append
             fnEnterPath(ptrFilePath, "APPE");
-            if (iMode & FTP_TRANSFER_ASCII) {                            // append in ascii mode
+            if ((iMode & FTP_TRANSFER_ASCII) != 0) {                     // append in ascii mode
                 ucMessage = FTP_CLIENT_MSG_SET_ASCII_APP;                // set to ASCII type before appening data
             }
             else {
@@ -344,7 +344,7 @@ extern int fnFTP_client_transfer(CHAR *ptrFilePath, int iMode)
         }
         else {                                                           // put
             fnEnterPath(ptrFilePath, "STOR");
-            if (iMode & FTP_TRANSFER_ASCII) {                            // put in ascii mode
+            if ((iMode & FTP_TRANSFER_ASCII) != 0) {                     // put in ascii mode
                 ucMessage = FTP_CLIENT_MSG_SET_ASCII_PUT;                // set to ASCII type before sending data
             }
             else {                                                       // send in binary mode
@@ -354,7 +354,7 @@ extern int fnFTP_client_transfer(CHAR *ptrFilePath, int iMode)
     }
     else {                                                               // get
         fnEnterPath(ptrFilePath, "RETR");
-        if (iMode & FTP_TRANSFER_ASCII) {                                // get in ascii mode
+        if ((iMode & FTP_TRANSFER_ASCII) != 0) {                         // get in ascii mode
             ucMessage = FTP_CLIENT_MSG_SET_ASCII_GET;                    // set to ASCII type before retrieving data
         }
         else {                                                           // get in binary mode
@@ -370,7 +370,7 @@ extern int fnFTP_client_transfer(CHAR *ptrFilePath, int iMode)
 static void fnEnterPath(CHAR *ptrPath, const CHAR *ptrCommand)
 {
     CHAR *ptrEnd;
-    int iPathLength;
+    size_t iPathLength;
     if (ptrPath != 0) {
         iPathLength = uStrlen(ptrPath);
         if (iPathLength > MAX_FTP_CLIENT_PATH_LENGTH) {
@@ -731,10 +731,10 @@ static int fnFTP_client_ControlListener(USOCKET Socket, unsigned char ucEvent, u
         case FTP_CLIENT_STATE_GET_AFTER_BINARY:                          // with data connection
             if (uMemcmp(ucIp_Data, "200", 3) == 0) {                     // 200 is confirmation that the FTP server has moved to ascii/binary mode
                 if (ucFTP_client_state < FTP_CLIENT_STATE_APP_AFTER_BINARY) { // {3}
-                    iServerType = SERVER_TYPE_ASCII;                     // is is known that we are in ASCII mode
+                    iServerType = SERVER_TYPE_ASCII;                     // it is known that we are in ASCII mode
                 }
                 else {
-                    iServerType = SERVER_TYPE_BINARY;                    // is is known that we are in binary mode
+                    iServerType = SERVER_TYPE_BINARY;                    // it is known that we are in binary mode
                 }
                 return (fnHandleType(&callback_message_box));            // {3}
             }
@@ -909,7 +909,7 @@ static int fnFTP_Data_Listener(USOCKET Socket, unsigned char ucEvent, unsigned c
     case TCP_EVENT_ACK:
         {
             int iReturn = 0;
-    #ifdef FTP_CLIENT_BUFFERED_SOCKET_MODE
+    #if defined FTP_CLIENT_BUFFERED_SOCKET_MODE
             if (fnSendBufTCP(Socket, 0, 0, TCP_BUF_NEXT)) {              // send next buffered (if waiting)
                 iReturn = APP_SENT_DATA;                                 // mark that data has been transmitted
             }
@@ -942,9 +942,9 @@ static int fnFTP_Data_Listener(USOCKET Socket, unsigned char ucEvent, unsigned c
         return (fnFTP_client_user_callback(&callback_message_box));      // pass on the received data to the user
 
     case TCP_EVENT_REGENERATE:                                           // we must repeat the last data buffer we sent
-    #ifdef FTP_CLIENT_BUFFERED_SOCKET_MODE
+    #if defined FTP_CLIENT_BUFFERED_SOCKET_MODE
         if (fnSendBufTCP(Socket, 0, 0, TCP_BUF_REP) != 0) {              // repeat send buffered
-        #ifdef SUPPORT_PEER_WINDOW 
+        #if defined SUPPORT_PEER_WINDOW 
             fnSendBufTCP(Socket, 0, 0, (TCP_BUF_NEXT | TCP_BUF_KICK_NEXT)); // kick off any following data as long as windowing allows it
         #endif
             return APP_SENT_DATA;

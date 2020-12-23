@@ -11,10 +11,11 @@
     File:      app_user_files.h
     Project:   Single Chip Embedded Internet
     ---------------------------------------------------------------------
-    Copyright (C) M.J.Butcher Consulting 2004..2016
+    Copyright (C) M.J.Butcher Consulting 2004..2020
     *********************************************************************
     06.08.2009 Add OLED graphical demo                                   {1}
     28.02.2010 Control LCD web interface with define LCD_WEB_INTERFACE   {2}
+    22.02.2020 i.MX uses NXP favicon
     
     The file is otherwise not specifically linked in to the project since it
     is included by application.c when needed.
@@ -24,7 +25,7 @@
 //#define FAVICON_UTASKER                                                // use the uTasker favicon rather than chip manufacturer's
 
 
-#ifdef FAVICON_UTASKER
+#if defined FAVICON_UTASKER
         #define _favicon uTaskerfavicon
 static const unsigned char uTaskerfavicon[] = {
     0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x10, 0x10,   0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x28, 0x01,
@@ -164,7 +165,7 @@ static const unsigned char Freescale_favicon[] = {
 0x00,0x00,0x03,0xff,0x00,0x00,0x81,0xff,0x00,0x00,0xc0,0x7f,0x00,0x00,0xc0,0x3f,0x00,0x00,0x80,0x0f,0x00,0x00,0xc1,0x03,0x00,0x00,0xf0,0x01,0x00,0x00,0xf8,0x03,
 0x00,0x00,0xfe,0x07,0x00,0x00,0xff,0x01,0x00,0x00,0xff,0x00,0x00,0x00,0xfc,0x00,0x00,0x00,0xf0,0x07,0x00,0x00,0xf0,0x0f,0x00,0x00,0xfc,0x3f,0x00,0x00,
 };
-    #elif defined _LPC23XX || defined _LPC17XX                           // NXP favicon
+    #elif defined _LPC23XX || defined _LPC17XX || defined _iMX           // NXP favicon
         #define _favicon nxp_favicon
 static const unsigned char nxp_favicon[] = {
 0x00,0x00,0x01,0x00,0x01,0x00,0x10,0x10,0x00,0x00,0x01,0x00,0x20,0x00,0x68,0x04,0x00,0x00,0x16,0x00,0x00,0x00,0x28,0x00,0x00,0x00,0x10,0x00,0x00,0x00,0x20,0x00,
@@ -262,7 +263,7 @@ static const unsigned char ST_favicon[] = {
     #endif
 #endif
 
-#if defined SPECIAL_LCD_DEMO || defined SUPPORT_GLCD || defined SUPPORT_OLED// {2}
+#if defined SPECIAL_LCD_DEMO || defined SUPPORT_GLCD || defined SUPPORT_OLED // {2}
     #define LCD_WEB_INTERFACE                                            // allow posting an image to the display and displaying the image in the LCD on a web page
 #endif
 
@@ -281,7 +282,7 @@ static const USER_FILE user_files[] = {
 
     {"flash.bin", (unsigned char *)(FLASH_START_ADDRESS + 1), (SIZE_OF_FLASH - 1), MIME_BINARY, (FILE_VISIBLE | FILE_NOT_CODE)},
 #if defined SPI_SW_UPLOAD || defined SPI_FLASH_FAT || (defined SPI_FILE_SYSTEM && defined FLASH_FILE_SYSTEM)
-    {"spi_flash.bin", (unsigned char *)(FLASH_START_ADDRESS + SIZE_OF_FLASH), (SPI_DATA_FLASH_SIZE), MIME_BINARY, (FILE_VISIBLE | FILE_NOT_CODE)},
+  //{"spi_flash.bin", (unsigned char *)(FLASH_START_ADDRESS + SIZE_OF_FLASH), (SPI_DATA_FLASH_SIZE), MIME_BINARY, (FILE_VISIBLE | FILE_NOT_CODE)}, // used to be able to load an image of the SPI Flash content (don't enable for normal file sysetm operation starting at the beginning of SPI Flash!)
 #endif
     {"ram.bin",   (unsigned char *)RAM_START_ADDRESS, (SIZE_OF_RAM), MIME_BINARY, (FILE_VISIBLE | FILE_NOT_CODE)},
 

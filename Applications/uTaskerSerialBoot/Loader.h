@@ -11,7 +11,7 @@
     File:      Loader.h
     Project:   uTasker Demonstration project
     ---------------------------------------------------------------------
-    Copyright (C) M.J.Butcher Consulting 2004..2019
+    Copyright (C) M.J.Butcher Consulting 2004..2020
     *********************************************************************
     15.09.2009 Add STR91XF setup
     03.01.2010 Add SAM7X setup
@@ -44,18 +44,22 @@
     03.08.2017 Add USB-MSD iHex/SREC content support                     {27}
     05.10.2017 Add modbus loading                                        {28}
     17.01.2018 Add I2C slave loading                                     {29}
+    09.02.2020 Add iMX support                                           {30}
 
 */
 
-#define SOFTWARE_VERSION              "V1.5"
+#if defined _iMX
+    #define SOFTWARE_VERSION          "V2.0"
+#else
+    #define SOFTWARE_VERSION          "V1.5"
+#endif
 
 #define MY_PROJECT_NAME               "uTasker loader project"
 
 #if defined USB_MSD_HOST_LOADER
     #define MAX_WAIT_SD_CARD          3
-    #define MEMORY_STICK_TASK         TASK_SD_LOADER                     // if the memory stick sucessfully mounts, this task will be informed by an event
 #else
-    #define MAX_WAIT_SD_CARD          3                                  // {14} if no SD card is not detected after 4s the existing application is started
+    #define MAX_WAIT_SD_CARD          3                                  // {14} if no SD card is detected after 3s the existing application is started
 #endif
 
 #define WILDCARD_FILES                                                   // {21} allow wildcard name matching to be used
@@ -93,7 +97,8 @@
                                                                          // debug interface
     // Before software can be read from the disk a password file must have been copied {7}
     //
-    #define READ_PASSWORD             "enable file read from the M522xx device by dragging this file to the disk" // password with maximum length of 512 bytes
+  //#define READ_PASSWORD             "enable file read from the M522xx device by dragging this file to the disk" // password with maximum length of 512 bytes
+  //#define BLOCK_READBACK                                               // never allow read-back
 
     // SD card loading - file to be loaded, magic number and secret key for authenticating the file's content {9}
     //
@@ -105,7 +110,7 @@
         #define SERIAL_SPEED          SERIAL_BAUD_38400                  // the Baud rate of the UART
     #elif defined FRDM_KL03Z || defined FRDM_KE04Z
         #define SERIAL_SPEED          SERIAL_BAUD_19200                  // the Baud rate of the UART (there is a 100nF capacitor on the Rx input on this board so a slow Baud rate is needed)
-    #elif defined FRDM_KE02Z || defined FRDM_KE02Z40M || defined TWR_KW21D256 || defined FRDM_KEAZ128Q80 || defined FRDM_KEAZ64Q64 || defined FRDM_KEAZN32Q64
+    #elif defined FRDM_KE02Z || defined FRDM_KE02Z40M || defined TWR_KW21D256 || defined FRDM_KEAZ128Q80 || defined FRDM_KEAZ64Q64 || defined FRDM_KEAZN32Q64 || defined FRDM_K32L2B3
         #define SERIAL_SPEED          SERIAL_BAUD_38400                  // the Baud rate of the UART
     #else
         #define SERIAL_SPEED          SERIAL_BAUD_115200                 // the Baud rate of the UART
@@ -128,16 +133,18 @@
             #define UTASKER_APP_START (24 * 1024)                        // application starts at this address
             #define UTASKER_APP_END   (unsigned char *)(UTASKER_APP_START + (38 * 1024)) // end of application space - after maximum application size
         #endif
-        #define INTERMEDIATE_PROG_BUFFER  (1 * 1024)                     // when UART speed greater than 57600 Baud is used an intermediate buffer is recommended
+     // #define INTERMEDIATE_PROG_BUFFER  (1 * 1024)                     // when UART speed greater than 57600 Baud is used fro SREC loading an intermediate buffer is recommended
     #elif defined FRDM_KL25Z || defined FRDM_KL26Z || defined tinyK20 || defined TWR_KL25Z48M || defined FRDM_KE06Z || defined TRK_KEA128 || defined FRDM_K20D50M || defined TWR_KM34Z50M || defined TWR_KM34Z75M // {17}
         #define UTASKER_APP_START     (32 * 1024)                        // application starts at this address
         #define UTASKER_APP_END       (unsigned char *)(UTASKER_APP_START + (64 * 1024)) // end of application space - after maximum application size
         #define INTERMEDIATE_PROG_BUFFER  (2 * 1024)                     // when UART speed greater than 57600 Baud is used an intermediate buffer is recommended
-    #elif defined TEENSY_3_1 && defined SPECIAL_VERSION
+    #elif defined TEENSY_3_1 && (defined SPECIAL_VERSION || defined SPECIAL_VERSION_3)
         #if defined SPECIAL_VERSION_SDCARD
-            #define UTASKER_APP_START  (32 * 1024)                       // application starts at this address
+            #define UTASKER_APP_START  (32 * 1024)                       // application starts at this address (0x8000)
+        #elif defined SPECIAL_VERSION_3
+            #define UTASKER_APP_START  (20 * 1024)                       // application starts at this address (0x5000)
         #else
-            #define UTASKER_APP_START  (16 * 1024)                       // application starts at this address
+            #define UTASKER_APP_START  (16 * 1024)                       // application starts at this address (0x4000)
         #endif
         #if defined SPECIAL_VERSION_2
             #define UTASKER_APP_END   (unsigned char *)(UTASKER_APP_START + (112 * 1024)) // end of application space - after maximum application size
@@ -165,9 +172,12 @@
     #elif defined FRDM_KEAZ128Q80 || defined FRDM_KL82Z
         #define UTASKER_APP_START     (32 * 1024)                        // application starts at this address
         #define UTASKER_APP_END       (unsigned char *)(UTASKER_APP_START + (60 * 1024)) // end of application space - after maximum application size
-    #elif defined DEV1
+    #elif defined DEV1 || (defined FRDM_K64F && defined DEV7)
         #define UTASKER_APP_START     (16 * 1024)                        // application starts at this address
         #define UTASKER_APP_END       (unsigned char *)(UTASKER_APP_START + (44 * 1024)) // end of application space - after maximum application size
+    #elif defined FRDM_K64F && defined DEV10
+        #define UTASKER_APP_START     (32 * 1024)                        // application starts at this address
+        #define UTASKER_APP_END       (unsigned char *)(SIZE_OF_FLASH)   // end of application space - after maximum application size
     #else
         #if (defined FRDM_K64F || defined FRDM_K66F) && defined MEMORY_SWAP
             #define UTASKER_APP_START     (SIZE_OF_FLASH/2)              // second half of flash memory is used by the next application
@@ -180,7 +190,7 @@
         #else
             #define UTASKER_APP_START     (32 * 1024)                    // application starts at this address
         #endif
-        #define INTERMEDIATE_PROG_BUFFER  (8 * 1024)                     // when UART speed greater than 57600 Baud is used an intermediate buffer is recommended
+      //#define INTERMEDIATE_PROG_BUFFER  (8 * 1024)                     // when UART speed greater than 57600 Baud is used an intermediate buffer is recommended
         #if defined DWGB_SDCARD
             #define UTASKER_APP_END           (unsigned char *)(SIZE_OF_FLASH) // end of application space - after maximum application size
             #define MAX_FLASH_ERASE_SIZE      (64 * 1024)                // limit flash erasure to blocks of thie size to avoid blocking watchdog task when large flash size is to be erased
@@ -190,19 +200,21 @@
         #elif (defined K02F100M || defined K12D50M) && defined DEV5
             #define UTASKER_APP_END           (unsigned char *)(UTASKER_APP_START + (108 * 1024)) // end of application space - after maximum application size
         #else
-            #define UTASKER_APP_END           (unsigned char *)(UTASKER_APP_START + (128 * 1024)) // end of application space - after maximum application size
+            #define UTASKER_APP_END           (unsigned char *)(UTASKER_APP_START + (64 * 1024)) // end of application space - after maximum application size
         #endif
     #endif
-    #if !defined TEENSY_3_1 && !defined TEENSY_LC                        // warning: do not use mass erase with Teensy devices since their loader doesn't support the completely erased state and requires an external loader to recoved to the unsecured flash state
+    #if !defined TEENSY_3_1 && !defined TEENSY_3_5 && !defined TEENSY_3_6 && !defined TEENSY_LC // warning: do not use mass erase with Teensy devices since their loader doesn't support the completely erased state and requires an external loader to recoved to the unsecured flash state
         #define MASS_ERASE                                               // support a mass-erase command. This is used together with a protected FLASH configuration.
                                                                          // when the FLASH is protected, downloads are still possible but the debug interface is blocked.
                                                                          // this allows a commanded delete of the complete FLASH content (including serial loader) to unblock the
                                                                          // debug interface
     #endif
-    // Before software can be read from the disk a password file must have been copied {7}
+    // Before software can be written to/read from the disk a password file must have been copied {7}
     //
     #if !defined _DEV2
       //#define READ_PASSWORD             "enable file read from the Kinetis device by dragging this file to the disk" // password with maximum length of 512 bytes
+      //#define WRITE_PASSWORD            "enable file write to the Kinetis device by dragging this file to the disk" // write password with maximum length of 512 bytes
+      //#define BLOCK_READBACK                                           // never allow read-back
     #endif
 
     // SD card loading - file to be loaded, magic number and secret key for authenticating the file's content {8}
@@ -233,11 +245,69 @@
                 #define NEW_SOFTWARE_FILE "sd_card_aes256_coded.bin"
               //#define NEW_SOFTWARE_FILE "encrypted.bin"
             #else
-                #define NEW_SOFTWARE_FILE "software.bin"
+                #if defined WILDCARD_FILES
+                    #if defined DEV10
+                        #define FIRMWARE_DISK_LOCATION    "boot/fw"
+                        #define FIRMWARE2_DISK_LOCATION   "boot/mb"
+                        #define FIRMWARE3_DISK_LOCATION   "boot/tb"
+                        #define NEW_SOFTWARE_FILE         "fw*.bin"
+                        #define NEW_SOFTWARE2_FILE        "mb*.bin"
+                        #define NEW_SOFTWARE3_FILE        "tb*.bin"
+
+                        #define FIRMWARE2_DESTINATION_ADDRESS      (SIZE_OF_FLASH)
+                        #define FIRMWARE3_DESTINATION_ADDRESS      (SIZE_OF_FLASH + (SPI_DATA_FLASH_0_SIZE * 3))
+
+                        #define FIRMWARE2_MAX_SIZE       (15877916)
+                        #define FIRMWARE3_MAX_SIZE       (53439904)
+                    #else
+                        #define NEW_SOFTWARE_FILE "software*.bin"            // allow matching the first file found with the wildcard
+                    #endif
+                #else
+                    #define NEW_SOFTWARE_FILE "software.bin"
+                #endif
             #endif
             #define VALID_VERSION_MAGIC_NUMBER   0x1234
             #define _SECRET_KEY       {0xa7, 0x48, 0xb6, 0x53, 0x11, 0x24}
         #endif
+    #endif
+#elif defined _iMX                                                       // {30}
+    #define SERIAL_SPEED              SERIAL_BAUD_115200                 // the Baud rate of the UART
+    #define ROOT_FILE_ENTRIES         8                                  // when USB MSD loader this many directory entries are set to the start of FLASH - the application start is shifted by this amount x 32 bytes
+    #define ENABLE_READBACK                                              // allow USB to transfer present application to PC
+
+    #if defined iMX_FALLBACK_SERIAL_LOADER
+        #define UTASKER_APP_START     (iMX_SERIAL_LOADER_LOCATION)       // serial loader image stored at this address
+        #define UTASKER_APP_END       (unsigned char *)(UTASKER_APP_START + (SERIAL_LOADER_FLASH_AREA_SIZE)) // end of application space - after maximum application size
+    #else
+        #define UTASKER_APP_START     (iMX_APPLICATION_LOCATION)         // application image stored at this address
+        #if defined iMX_MAX_APPLICATION_SIZE
+            #define UTASKER_APP_END   (unsigned char *)(UTASKER_APP_START + (iMX_MAX_APPLICATION_SIZE)) // end of application space - after maximum application size
+        #else
+            #define UTASKER_APP_END   (unsigned char *)(UTASKER_APP_START + (APPLICATION_FLASH_AREA_SIZE)) // end of application space - after maximum application size
+        #endif
+    #endif
+    // Before software can be written to/read from the disk a password file must have been copied
+    //
+    //#define READ_PASSWORD             "enable file read from the i.MX RT device by dragging this file to the disk" // password with maximum length of 512 bytes
+    //#define WRITE_PASSWORD            "enable file write to the i.MX RT device by dragging this file to the disk" // write password with maximum length of 512 bytes
+    //#define BLOCK_READBACK                                             // never allow read-back
+
+    // SD card loading - file to be loaded, magic number and secret key for authenticating the file's content
+    //
+    #if defined iMX_FALLBACK_SERIAL_LOADER
+        #define NEW_SOFTWARE_FILE "uTaskerSerialLoaderUpload.bin"
+    #else
+        #define NEW_SOFTWARE_FILE "software.bin"
+    #endif
+    #define VALID_VERSION_MAGIC_NUMBER       (PROJECT_APPLICATION_MAGIC_NUMBER)
+    #define VALID_VERSION_MAGIC_NUMBER_2     (SERIAL_LOADER_MAGIC_NUMBER)
+    #define _SECRET_KEY                      APPLICATION_AUTHENTICATION_KEY
+
+    #if (HSUSB_CONTROLLERS > 1) && !(defined MIMXRT1060 && defined DEV8) // parts with dual USB put their host interface onto HS USB 2 by default
+        #define USB_HOST_REF           iMX_USUSB_2
+        #define USB_MSD_HOST_DEVICE_PARALLEL                             // device and host loaders can operate in parallel on different HS USB interfaces
+    #else
+        #define USB_HOST_REF           iMX_USUSB_1
     #endif
 #elif defined _LPC23XX
     #define SERIAL_SPEED              SERIAL_BAUD_115200                 // the Baud rate of the UART
@@ -255,7 +325,8 @@
     #define ENABLE_READBACK                                              // allow USB to transfer present application to PC
     // Before software can be read from the disk a password file must have been copied {7}
     //
-    #define READ_PASSWORD             "enable file read from the LPC2xxx device by dragging this file to the disk" // password with maximum length of 512 bytes
+    //#define READ_PASSWORD             "enable file read from the LPC2xxx device by dragging this file to the disk" // password with maximum length of 512 bytes
+    //#define BLOCK_READBACK                                             // never allow read-back
 
     // SD card loading - file to be loaded, magic number and secret key for authenticating the file's content {11}
     //
@@ -309,7 +380,8 @@
     #define ENABLE_READBACK                                              // allow USB to transfer present application to PC
     // Before software can be read from the disk a password file must have been copied
     //
-    #define READ_PASSWORD             "enable file read from the SAM7 device by dragging this file to the disk" // password with maximum length of 512 bytes
+  //#define READ_PASSWORD             "enable file read from the SAM7 device by dragging this file to the disk" // password with maximum length of 512 bytes
+  //#define BLOCK_READBACK                                               // never allow read-back
   //#define DELETE_BLOCK              (12 * 1024)                        // perform program delete in maximum blocks, winth watchdog retrigger in-between
 #elif defined _STM32                                                     // {10}
     #define SERIAL_SPEED              SERIAL_BAUD_115200                 // the Baud rate of the UART
@@ -326,6 +398,7 @@
     // Before software can be read from the disk a password file must have been copied
     //
   //#define READ_PASSWORD             "enable file read from the STM32 device by dragging this file to the disk" // password with maximum length of 512 bytes
+  //#define BLOCK_READBACK                                               // never allow read-back
 
     // SD card loading - file to be loaded, magic number and secret key for authenticating the file's content
     //
@@ -341,7 +414,7 @@
 
 #if defined MEMORY_SWAP
     #define _UTASKER_APP_START_       (FLASH_START_ADDRESS)
-#elif defined USB_INTERFACE && (defined USB_MSD_DEVICE_LOADER || defined SPECIAL_VERSION_SDCARD)
+#elif defined USB_INTERFACE && (defined USB_MSD_DEVICE_LOADER || defined SPECIAL_VERSION_SDCARD || defined _iMX)
     #if defined _DEV2
         #define _UTASKER_APP_START_   (UTASKER_APP_START + (ROOT_FILE_ENTRIES * 32)) // when USB is used the start of application space is used for FAT entries
     #else
@@ -408,15 +481,16 @@ extern void fnSetBacklight(void);
 //
 #define E_LCD_COMMAND             1
 #define E_LCD_TEXT                2
-#define E_LCD_PATTERN             3
-#define E_LCD_READ_ADDRESS        4
-#define E_LCD_READ_RAM            5
-#define E_LCD_COMMAND_TEXT        6
-#define E_LCD_PIC                 7
-#define E_LCD_LINE                8
-#define E_LCD_RECT                9
-#define E_LCD_SCROLL              10
-#define E_LCD_STYLE               11
+#define E_GLCD_TEXT               3
+#define E_LCD_PATTERN             4
+#define E_LCD_READ_ADDRESS        5
+#define E_LCD_READ_RAM            6
+#define E_LCD_COMMAND_TEXT        7
+#define E_LCD_PIC                 8
+#define E_LCD_LINE                9
+#define E_LCD_RECT                10
+#define E_LCD_SCROLL              11
+#define E_LCD_STYLE               12
 
 // Application interrupt events
 //
@@ -469,4 +543,7 @@ extern int fnHandleKboot(QUEUE_HANDLE USBPortID_coms, int iInterfaceType, KBOOT_
     #define KBOOT_UART 0
     #define KBOOT_HID  1
 extern void fnPrepareDecrypt(int iEncrypt);
+#if defined _iMX && !defined iMX_FALLBACK_SERIAL_LOADER
+    extern void fnPrepareNonce(unsigned char initVector[32]);
+#endif
 

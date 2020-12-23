@@ -11,7 +11,7 @@
     File:      application.h
     Project:   uTasker project
     ---------------------------------------------------------------------
-    Copyright (C) M.J.Butcher Consulting 2004..2019
+    Copyright (C) M.J.Butcher Consulting 2004..2020
     *********************************************************************
     18.02.2006 Add SMTP parameter settings                               {1}
     03.06.2007 Add FTP user definable FTP timeout and ACTIVE_FTP_LOGIN   {2}
@@ -48,10 +48,11 @@
     12.12.2015 Changed PAR_DEVICE and PAR_MODBUS to respect the number of networks present {32}
     12.12.2015 usServer added for each network                           {33}
     26.06.2017 Add fnDisplayMemoryUsage()                                {34}
+    04.05.2018 Change interface to fnSetNewSerialMode()                  {35}
 
 */
 
-#define SOFTWARE_VERSION                    "V1.4.011"
+#define SOFTWARE_VERSION                    "V1.4.012"
 
 #if defined USE_IPV6INV4 && (defined USE_IPV6INV4_RELAY_DESTINATIONS && (USE_IPV6INV4_RELAY_DESTINATIONS != 0))
     #define PARAMETER_BLOCK_VERSION         (unsigned char)(38)
@@ -86,7 +87,7 @@ extern void fnEstablishDataConnection(void);
 extern void fnTerminateDataConnection(void);
 extern void fnEstablishManualDataConnection(unsigned char *ucDialinIP, unsigned short usSerialDialinPort);
 extern void fnConfigureTelnetServer(void);
-extern QUEUE_HANDLE fnSetNewSerialMode(unsigned char ucDriverMode);
+extern QUEUE_HANDLE fnSetNewSerialMode(TTYTABLE *ptrInterfaceParameters, unsigned char ucDriverMode); // {35}
 extern unsigned short fnGetOurParameters(int iCase);
 extern void fnConfigureFtpServer(unsigned short usTimeout);
 extern void fnFlushSerialRx(void);
@@ -148,6 +149,7 @@ extern void fnAddDiscoverySerialNumber(CHAR *ptrBuffer, int iMaxLength); // {19}
 extern void fnInitialiseSNMP(void);                                      // {21}
 extern void fnDisplayIP(unsigned char *ptrIP);                           // {22}
 extern void fnShowLowPowerMode(void);                                    // {24}
+extern void fnShowThisLowPowerMode(int iThisMode);
 extern void fnHandleFreeMaster(QUEUE_HANDLE comHandle, unsigned char *ptr_ucBuffer, QUEUE_TRANSFER Length);
 #if defined SUPPORT_SLCD && defined STOP_WATCH_APPLICATION
     extern void fnStopWatchApplication(void);
@@ -159,7 +161,6 @@ extern void fnHandleFreeMaster(QUEUE_HANDLE comHandle, unsigned char *ptr_ucBuff
     extern QUEUE_HANDLE fnOpenFreeMasterUART(void);
 #endif
 #if defined nRF24L01_INTERFACE
-    extern void fnPrepare_nRF24L01_signals(void);
     extern void fnInit_nRF24L01(void);
     extern void fnHandle_nRF24L01_event(void);
     extern void fnTest_nRF24L01_Write(int iPingPong);
@@ -198,7 +199,7 @@ typedef struct stPARS
     unsigned char  ucSNTP_server_ip[SNTP_SERVERS][IPV4_LENGTH];
 #endif
 #if defined USE_TIME_SERVER
-    unsigned char  ucTime_server_ip[SNTP_SERVERS][IPV4_LENGTH];
+    unsigned char  ucTime_server_ip[NUMBER_OF_TIME_SERVERS][IPV4_LENGTH];
 #endif
 #if defined SMTP_PARAMETERS                                              // {1}
     unsigned char  ucSMTP_user_name[23];                                 // SMTP user's name plus terminator
@@ -243,7 +244,7 @@ typedef struct stPARS
 
 typedef struct stTEMPPARS
 {
-#if defined ETH_INTERFACE || defined USB_CDC_RNDIS || defined USE_PPP
+#if defined ETH_INTERFACE || defined WIFI_INTERFACE || defined USB_CDC_RNDIS || defined USB_RNDIS_HOST || defined USE_PPP
     NETWORK_PARAMETERS temp_network[IP_NETWORK_COUNT];                   // {17}
 #endif
     PARS               temp_parameters;
@@ -332,7 +333,7 @@ extern int iAccelOutput;
 #if defined USE_SMTP
     extern unsigned char ucSMTP_server[IPV4_LENGTH];
 #endif
-#if defined USB_INTERFACE && defined USE_USB_AUDIO
+#if defined USB_INTERFACE && (defined USE_USB_AUDIO || defined USE_HS_USB_AUDIO)
     extern signed long slDelta;                                          // present USB audio (host/audio deviation from ideal delay)
 #endif
 
@@ -379,15 +380,21 @@ extern int iAccelOutput;
 //
 #define E_LCD_COMMAND             1
 #define E_LCD_TEXT                2
-#define E_LCD_PATTERN             3
-#define E_LCD_READ_ADDRESS        4
-#define E_LCD_READ_RAM            5
-#define E_LCD_COMMAND_TEXT        6
-#define E_LCD_PIC                 7
-#define E_LCD_LINE                8                                      // {10}
-#define E_LCD_RECT                9                                      // {10}
-#define E_LCD_SCROLL              10                                     // {10}
-#define E_LCD_STYLE               11                                     // {12}
+#define E_GLCD_TEXT               3
+#define E_LCD_PATTERN             4
+#define E_LCD_READ_ADDRESS        5
+#define E_LCD_READ_RAM            6
+#define E_LCD_COMMAND_TEXT        7
+#define E_LCD_PIC                 8
+#define E_LCD_LINE                9                                      // {10}
+#define E_LCD_RECT                10                                     // {10}
+#define E_LCD_SCROLL              11                                     // {10}
+#define E_LCD_STYLE               12                                     // {12}
+#define E_LCD_TOUCH_POINT         13
+#define E_LCD_POLY                14
+#define E_LCD_PIC_RECOLOR         15
+#define E_LCD_PIC_REP             16
+#define E_LCD_CANVAS              17
 
 // LDC to application
 //
@@ -447,7 +454,7 @@ extern int iAccelOutput;
 
 //..... up to KEY_EVENT_COL_16_ROW_16_RELEASED 128!!
 
-// Application events (timer and interrupt
+// Application events (timer and interrupt)
 //
 #define E_TIMER_1                  1                                     // local events
 #define E_TIMER_SEND_ETHERNET      2
@@ -461,6 +468,7 @@ extern int iAccelOutput;
 #define E_NEXT_PIC                 10
 #define E_NEXT_PHOTO               11
 #define E_TIMER_START_USB_TX       12
+#define E_TIMER_PING_FAILED        13
 
 #define E_TIMER_TEST_10S           20
 #define E_TIMER_TEST_10MS          E_TIMER_TEST_10S                      // use same event number as 10s timer
@@ -476,6 +484,18 @@ extern int iAccelOutput;
 #define IRQ7_EVENT                 43
 #define IRQ11_EVENT                44
 #define CAPTURE_COMPLETE_EVENT     45
+#define CMP_EVENT_0_FALLING        46
+#define CMP_EVENT_0_RISING         47
+#define CMP_EVENT_0_FALLING_RISING 48
+#define CMP_EVENT_1_FALLING        49
+#define CMP_EVENT_1_RISING         50
+#define CMP_EVENT_1_FALLING_RISING 51
+#define CMP_EVENT_2_FALLING        52
+#define CMP_EVENT_2_RISING         53
+#define CMP_EVENT_2_FALLING_RISING 54
+#define CMP_EVENT_3_FALLING        55
+#define CMP_EVENT_3_RISING         56
+#define CMP_EVENT_3_FALLING_RISING 57
 
 #define E_TIMER_TX_NOW             60
 
@@ -528,12 +548,13 @@ extern int iAccelOutput;
 
 #define E_NEXT_SENSOR_REQUEST      122
 
+#define E_TIMER_MASS_STORAGE_START_DELAY 123
+
 #define E_SERVE_PAGE               130                                   // global application events
 #define E_TIMER_SW_DELAYED_RESET   131
 #define E_TEST_MODBUS_DELAY        133
 #define E_nRF24L01_PERIOD          134
 #define E_nRF24L01_EVENT           135
-
 #define E_USB_TX_CONTINUE          136
 
 

@@ -11,7 +11,7 @@
     File:      kinetis_port_ke.h
     Project:   Single Chip Embedded Internet
     ---------------------------------------------------------------------
-    Copyright (C) M.J.Butcher Consulting 2004..2019
+    Copyright (C) M.J.Butcher Consulting 2004..2018
     *********************************************************************
     Supports KEA08, KEA64, KEA128, KE02, KE04, KE06, KE15 and KE18F (port A complete)
 
@@ -179,8 +179,8 @@ static const char *cPer[PORTS_AVAILABLE_8_BIT][PORT_WIDTH * 4][5] = {
         {  "PTC7",         "-",            "UART1_TX",       "-",              "-"           }, // PTC7
     },
     {
-        {  "PTD0",         "KBI1_P0",      "FTM2_CH2",       "-",              "-"           }, // PTD0 (high current drive pin when operated as an output)
-        {  "PTD1",         "KBI1_P1",      "FTM2_CH3",       "-",              "-"           }, // PTD1 (high current drive pin when operated as an output)
+        {  "PTD0",         "KBI1_P0",      "FTM2_CH2",       "SPI1_MOSI",      "-"           }, // PTD0 (high current drive pin when operated as an output)
+        {  "PTD1",         "KBI1_P1",      "FTM2_CH3",       "SPI1_SCK",       "-"           }, // PTD1 (high current drive pin when operated as an output)
         {  "PTD2",         "KBI1_P2",      "SPI1_MISO",      "-",              "-"           }, // PTD2
         {  "PTD3",         "KBI1_P3",      "SPI1_PCS0",      "-",              "-"           }, // PTD3
         {  "PTD4",         "KBI1_P4",      "-",              "-",              "-"           }, // PTD4

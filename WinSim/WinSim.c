@@ -11,7 +11,7 @@
     File:      WinSim.c
     Project:   uTasker project
     ---------------------------------------------------------------------
-    Copyright (C) M.J.Butcher Consulting 2004..2019
+    Copyright (C) M.J.Butcher Consulting 2004..2020
     *********************************************************************
     28.04.2007 Added function fnGetEEPROMSize()                          {1}
     11.08.2007 Added SPI Data FLASH to support the AT45DBXXX             {2}
@@ -88,14 +88,18 @@
     02.02.2017 Adapt for us tick resolution
     13.02.2017 Get endpoint size of Host from endpoint 0 (kinetis)       {72}
     28.02.2017 Increase UARTs from 6 to 8                                {73}
- 
+    18.05.2017 Add fnLogRx()                                             {74}
+    19.08.2017 Correct W25Q writes to multiple SPI chips                 {75}
+    18.02.2019 Add CAN frame injection                                   {76}
+    01.09.2020 Extend to 8 internal UARTs                                {77}
+  
 */   
 #include <windows.h>
 #include "conio.h"
 #include "Fcntl.h"
 #include "io.h"
 #include <sys/stat.h>
-#if _VC80_UPGRADE>=0x0600
+#if _VC80_UPGRADE >= 0x0600
     #include <share.h>
 #endif
 
@@ -122,13 +126,15 @@ extern void fnInitHW(void);
 #endif
 
 #if defined _KINETIS                                                     // {65}
-    #if defined KINETIS_KE
+    #if defined KINETIS_KE && !defined KINETIS_KE15 && !defined KINETIS_KE18
         #define _PORTS_AVAILABLE PORTS_AVAILABLE_8_BIT
     #else
-        #define _PORTS_AVAILABLE (PORTS_AVAILABLE + 1)                   // add dedicated ADC port
+        #define _PORTS_AVAILABLE (PORTS_AVAILABLE + 1) 
     #endif
+#elif _STM32
+    #define _PORTS_AVAILABLE      PORTS_AVAILABLE
 #else
-    #define _PORTS_AVAILABLE PORTS_AVAILABLE
+    #define _PORTS_AVAILABLE      (PORTS_AVAILABLE + 1)                  // add dedicated ADC port
 #endif
 
 extern int iInts = 0;
@@ -187,14 +193,21 @@ static int iI2C_Channel3Speed = 0;
 #endif
 
 #if defined USB_INTERFACE
+    extern int iActiveUSB_interface;
     #define MAX_USB_LENGTH 1024
     static int iUSB_Log[NUMBER_OF_USB_ENDPOINTS] = {0};
     static unsigned char  ucUSB_input[NUMBER_OF_USB_ENDPOINTS][MAX_USB_LENGTH];
     static unsigned short usUSB_length[NUMBER_OF_USB_ENDPOINTS] = {0};
     static const CHAR cUSB_reset[] = "USB Bus Reset..\r\n";
     static const CHAR cUSB_stall[] = "USB Stall\r\n";
+    #if defined USE_USB_AUDIO || defined USE_HS_USB_AUDIO
+    static int iAudio_interface = 1;
+    #endif
+    #if defined USE_USB_CDC
+    static int iCDC_interface = 0;
+    #endif
     #if defined USB_HOST_SUPPORT
-        static int iHostMode = 0;
+        static int iHostMode[2] = {0};
     #endif
 #endif
 
@@ -245,8 +258,10 @@ extern void RealTimeInterrupt(void);
     static int iWinPcapSending = 0;
 #endif
 
+int iOpSysActiveOverride = 0;
 
 extern int main(int argc, char *argv[])
+
 {
     int iRun = 0;
     int iSimulate = 0;
@@ -265,19 +280,23 @@ extern int main(int argc, char *argv[])
         InitializeCriticalSection(ptrcs);                                // start of critical region
     }
     EnterCriticalSection(ptrcs);                                         // protect from task switching
-    if (iOpSysActive != 0) {                                             // {35}
+    if ((iOpSysActive != 0) && (iOpSysActiveOverride == 0)) {            // {35}
         LeaveCriticalSection(ptrcs);
-        return WAIT_WHILE_BUSY;                                          // event can not be handled at the moment so it should wait
+        return WAIT_WHILE_BUSY;                                          // event cannot be handled at the moment so it should wait
     }
+    iOpSysActiveOverride = 0;
     iOpSysActive = 1;                                                    // {36} flag that the simulator is busy
     LeaveCriticalSection(ptrcs);
 
     switch (argc) {
     case INITIALISE_OP_SYSTEM:
-        fnInitTime(argv);
+        fnInitTime(argv);                                                // this also initialises simulated i2c/serial devices
+#if defined BUTTON_KEY_DEFINITIONS && defined EXTENDED_USER_BUTTONS
+        fnInitKeys();
+#endif
         fnSetProjectDetails(++argv);
 	    fnInitHW();                                                      // initialise hardware  
-        fnSimPorts();                                                    // ensure simulator is aware of any hardware port initialisations
+        fnSimPorts(-1);                                                  // ensure simulator is aware of any hardware port initialisations
 #if !defined APPLICATION_WITHOUT_OS
 #if defined RUN_IN_FREE_RTOS
         {
@@ -342,12 +361,15 @@ _abort_multi:
 #endif
 
     case TICK_CALL:
+      //EnterCriticalSection(ptrcs);                                     // protect from task switching
         if (iReset = fnSimTimers()) {                                    // simulate timers and check for watchdog timer
             iOpSysActive = 0;                                            // {36}
+          //LeaveCriticalSection(ptrcs);
             return iReset;                                               // reset commanded or Watchdog fired
         }
+      //LeaveCriticalSection(ptrcs);
         RealTimeInterrupt();                                             // simulate a timer tick
-        iRun = 10;                                                       // allow the scheduler to run a few times to handle inter-task events
+        iRun = 9;                                                        // allow the scheduler to run a few times to handle inter-task events
         iSimulate = 1;                                                   // flag that simulation flags should be handled
         break;
 
@@ -364,7 +386,7 @@ _abort_multi:
         fnSimulateInputChange((unsigned char)*argv[0], (unsigned char)*argv[1], (TOGGLE_INPUT_POS | TOGGLE_INPUT_ANALOG));
         break;
     case INPUT_TOGGLE_POS:
-        fnSimulateInputChange((unsigned char)*argv[0], (unsigned char)*argv[1], TOGGLE_INPUT_POS);
+        fnSimulateInputChange((unsigned char)*argv[0], (unsigned char)*argv[1], SET_INPUT);
         break;
     case INPUT_TOGGLE_NEG:                                               // {19}
         fnSimulateInputChange((unsigned char)*argv[0], (unsigned char)*argv[1], TOGGLE_INPUT_NEG);
@@ -394,27 +416,43 @@ _abort_multi:
     case RX_COM5:                                                        // {56}
         fnSimulateSerialIn(5, (unsigned char*)argv[1], *(unsigned short *)argv[0]);
         break;
+    case RX_COM6:
+        fnSimulateSerialIn(6, (unsigned char*)argv[1], *(unsigned short *)argv[0]);
+        break;
+    case RX_COM7:
+        fnSimulateSerialIn(7, (unsigned char*)argv[1], *(unsigned short *)argv[0]);
+        break;
 #if NUMBER_EXTERNAL_SERIAL > 0                                           //  {49}
     case RX_EXT_COM0:                                                    // external UART inputs  (there may be less available)
-        fnSimulateSerialIn(NUMBER_SERIAL, (unsigned char*)argv[1], *(unsigned short *)argv[0]);
+        fnSimulateSerialIn(NUMBER_SERIAL, (unsigned char *)argv[1], *(unsigned short *)argv[0]);
         break;
     case RX_EXT_COM1:
-        fnSimulateSerialIn((NUMBER_SERIAL + 1), (unsigned char*)argv[1], *(unsigned short *)argv[0]);
+        fnSimulateSerialIn((NUMBER_SERIAL + 1), (unsigned char *)argv[1], *(unsigned short *)argv[0]);
         break;
     case RX_EXT_COM2:
-        fnSimulateSerialIn((NUMBER_SERIAL + 2), (unsigned char*)argv[1], *(unsigned short *)argv[0]);
+        fnSimulateSerialIn((NUMBER_SERIAL + 2), (unsigned char *)argv[1], *(unsigned short *)argv[0]);
         break;
     case RX_EXT_COM3:
-        fnSimulateSerialIn((NUMBER_SERIAL + 3), (unsigned char*)argv[1], *(unsigned short *)argv[0]);
+        fnSimulateSerialIn((NUMBER_SERIAL + 3), (unsigned char *)argv[1], *(unsigned short *)argv[0]);
         break;
 #endif
-#if defined SPI_SIM_INTERFACE
+#if defined CAN_INTERFACE
+    case SIM_CAN_MESSAGE:                                                // {76}
+        fnSimulateCanIn((int)argv[0], (unsigned long)argv[3], (int)argv[4], (unsigned char *)argv[2], (unsigned char)argv[1]);
+        break;
+#endif
+#if defined SPI_INTERFACE
     case RX_SPI0:
         fnSimulateSPIIn(0, (unsigned char *)argv[1], *(unsigned short *)argv[0]);
         break;
-
     case RX_SPI1:
         fnSimulateSPIIn(1, (unsigned char*)argv[1], *(unsigned short *)argv[0]);
+        break;
+    case RX_SPI2:
+        fnSimulateSPIIn(2, (unsigned char *)argv[1], *(unsigned short *)argv[0]);
+        break;
+    case RX_SPI3:
+        fnSimulateSPIIn(3, (unsigned char*)argv[1], *(unsigned short *)argv[0]);
         break;
 #endif
 #if defined SUPPORT_HW_FLOW                                              // {7}
@@ -539,12 +577,12 @@ _abort_multi:
 #if defined USB_INTERFACE
     case SIM_TEST_DISCONNECT:                                            // {26}
     #if defined USB_HOST_SUPPORT
-        if (iHostMode != 0) {
-            fnSimulateUSB(0, 0, 0, 0, USB_RESET_CMD);                    // USB reset condition
+        if (iHostMode[iActiveUSB_interface] != 0) {
+            fnSimulateUSB(iActiveUSB_interface, 0, 0, 0, 0, USB_RESET_CMD); // USB reset condition
         }
         else {
     #endif
-            fnSimulateUSB(0, 0, 0, 0, USB_SLEEP_CMD);                    // USB suspend condition
+            fnSimulateUSB(iActiveUSB_interface, 0, 0, 0, 0, USB_SLEEP_CMD); // USB suspend condition
     #if defined USB_HOST_SUPPORT
         }
     #endif
@@ -561,7 +599,7 @@ _abort_multi:
             if (ptrData == 0) {                                          // not a specific injection so check whether there is queued data
                 static int fnGetQueuedUSB(int *iEndpoint, unsigned short *usLength, unsigned char **ptrData);
                 if (fnGetQueuedUSB(&iEndpoint, &usLength, &ptrData) != 0) {
-                    break;;
+                    break;
                 }
             }
             if ((iEndpoint & USB_SETUP_FLAG) != 0) {                     // {30} identify that a setup frame is being simulated
@@ -569,7 +607,7 @@ _abort_multi:
                 ucPID = SETUP_PID;                                       // change from default OUT to SETUP PID
             }
     #if defined USB_HOST_SUPPORT && defined _KINETIS
-            if (iHostMode != 0) {                                        // {72}
+            if (iHostMode[iActiveUSB_interface] != 0) {                  // {72}
                 usEndpointSize = fnGetEndpointInfo(0);                   // the host mode always receives on its 0 endpoint
             }
             else {
@@ -581,6 +619,11 @@ _abort_multi:
             if (usEndpointSize != 0) {                                   // if the endpoint can accept data
                 static void fnQueueUSB(int iEndpoint, unsigned char *ptrData, unsigned short usLength);
                 unsigned short usFrameLength;
+                int _iActiveUSB_interface = iActiveUSB_interface;
+                if ((USB1_FLAG & iEndpoint) != 0) {
+                    iEndpoint &= ~(USB1_FLAG);
+                    _iActiveUSB_interface = 1;
+                }
                 while (1 != 0) {                                         // {43}
                     if (usLength < usEndpointSize) {
                         usFrameLength = usLength;
@@ -588,12 +631,12 @@ _abort_multi:
                     else {
                         usFrameLength = usEndpointSize;
                     }
-                    if (fnSimulateUSB(0xff, iEndpoint, ucPID, ptrData, usFrameLength) != 0) { // inject DATA packet
+                    if (fnSimulateUSB(_iActiveUSB_interface, 0xff, iEndpoint, ucPID, ptrData, usFrameLength) != 0) { // inject DATA packet
                         fnQueueUSB(iEndpoint, ptrData, usLength);        // put the remaining data to a queue to be injected later
                         break;                                           // not all reception was possible due to the receiver being busy
                     }                    
                     ptrData += usFrameLength;
-                    fnCheckUSBOut(0, iEndpoint);                         // consume any returned data
+                    fnCheckUSBOut(_iActiveUSB_interface, 0, iEndpoint);  // consume any returned data
                     if (usLength <= usFrameLength) {                     // completed
                         break;
                     }
@@ -629,6 +672,7 @@ _abort_multi:
             unsigned char ucGetDescriptorClass[]             = {0x81, 0x06, 0x00, 0x22, 0x00, 0x00, 0x74, 0x00};
             unsigned char ucSetInterface0[]                  = {0x01, 0x0b, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00}; // set alternative interface 0 setting (interface 3)
             unsigned char ucSetInterface1[]                  = {0x01, 0x0b, 0x01, 0x00, 0x03, 0x00, 0x00, 0x00}; // set alternative interface 1 setting (interface 3)
+            unsigned char ucGetCur[]                         = {0xa1, 0x81, 0x00, 0x02, 0x00, 0x02, 0x02, 0x00};
             unsigned char ucGetInterface[]                   = {0x81, 0x0a, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00};
             unsigned char ucGetDeviceStatus[]                = {0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00};
             unsigned char ucGetInterfaceStatus[]             = {0x81, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00};
@@ -641,6 +685,14 @@ _abort_multi:
     #if defined USE_USB_MSD
             unsigned char ucClassPartitions[]                = {0xa1, 0xfe, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00};
             unsigned char ucClearFeature[]                   = {0x02, 0x01, 0x00, 0x00, 0x82, 0x00, 0x00, 0x00};
+            unsigned char ucMSD1[]                           = {0x55, 0x53, 0x42, 0x43, 0x10, 0x00, 0x05, 0xf2,
+                                                                0x24, 0x00, 0x00, 0x00, 0x80, 0x00, 0x06, 0x12,
+                                                                0x00, 0x00, 0x00, 0x24, 0x00, 0x00, 0x00, 0x00,
+                                                                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+            unsigned char ucMSD2[]                           = {0x55, 0x53, 0x42, 0x43, 0xa0, 0x49, 0xb4, 0xfa,
+                                                                0xc0, 0x00, 0x00, 0x00, 0x80, 0x00, 0x06, 0x1a,
+                                                                0x00, 0x1c, 0x00, 0xc0, 0x00, 0x00, 0x00, 0x00,
+                                                                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
     #endif
     #if defined USE_USB_HID_KEYBOARD
             unsigned char ucSetIdleKeyboard[]                = {0x21, 0x0a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
@@ -650,124 +702,140 @@ _abort_multi:
             unsigned char ucSetLineCodingSetup[]             = {0x21, 0x20, 0x00, 0x00, 0x00, 0x00, 0x07, 0x00};
             unsigned char ucSetLineCoding[]                  = {0x00, 0xe1, 0x00, 0x00, 0x00, 0x00, 0x08}; // 57600 / 8 bits
             unsigned char ucGetLineCoding[]                  = {0xa1, 0x21, 0x00, 0x00, 0x00, 0x00, 0x07, 0x00}; // request line coding
-            unsigned char ucSetControlLineState[]            = {0x21, 0x22, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}; // set control line stte
+            unsigned char ucSetControlLineState[]            = {0x21, 0x22, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}; // set control line state
     #endif
-            fnSimulateUSB(0, 0, 0, 0, USB_RESET_CMD);                    // USB reset condition
-            fnSimulateUSB(0, 0, SETUP_PID, ucGetDescriptorDevice, sizeof(ucGetDescriptorDevice)); // inject SETUP packet
-          //fnCheckUSBOut(0, 0);                                         // {32} get any returned data
-            fnSimulateUSB(0, 0, OUT_PID,  ZERO_FRAME, 0);                // inject zero terminator to test interruption of multiple short frames
-            fnSimulateUSB(0, 0, 0, 0, USB_RESET_CMD);                    // USB reset condition
-            fnSimulateUSB(0, 0, SETUP_PID, ucSetAddress_1, sizeof(ucSetAddress_1)); // inject SETUP packet
-            fnCheckUSBOut(0, 0);                                         // get any returned data - this will cause the new address to be assigned
-            fnSimulateUSB(1, 0, SETUP_PID, ucGetDescriptorDevice, sizeof(ucGetDescriptorDevice)); // inject SETUP packet
-            fnCheckUSBOut(1, 0);                                         // get any returned data
-            fnSimulateUSB(1, 0, OUT_PID,  ZERO_FRAME, 0);                // inject zero terminator
-            fnSimulateUSB(1, 0, SETUP_PID, ucGetDescriptorConfiguration, sizeof(ucGetDescriptorConfiguration)); // inject SETUP packet
-            fnCheckUSBOut(1, 0);                                         // get any returned data
-            fnSimulateUSB(1, 0, OUT_PID,  ZERO_FRAME, 0);                // inject zero terminator
-            fnSimulateUSB(1, 0, SETUP_PID, ucGetDescriptorStrLang, sizeof(ucGetDescriptorStrLang)); // inject SETUP packet
-            fnCheckUSBOut(1, 0);                                         // get any returned data
-            fnSimulateUSB(1, 0, OUT_PID,  ZERO_FRAME, 0);                // inject zero terminator
-            fnSimulateUSB(1, 0, SETUP_PID, ucGetDescriptorStrSN, sizeof(ucGetDescriptorStrSN)); // inject SETUP packet
-            fnCheckUSBOut(1, 0);                                         // get any returned data
-            fnSimulateUSB(1, 0, OUT_PID,  ZERO_FRAME, 0);                // inject zero terminator
-            fnSimulateUSB(1, 0, SETUP_PID, ucGetDescriptorConfigurationFull, sizeof(ucGetDescriptorConfigurationFull)); // inject SETUP packet
-            fnCheckUSBOut(1, 0);                                         // get any returned data
-            fnSimulateUSB(1, 0, OUT_PID,  ZERO_FRAME, 0);                // inject zero terminator
-            fnSimulateUSB(1, 0, SETUP_PID, ucGetDescriptorStrLang, sizeof(ucGetDescriptorStrLang)); // inject SETUP packet
-            fnSimulateUSB(1, 0, OUT_PID,  ZERO_FRAME, 0);                // inject zero terminator
-            fnSimulateUSB(1, 0, SETUP_PID, ucGetDescriptorStrProd, sizeof(ucGetDescriptorStrProd)); // inject SETUP packet
-            fnCheckUSBOut(1, 0);                                         // get any returned data
-            fnSimulateUSB(1, 0, OUT_PID,  ZERO_FRAME, 0);                // inject zero terminator
-            fnSimulateUSB(1, 0, SETUP_PID, ucSetFeatureWakeup, sizeof(ucSetFeatureWakeup)); // inject SETUP packet
-            fnCheckUSBOut(1, 0);                                         // get any returned data        
+            fnSimulateUSB(iActiveUSB_interface, 0, 0, 0, 0, USB_RESET_CMD); // USB reset condition
+            fnSimulateUSB(iActiveUSB_interface, 0, 0, SETUP_PID, ucGetDescriptorDevice, sizeof(ucGetDescriptorDevice)); // inject SETUP packet
+          //fnCheckUSBOut(iActiveUSB_interface, 0, 0);                   // {32} get any returned data
+            fnSimulateUSB(iActiveUSB_interface, 0, 0, OUT_PID,  ZERO_FRAME, 0); // inject zero terminator to test interruption of multiple short frames
+            fnSimulateUSB(iActiveUSB_interface, 0, 0, 0, 0, USB_RESET_CMD); // USB reset condition
+            fnSimulateUSB(iActiveUSB_interface, 0, 0, SETUP_PID, ucSetAddress_1, sizeof(ucSetAddress_1)); // inject SETUP packet
+            fnCheckUSBOut(iActiveUSB_interface, 0, 0);                   // get any returned data - this will cause the new address to be assigned
+            fnSimulateUSB(iActiveUSB_interface, 1, 0, SETUP_PID, ucGetDescriptorDevice, sizeof(ucGetDescriptorDevice)); // inject SETUP packet
+            fnCheckUSBOut(iActiveUSB_interface, 1, 0);                   // get any returned data
+            fnSimulateUSB(iActiveUSB_interface, 1, 0, OUT_PID,  ZERO_FRAME, 0); // inject zero terminator
+            fnSimulateUSB(iActiveUSB_interface, 1, 0, SETUP_PID, ucGetDescriptorConfiguration, sizeof(ucGetDescriptorConfiguration)); // inject SETUP packet
+            fnCheckUSBOut(iActiveUSB_interface, 1, 0);                   // get any returned data
+            fnSimulateUSB(iActiveUSB_interface, 1, 0, OUT_PID,  ZERO_FRAME, 0); // inject zero terminator
+            fnSimulateUSB(iActiveUSB_interface, 1, 0, SETUP_PID, ucGetDescriptorStrLang, sizeof(ucGetDescriptorStrLang)); // inject SETUP packet
+            fnCheckUSBOut(iActiveUSB_interface, 1, 0);                   // get any returned data
+            fnSimulateUSB(iActiveUSB_interface, 1, 0, OUT_PID,  ZERO_FRAME, 0); // inject zero terminator
+            fnSimulateUSB(iActiveUSB_interface, 1, 0, SETUP_PID, ucGetDescriptorStrSN, sizeof(ucGetDescriptorStrSN)); // inject SETUP packet
+            fnCheckUSBOut(iActiveUSB_interface, 1, 0);                   // get any returned data
+            fnSimulateUSB(iActiveUSB_interface, 1, 0, OUT_PID,  ZERO_FRAME, 0); // inject zero terminator
+            fnSimulateUSB(iActiveUSB_interface, 1, 0, SETUP_PID, ucGetDescriptorConfigurationFull, sizeof(ucGetDescriptorConfigurationFull)); // inject SETUP packet
+            fnCheckUSBOut(iActiveUSB_interface, 1, 0);                   // get any returned data
+            fnSimulateUSB(iActiveUSB_interface, 1, 0, OUT_PID,  ZERO_FRAME, 0); // inject zero terminator
+            fnSimulateUSB(iActiveUSB_interface, 1, 0, SETUP_PID, ucGetDescriptorStrLang, sizeof(ucGetDescriptorStrLang)); // inject SETUP packet
+            fnSimulateUSB(iActiveUSB_interface, 1, 0, OUT_PID,  ZERO_FRAME, 0); // inject zero terminator
+            fnSimulateUSB(iActiveUSB_interface, 1, 0, SETUP_PID, ucGetDescriptorStrProd, sizeof(ucGetDescriptorStrProd)); // inject SETUP packet
+            fnCheckUSBOut(iActiveUSB_interface, 1, 0);                   // get any returned data
+            fnSimulateUSB(iActiveUSB_interface, 1, 0, OUT_PID,  ZERO_FRAME, 0); // inject zero terminator
+            fnSimulateUSB(iActiveUSB_interface, 1, 0, SETUP_PID, ucSetFeatureWakeup, sizeof(ucSetFeatureWakeup)); // inject SETUP packet
+            fnCheckUSBOut(iActiveUSB_interface, 1, 0);                   // get any returned data        
     #if USB_SPEC_VERSION == USB_SPEC_VERSION_2_0
-            fnSimulateUSB(1, 0, SETUP_PID, ucGetDeviceQualifier, sizeof(ucGetDeviceQualifier)); // inject SETUP packet
-            fnCheckUSBOut(1, 0);                                         // get any returned data
-            fnSimulateUSB(1, 0, OUT_PID,  ZERO_FRAME, 0);                // inject zero terminator
+            fnSimulateUSB(iActiveUSB_interface, 1, 0, SETUP_PID, ucGetDeviceQualifier, sizeof(ucGetDeviceQualifier)); // inject SETUP packet
+            fnCheckUSBOut(iActiveUSB_interface, 1, 0);                   // get any returned data
+            fnSimulateUSB(iActiveUSB_interface, 1, 0, OUT_PID,  ZERO_FRAME, 0); // inject zero terminator
     #endif
-            fnSimulateUSB(1, 0, SETUP_PID, ucSetConfiguration, sizeof(ucSetConfiguration)); // inject SETUP packet
-            fnCheckUSBOut(1, 0);                                         // get any returned data
-            fnSimulateUSB(1, 0, OUT_PID,  ZERO_FRAME, 0);                // inject zero terminator
-            fnSimulateUSB(1, 0, SETUP_PID, ucGetConfiguration, sizeof(ucGetConfiguration)); // inject SETUP packet
-            fnCheckUSBOut(1, 0);                                         // get any returned data
-            fnSimulateUSB(1, 0, OUT_PID,  ZERO_FRAME, 0);                // {33} inject zero terminator
-            fnSimulateUSB(1, 0, SETUP_PID, ucGetInterface, sizeof(ucGetInterface)); // inject SETUP packet
-            fnCheckUSBOut(1, 0);                                         // get any returned data 
-            fnSimulateUSB(1, 0, OUT_PID,  ZERO_FRAME, 0);                // inject zero terminator
+            fnSimulateUSB(iActiveUSB_interface, 1, 0, SETUP_PID, ucSetConfiguration, sizeof(ucSetConfiguration)); // inject SETUP packet
+            fnCheckUSBOut(iActiveUSB_interface, 1, 0);                   // get any returned data
+            fnSimulateUSB(iActiveUSB_interface, 1, 0, OUT_PID,  ZERO_FRAME, 0); // inject zero terminator
+            fnSimulateUSB(iActiveUSB_interface, 1, 0, SETUP_PID, ucGetConfiguration, sizeof(ucGetConfiguration)); // inject SETUP packet
+            fnCheckUSBOut(iActiveUSB_interface, 1, 0);                   // get any returned data
+            fnSimulateUSB(iActiveUSB_interface, 1, 0, OUT_PID,  ZERO_FRAME, 0); // {33} inject zero terminator
+            fnSimulateUSB(iActiveUSB_interface, 1, 0, SETUP_PID, ucGetInterface, sizeof(ucGetInterface)); // inject SETUP packet
+            fnCheckUSBOut(iActiveUSB_interface, 1, 0);                   // get any returned data 
+            fnSimulateUSB(iActiveUSB_interface, 1, 0, OUT_PID,  ZERO_FRAME, 0); // inject zero terminator
     #if defined MICROSOFT_OS_STRING_DESCRIPTOR
-            fnSimulateUSB(1, 0, SETUP_PID, ucGetDescriptorStrMOS, sizeof(ucGetDescriptorStrMOS)); // inject SETUP packet
-            fnCheckUSBOut(1, 0);                                         // get any returned data 
-            fnSimulateUSB(1, 0, OUT_PID,  ZERO_FRAME, 0);                // inject zero terminator
-            fnSimulateUSB(1, 0, SETUP_PID, ucGetMSextended, sizeof(ucGetMSextended)); // inject SETUP packet
-            fnCheckUSBOut(1, 0);                                         // get any returned data 
-            fnSimulateUSB(1, 0, OUT_PID,  ZERO_FRAME, 0);                // inject zero terminator
+            fnSimulateUSB(iActiveUSB_interface, 1, 0, SETUP_PID, ucGetDescriptorStrMOS, sizeof(ucGetDescriptorStrMOS)); // inject SETUP packet
+            fnCheckUSBOut(iActiveUSB_interface, 1, 0);                   // get any returned data 
+            fnSimulateUSB(iActiveUSB_interface, 1, 0, OUT_PID,  ZERO_FRAME, 0); // inject zero terminator
+            fnSimulateUSB(iActiveUSB_interface, 1, 0, SETUP_PID, ucGetMSextended, sizeof(ucGetMSextended)); // inject SETUP packet
+            fnCheckUSBOut(iActiveUSB_interface, 1, 0);                   // get any returned data 
+            fnSimulateUSB(iActiveUSB_interface, 1, 0, OUT_PID,  ZERO_FRAME, 0); // inject zero terminator
     #endif
     #if defined USE_USB_HID_MOUSE || defined USE_USB_HID_RAW             // {61}
-            fnSimulateUSB(1, 0, SETUP_PID, ucSetIdleMouse, sizeof(ucSetIdleMouse)); // inject SETUP packet
-            fnCheckUSBOut(1, 0);                                         // get any returned data
-            fnSimulateUSB(1, 0, OUT_PID,  ZERO_FRAME, 0);                // inject zero terminator
-            fnSimulateUSB(1, 0, SETUP_PID, ucGetReportDescriptorMouse, sizeof(ucGetReportDescriptorMouse)); // inject SETUP packet
-            fnCheckUSBOut(1, 0);                                         // get any returned data
-            fnSimulateUSB(1, 0, OUT_PID,  ZERO_FRAME, 0);                // inject zero terminator
+            fnSimulateUSB(iActiveUSB_interface, 1, 0, SETUP_PID, ucSetIdleMouse, sizeof(ucSetIdleMouse)); // inject SETUP packet
+            fnCheckUSBOut(iActiveUSB_interface, 1, 0);                   // get any returned data
+            fnSimulateUSB(iActiveUSB_interface, 1, 0, OUT_PID,  ZERO_FRAME, 0); // inject zero terminator
+            fnSimulateUSB(iActiveUSB_interface, 1, 0, SETUP_PID, ucGetReportDescriptorMouse, sizeof(ucGetReportDescriptorMouse)); // inject SETUP packet
+            fnCheckUSBOut(iActiveUSB_interface, 1, 0);                   // get any returned data
+            fnSimulateUSB(iActiveUSB_interface, 1, 0, OUT_PID,  ZERO_FRAME, 0); // inject zero terminator
     #endif
     #if defined USE_USB_MSD
-            fnSimulateUSB(1, 0, SETUP_PID, ucClassPartitions, sizeof(ucClassPartitions)); // inject SETUP packet
-            fnCheckUSBOut(1, 0);                                         // get any returned data
-            fnSimulateUSB(1, 0, OUT_PID,  ZERO_FRAME, 0);                // inject zero terminator
-            fnSimulateUSB(1, 0, SETUP_PID, ucClearFeature, sizeof(ucClearFeature)); // inject SETUP packet
-            fnCheckUSBOut(1, 0);                                         // get any returned data
+            fnSimulateUSB(iActiveUSB_interface, 1, 0, SETUP_PID, ucClassPartitions, sizeof(ucClassPartitions)); // inject SETUP packet
+            fnCheckUSBOut(iActiveUSB_interface, 1, 0);                   // get any returned data
+            fnSimulateUSB(iActiveUSB_interface, 1, 0, OUT_PID,  ZERO_FRAME, 0); // inject zero terminator
+            fnSimulateUSB(iActiveUSB_interface, 1, 1, OUT_PID, ucMSD1, sizeof(ucMSD1));
+            fnCheckUSBOut(iActiveUSB_interface, 1, 2);                   // get any returned data
+            /*
+            fnCheckUSBOut(iActiveUSB_interface, 1, 2);                   // get any returned data
+            fnSimulateUSB(iActiveUSB_interface, 1, 1, OUT_PID, ucMSD2, sizeof(ucMSD2));
+            fnCheckUSBOut(iActiveUSB_interface, 1, 2);                   // get any returned data
+            fnSimulateUSB(iActiveUSB_interface, 1, 0, SETUP_PID, ucClearFeature, sizeof(ucClearFeature)); // inject SETUP packet
+            fnCheckUSBOut(iActiveUSB_interface, 1, 0);                   // get any returned data*/
     #endif
     #if  defined USE_USB_HID_KEYBOARD 
-            fnSimulateUSB(1, 0, SETUP_PID, ucSetIdleKeyboard, sizeof(ucSetIdleKeyboard)); // inject SETUP packet
-            fnCheckUSBOut(1, 0);                                         // get any returned data
-            fnSimulateUSB(1, 0, OUT_PID,  ZERO_FRAME, 0);                // inject zero terminator
-            fnSimulateUSB(1, 0, SETUP_PID, ucGetReportDescriptorKeyboard, sizeof(ucGetReportDescriptorKeyboard)); // inject SETUP packet
-            fnCheckUSBOut(1, 0);                                         // get any returned data
-            fnSimulateUSB(1, 0, OUT_PID,  ZERO_FRAME, 0);                // inject zero terminator
+            fnSimulateUSB(iActiveUSB_interface, 1, 0, SETUP_PID, ucSetIdleKeyboard, sizeof(ucSetIdleKeyboard)); // inject SETUP packet
+            fnCheckUSBOut(iActiveUSB_interface, 1, 0);                   // get any returned data
+            fnSimulateUSB(iActiveUSB_interface, 1, 0, OUT_PID,  ZERO_FRAME, 0); // inject zero terminator
+            fnSimulateUSB(iActiveUSB_interface, 1, 0, SETUP_PID, ucGetReportDescriptorKeyboard, sizeof(ucGetReportDescriptorKeyboard)); // inject SETUP packet
+            fnCheckUSBOut(iActiveUSB_interface, 1, 0);                   // get any returned data
+            fnSimulateUSB(iActiveUSB_interface, 1, 0, OUT_PID,  ZERO_FRAME, 0); // inject zero terminator
     #endif
     #if defined USE_USB_CDC                                              // {66}
-            for (i = 0; i < USB_CDC_COUNT; i++) {                        // {69} check each USB-CDC
-                unsigned char ucFrame[8];
-                memcpy(ucFrame, ucSetLineCodingSetup, sizeof(ucSetLineCodingSetup));
-                ucFrame[4] = (i * 2);                                    // set the CDC interface count
-                fnSimulateUSB(1, 0, SETUP_PID, ucFrame, sizeof(ucSetLineCodingSetup)); // inject SETUP packet
-                fnSimulateUSB(1, 0, OUT_PID,  ucSetLineCoding, sizeof(ucSetLineCoding)); // inject DATA packet
-                fnCheckUSBOut(1, 0);                                         // get any returned data
-                memcpy(ucFrame, ucGetLineCoding, sizeof(ucGetLineCoding));
-                ucFrame[4] = (i * 2);                                    // set the CDC interface count
-                fnSimulateUSB(1, 0, SETUP_PID, ucFrame, sizeof(ucGetLineCoding)); // inject SETUP packet
-                fnCheckUSBOut(1, 0);                                         // get any returned data
-                memcpy(ucFrame, ucSetControlLineState, sizeof(ucSetControlLineState));
-                ucFrame[4] = (i * 2);                                    // set the CDC interface count
-                fnSimulateUSB(1, 0, SETUP_PID, ucFrame, sizeof(ucSetControlLineState)); // inject SETUP packet
+            if (iActiveUSB_interface == iCDC_interface) {
+                for (i = 0; i < USB_CDC_COUNT; i++) {                    // {69} check each USB-CDC
+                    unsigned char ucFrame[8];
+                    memcpy(ucFrame, ucSetLineCodingSetup, sizeof(ucSetLineCodingSetup));
+                    ucFrame[4] = (i * 2);                                // set the CDC interface count
+                    fnSimulateUSB(iActiveUSB_interface, 1, 0, SETUP_PID, ucFrame, sizeof(ucSetLineCodingSetup)); // inject SETUP packet
+                    fnSimulateUSB(iActiveUSB_interface, 1, 0, OUT_PID, ucSetLineCoding, sizeof(ucSetLineCoding)); // inject DATA packet
+                    fnCheckUSBOut(iActiveUSB_interface, 1, 0);           // get any returned data
+                    memcpy(ucFrame, ucGetLineCoding, sizeof(ucGetLineCoding));
+                    ucFrame[4] = (i * 2);                                // set the CDC interface count
+                    fnSimulateUSB(iActiveUSB_interface, 1, 0, SETUP_PID, ucFrame, sizeof(ucGetLineCoding)); // inject SETUP packet
+                    fnCheckUSBOut(iActiveUSB_interface, 1, 0);           // get any returned data
+                    memcpy(ucFrame, ucSetControlLineState, sizeof(ucSetControlLineState));
+                    ucFrame[4] = (i * 2);                                // set the CDC interface count
+                    fnSimulateUSB(iActiveUSB_interface, 1, 0, SETUP_PID, ucFrame, sizeof(ucSetControlLineState)); // inject SETUP packet
+                }
             }
     #endif
-            fnSimulateUSB(1, 0, SETUP_PID, ucGetDeviceStatus, sizeof(ucGetDeviceStatus)); // inject SETUP packet
-            fnCheckUSBOut(1, 0);                                         // get any returned data
-            fnSimulateUSB(1, 0, OUT_PID,  ZERO_FRAME, 0);                // inject zero terminator
-            fnSimulateUSB(1, 0, SETUP_PID, ucGetInterfaceStatus, sizeof(ucGetInterfaceStatus)); // inject SETUP packet
-            fnCheckUSBOut(1, 0);                                         // get any returned data 
-            fnSimulateUSB(1, 0, OUT_PID,  ZERO_FRAME, 0);                // inject zero terminator
-            fnSimulateUSB(1, 0, SETUP_PID, ucGetEndpointStatus, sizeof(ucGetEndpointStatus)); // inject SETUP packet
-            fnCheckUSBOut(1, 0);                                         // get any returned data 
-            fnSimulateUSB(1, 0, OUT_PID,  ZERO_FRAME, 0);                // inject zero terminator
-    #if defined USE_USB_AUDIO
-            fnSimulateUSB(1, 0, SETUP_PID, ucSetInterface0, sizeof(ucSetInterface0)); // inject SETUP packet
-            fnCheckUSBOut(1, 0);                                         // get any returned data 
-            fnSimulateUSB(1, 0, SETUP_PID, ucSetInterface1, sizeof(ucSetInterface1)); // inject SETUP packet
-            fnCheckUSBOut(1, 0);                                         // get any returned data 
+            fnSimulateUSB(iActiveUSB_interface, 1, 0, SETUP_PID, ucGetDeviceStatus, sizeof(ucGetDeviceStatus)); // inject SETUP packet
+            fnCheckUSBOut(iActiveUSB_interface, 1, 0);                   // get any returned data
+            fnSimulateUSB(iActiveUSB_interface, 1, 0, OUT_PID,  ZERO_FRAME, 0); // inject zero terminator
+            fnSimulateUSB(iActiveUSB_interface, 1, 0, SETUP_PID, ucGetInterfaceStatus, sizeof(ucGetInterfaceStatus)); // inject SETUP packet
+            fnCheckUSBOut(iActiveUSB_interface, 1, 0);                   // get any returned data 
+            fnSimulateUSB(iActiveUSB_interface, 1, 0, OUT_PID,  ZERO_FRAME, 0); // inject zero terminator
+            fnSimulateUSB(iActiveUSB_interface, 1, 0, SETUP_PID, ucGetEndpointStatus, sizeof(ucGetEndpointStatus)); // inject SETUP packet
+            fnCheckUSBOut(iActiveUSB_interface, 1, 0);                   // get any returned data 
+            fnSimulateUSB(iActiveUSB_interface, 1, 0, OUT_PID,  ZERO_FRAME, 0); // inject zero terminator
+    #if defined USE_USB_AUDIO || defined USE_HS_USB_AUDIO
+            if (iActiveUSB_interface == iAudio_interface) {
+                fnSimulateUSB(iAudio_interface, 1, 0, SETUP_PID, ucSetInterface0, sizeof(ucSetInterface0)); // inject SETUP packet
+                fnCheckUSBOut(iAudio_interface, 1, 0);                   // get any returned data 
+                fnSimulateUSB(iAudio_interface, 1, 0, SETUP_PID, ucSetInterface1, sizeof(ucSetInterface1)); // inject SETUP packet
+                fnCheckUSBOut(iAudio_interface, 1, 0);                   // get any returned data
+                fnSimulateUSB(iAudio_interface, 1, 0, SETUP_PID, ucGetCur, sizeof(ucGetCur)); // inject SETUP packet
+                fnCheckUSBOut(iAudio_interface, 1, 0);                   // get any returned data
+            }
     #endif
         }
         break;
     #if defined USB_HOST_SUPPORT                                         // {29}
+    case SIM_TEST_HIGHSPEED_DEVICE:
+        iHostMode[iActiveUSB_interface] = 1;
+        fnSimulateUSB(iActiveUSB_interface, 0, 0, 0, 0, USB_HIGHSPEED_ATTACH_CMD); // low speed device attach
+        break;
     case SIM_TEST_LOWSPEED_DEVICE:
-        iHostMode = 1;
-        fnSimulateUSB(0, 0, 0, 0, USB_LOWSPEED_ATTACH_CMD);              // low speed device attach
+        iHostMode[iActiveUSB_interface] = 1;
+        fnSimulateUSB(iActiveUSB_interface, 0, 0, 0, 0, USB_LOWSPEED_ATTACH_CMD); // low speed device attach
         break;
     case SIM_TEST_FULLSPEED_DEVICE:
-        iHostMode = 1;
-        fnSimulateUSB(0, 0, 0, 0, USB_FULLSPEED_ATTACH_CMD);             // full speed device attach
+        iHostMode[iActiveUSB_interface] = 1;
+        fnSimulateUSB(iActiveUSB_interface, 0, 0, 0, 0, USB_FULLSPEED_ATTACH_CMD); // full speed device attach (controller 0)
         break;
     #endif
 #endif
@@ -791,7 +859,7 @@ _abort_multi:
         #endif
                 uTaskerSchedule();                                       // let the tasker run a few more times to allow internal message passing to be processed and free running tasks to run a while
     #endif
-                fnSimPorts();
+                fnSimPorts(-1);
     #if defined MULTISTART
                 if (ptrNewstart != 0) {
                     iOpSysActive = 0;                                    // {36}
@@ -856,18 +924,18 @@ extern void fnUpdateIPConfig(void)
     #if defined USE_ZERO_CONFIG
     extern unsigned char fnGetZeroConfig_State(int iNetwork);
     #endif
-extern unsigned char fnAddIPData(unsigned char *ucDataBuffer)
+extern unsigned short fnAddIPData(unsigned char *ucDataBuffer)
 {
     int i;
     unsigned char *ptrLen = ucDataBuffer++;
-    unsigned char ucLength;
+    unsigned short usLength;
     #if defined USE_DHCP_CLIENT
     unsigned char ucDHCP_state;
     #endif
     #if defined USE_ZERO_CONFIG                                          // {57}
     unsigned char ucZeroConfig_state;
     #endif
-
+    ucDataBuffer++;
     for (i = 0; i < IP_NETWORK_COUNT; i++) {                             // {68}
     #if defined USE_DHCP_CLIENT
         ucDHCP_state = fnGetDHCP_State(i);
@@ -929,11 +997,11 @@ extern unsigned char fnAddIPData(unsigned char *ucDataBuffer)
         #endif
         *(ucDataBuffer - 1) = '|';                                       // {68} separater for multiple IP addresses
     }
-    ucLength = (unsigned char)(ucDataBuffer - ptrLen - 1);
+    usLength = (unsigned short)(ucDataBuffer - ptrLen - 1);
 
-    *ptrLen = ucLength;
-
-    return (ucLength);
+    *ptrLen++ = (unsigned char)(usLength >> 8);
+    *ptrLen = (unsigned char)(usLength);
+    return (usLength);
 }
 #endif
 
@@ -953,7 +1021,7 @@ extern void fnConfigSimSCI(QUEUE_HANDLE Channel, unsigned long ulSpeed, TTYTABLE
             ulActions_2 |= OPEN_EXT_COM_0;                               // signal we want a COM port mapped to this UART
             ulExtChannel0Speed = ulSpeed;
             ExtChannel0Config = pars->Config;
-            iExtChannel0Speed = ((ulSpeed * TICK_RESOLUTION)/10000000);  // approx. max. characters capable of transmitting in a tick period {10}
+            iExtChannel0Speed = ((unsigned long long)((unsigned long long)ulSpeed * (unsigned long long)TICK_RESOLUTION) / 10000000); // approx. max. characters capable of transmitting in a tick period {10}
             if (iExtChannel0Speed == 0) {
                 iExtChannel0Speed = 1;
             }
@@ -962,7 +1030,7 @@ extern void fnConfigSimSCI(QUEUE_HANDLE Channel, unsigned long ulSpeed, TTYTABLE
             ulActions_2 |= OPEN_EXT_COM_1;                               // signal we want a COM port mapped to this UART
             ulExtChannel1Speed = ulSpeed;
             ExtChannel1Config = pars->Config;
-            iExtChannel1Speed = ((ulSpeed * TICK_RESOLUTION)/10000000);  // approx. max. characters capable of transmitting in a tick period {10}
+            iExtChannel1Speed = ((unsigned long long)((unsigned long long)ulSpeed * (unsigned long long)TICK_RESOLUTION) / 10000000); // approx. max. characters capable of transmitting in a tick period {10}
             if (iExtChannel1Speed == 0) {
                 iExtChannel1Speed = 1;
             }
@@ -971,7 +1039,7 @@ extern void fnConfigSimSCI(QUEUE_HANDLE Channel, unsigned long ulSpeed, TTYTABLE
             ulActions_2 |= OPEN_EXT_COM_2;                               // signal we want a COM port mapped to this UART
             ulExtChannel2Speed = ulSpeed;
             ExtChannel2Config = pars->Config;
-            iExtChannel2Speed = ((ulSpeed * TICK_RESOLUTION)/10000000);  // approx. max. characters capable of transmitting in a tick period {10}
+            iExtChannel2Speed = ((unsigned long long)((unsigned long long)ulSpeed * (unsigned long long)TICK_RESOLUTION) / 10000000); // approx. max. characters capable of transmitting in a tick period {10}
             if (iExtChannel2Speed == 0) {
                 iExtChannel2Speed = 1;
             }
@@ -980,7 +1048,7 @@ extern void fnConfigSimSCI(QUEUE_HANDLE Channel, unsigned long ulSpeed, TTYTABLE
             ulActions_2 |= OPEN_EXT_COM_3;                               // signal we want a COM port mapped to this UART
             ulExtChannel3Speed = ulSpeed;
             ExtChannel3Config = pars->Config;
-            iExtChannel3Speed = ((ulSpeed * TICK_RESOLUTION)/10000000);  // approx. max. characters capable of transmitting in a tick period {10}
+            iExtChannel3Speed = ((unsigned long long)((unsigned long long)ulSpeed * (unsigned long long)TICK_RESOLUTION) / 10000000); // approx. max. characters capable of transmitting in a tick period {10}
             if (iExtChannel3Speed == 0) {
                 iExtChannel3Speed = 1;
             }
@@ -994,7 +1062,7 @@ extern void fnConfigSimSCI(QUEUE_HANDLE Channel, unsigned long ulSpeed, TTYTABLE
         ulActions_2 |= OPEN_COM_0;                                       // signal we want a COM port mapped to this UART
         ulChannel0Speed = ulSpeed;
         Channel0Config = pars->Config;                                   // {45}
-        iChannel0Speed = ((ulSpeed * TICK_RESOLUTION)/10000000);         // approx. max. characters capable of transmitting in a tick period {10}
+        iChannel0Speed = ((unsigned long long)((unsigned long long)ulSpeed * (unsigned long long)TICK_RESOLUTION) / 10000000); // approx. max. characters capable of transmitting in a tick period {10}
         if (iChannel0Speed == 0) {
             iChannel0Speed = 1;
         }
@@ -1004,7 +1072,7 @@ extern void fnConfigSimSCI(QUEUE_HANDLE Channel, unsigned long ulSpeed, TTYTABLE
         ulActions_2 |= OPEN_COM_1;                                       // signal we want a COM port mapped to this UART
         ulChannel1Speed = ulSpeed;
         Channel1Config = pars->Config;                                   // {45}
-        iChannel1Speed = ((ulSpeed * TICK_RESOLUTION)/10000000);         // approx. max. characters capable of transmitting in a tick period {10}
+        iChannel1Speed = ((unsigned long long)((unsigned long long)ulSpeed * (unsigned long long)TICK_RESOLUTION) / 10000000); // approx. max. characters capable of transmitting in a tick period {10}
         if (iChannel1Speed == 0) {
             iChannel1Speed = 1;
         }
@@ -1014,7 +1082,7 @@ extern void fnConfigSimSCI(QUEUE_HANDLE Channel, unsigned long ulSpeed, TTYTABLE
         ulActions_2 |= OPEN_COM_2;                                       // signal we want a COM port mapped to this UART
         ulChannel2Speed = ulSpeed;
         Channel2Config = pars->Config;                                   // {45}
-        iChannel2Speed = ((ulSpeed * TICK_RESOLUTION)/10000000);         // approx. max. characters capable of transmitting in a tick period {10}
+        iChannel2Speed = ((unsigned long long)((unsigned long long)ulSpeed * (unsigned long long)TICK_RESOLUTION) / 10000000); // approx. max. characters capable of transmitting in a tick period {10}
         if (iChannel2Speed == 0) {
             iChannel2Speed = 1;
         }
@@ -1024,7 +1092,7 @@ extern void fnConfigSimSCI(QUEUE_HANDLE Channel, unsigned long ulSpeed, TTYTABLE
         ulActions_2 |= OPEN_COM_3;                                       // signal we want a COM port mapped to this UART
         ulChannel3Speed = ulSpeed;
         Channel3Config = pars->Config;                                   // {45}
-        iChannel3Speed = ((ulSpeed * TICK_RESOLUTION)/10000000);         // approx. max. characters capable of transmitting in a tick period {10}
+        iChannel3Speed = ((unsigned long long)((unsigned long long)ulSpeed * (unsigned long long)TICK_RESOLUTION) / 10000000); // approx. max. characters capable of transmitting in a tick period {10}
         if (iChannel3Speed == 0) {
             iChannel3Speed = 1;
         }
@@ -1034,7 +1102,7 @@ extern void fnConfigSimSCI(QUEUE_HANDLE Channel, unsigned long ulSpeed, TTYTABLE
         ulActions_2 |= OPEN_COM_4;                                       // signal we want a COM port mapped to this UART
         ulChannel4Speed = ulSpeed;
         Channel4Config = pars->Config;
-        iChannel4Speed = ((ulSpeed * TICK_RESOLUTION)/10000000);         // approx. max. characters capable of transmitting in a tick period {10}
+        iChannel4Speed = ((unsigned long long)((unsigned long long)ulSpeed * (unsigned long long)TICK_RESOLUTION) / 10000000); // approx. max. characters capable of transmitting in a tick period {10}
         if (iChannel4Speed == 0) {
             iChannel4Speed = 1;
         }
@@ -1044,9 +1112,29 @@ extern void fnConfigSimSCI(QUEUE_HANDLE Channel, unsigned long ulSpeed, TTYTABLE
         ulActions_2 |= OPEN_COM_5;                                       // signal we want a COM port mapped to this UART
         ulChannel5Speed = ulSpeed;
         Channel5Config = pars->Config;
-        iChannel5Speed = ((ulSpeed * TICK_RESOLUTION)/10000000);         // approx. max. characters capable of transmitting in a tick period {10}
+        iChannel5Speed = ((unsigned long long)((unsigned long long)ulSpeed * (unsigned long long)TICK_RESOLUTION)/10000000); // approx. max. characters capable of transmitting in a tick period {10}
         if (iChannel5Speed == 0) {
             iChannel5Speed = 1;
+        }
+        break;
+
+    case 6:                                                              // {77}
+        ulActions_2 |= OPEN_COM_6;                                       // signal we want a COM port mapped to this UART
+        ulChannel6Speed = ulSpeed;
+        Channel6Config = pars->Config;
+        iChannel6Speed = ((unsigned long long)((unsigned long long)ulSpeed * (unsigned long long)TICK_RESOLUTION) / 10000000); // approx. max. characters capable of transmitting in a tick period
+        if (iChannel6Speed == 0) {
+            iChannel6Speed = 1;
+        }
+        break;
+
+    case 7:                                                              // {77}
+        ulActions_2 |= OPEN_COM_7;                                       // signal we want a COM port mapped to this UART
+        ulChannel7Speed = ulSpeed;
+        Channel7Config = pars->Config;
+        iChannel7Speed = ((unsigned long long)((unsigned long long)ulSpeed * (unsigned long long)TICK_RESOLUTION) / 10000000); // approx. max. characters capable of transmitting in a tick period
+        if (iChannel7Speed == 0) {
+            iChannel7Speed = 1;
         }
         break;
     }
@@ -1059,7 +1147,7 @@ extern void fnConfigSimI2C(QUEUE_HANDLE Channel, unsigned long ulSpeed)
 {
     switch (Channel) {
     case 0:
-        iI2C_Channel0Speed = ulSpeed/9/(10000000/TICK_RESOLUTION);       // approx. max. I2C bytes capable of transmitting/receiving in a tick period;
+        iI2C_Channel0Speed = ulSpeed/9/(1000000/TICK_RESOLUTION);        // approx. max. I2C bytes capable of transmitting/receiving in a tick period;
         break;
     case 1:
         iI2C_Channel1Speed = ulSpeed/9/(1000000/TICK_RESOLUTION);        // approx. max. I2C bytes capable of transmitting/receiving in a tick period;;
@@ -1078,10 +1166,16 @@ unsigned char *fnGetNextDoPlace(char *argv[])
 {
     unsigned char *ucNextLocation = (unsigned char*)argv[0];
 
-    while (*ucNextLocation) {
+    while (*ucNextLocation != 0) {
         if (DISPLAY_PORT_CHANGE == *ucNextLocation) {                    // {51}
             ucNextLocation++;
             ucNextLocation += ((*ucNextLocation * 3 * sizeof(unsigned long)) + 1);
+        }
+        else if (IP_CHANGE == *ucNextLocation) {
+            unsigned short usLength = *(++ucNextLocation);
+            usLength *= 256;
+            usLength |= *(++ucNextLocation);
+            ucNextLocation += usLength;
         }
         else {
             ucNextLocation++;
@@ -1094,7 +1188,7 @@ unsigned char *fnGetNextDoPlace(char *argv[])
 
 unsigned char *fnInsertValue(unsigned char *ucDo, unsigned long ulValue, int iLen)
 {
-    while (iLen--) {
+    while (iLen-- != 0) {
         *ucDo++ = (unsigned char)(ulValue >> iLen*8);
     }
     return ucDo;
@@ -1104,7 +1198,7 @@ static int fnSimulateActions(char *argv[])
 {
     int iReturn = 0;
     unsigned char *ucDo;
-    char *argv2[13];
+    char *argv2[16];
     int iThroughPut[16];
 
     iThroughPut[THROUGHPUT_UART0] = (iChannel0Speed + 1);                // start with internal UARTs 0..5
@@ -1304,11 +1398,11 @@ static int fnSimulateActions(char *argv[])
         }
     #endif
 #endif
-        if (ulActions_2 & PORT_CHANGE) {
+        if ((ulActions_2 & PORT_CHANGE) != 0) {
             int iPorts = 0;
             ucDo = fnGetNextDoPlace(argv);
             *ucDo++ = DISPLAY_PORT_CHANGE;                               // we inform that we may want to display a port change
-            *ucDo++ = (_PORTS_AVAILABLE + _EXTERNAL_PORT_COUNT); //(_PORTS_AVAILABLE * 3 * sizeof(unsigned long));// {51}{62}
+            *ucDo++ = (_PORTS_AVAILABLE + _EXTERNAL_PORT_COUNT);         //(_PORTS_AVAILABLE * 3 * sizeof(unsigned long));// {51}{62}
             while (iPorts < (_PORTS_AVAILABLE + _EXTERNAL_PORT_COUNT)) { // {62}
                 ucDo = fnInsertValue(ucDo, fnGetPresentPortState(++iPorts), sizeof(unsigned long));
                 ucDo = fnInsertValue(ucDo, fnGetPresentPortDir(iPorts), sizeof(unsigned long));
@@ -1317,7 +1411,7 @@ static int fnSimulateActions(char *argv[])
             iReturn = 1;
         }
 #if defined USE_IP
-        if (ulActions_2 & IP_CONFIG_CHANGED) {
+        if ((ulActions_2 & IP_CONFIG_CHANGED) != 0) {
             ucDo = fnGetNextDoPlace(argv);
             *ucDo++ = IP_CHANGE;
             ucDo += fnAddIPData(ucDo);
@@ -1327,7 +1421,7 @@ static int fnSimulateActions(char *argv[])
         ulActions_2 = 0;
     }
 
-    if (ulActions) {                                                     // we have some actions to be performed by windows
+    if (ulActions != 0) {                                                // we have some actions to be performed by windows
         if (ulActions & (ASSERT_RTS_COM_0 | NEGATE_RTS_COM_0 | ASSERT_RTS_COM_1 | NEGATE_RTS_COM_1 | ASSERT_RTS_COM_2 | NEGATE_RTS_COM_2 | ASSERT_RTS_COM_3 | NEGATE_RTS_COM_3)) { // {41} if a RTS line change
             if (ulActions & ASSERT_RTS_COM_0) {                          // {7}
                 ucDo = fnGetNextDoPlace(argv);
@@ -1412,7 +1506,7 @@ static int fnSimulateActions(char *argv[])
             iReturn = 1;
             ulCom1Len = 0;
         }
-        if (ulActions & SEND_COM_2) {
+        if ((ulActions & SEND_COM_2) != 0) {
             ucDo = fnGetNextDoPlace(argv);
             *ucDo++ = SEND_PC_COM2;                                      // we inform that we want to send a message over UART 2 COM
             *ucDo++ = (unsigned char)(sizeof(ulCom2Len) + sizeof(unsigned char *) + 1);
@@ -1507,6 +1601,51 @@ static int fnSimulateActions(char *argv[])
     return iReturn; 
 }
 
+#if defined SERIAL_INTERFACE && defined LOG_UART_RX                      // {74}
+    #if !defined NUMBER_EXTERNAL_SERIAL
+        #define NUMBER_EXTERNAL_SERIAL 0
+    #endif
+static int iUART_Rx_File[NUMBER_SERIAL + NUMBER_EXTERNAL_SERIAL] = { 0 };
+static unsigned long ulLastRx[NUMBER_SERIAL + NUMBER_EXTERNAL_SERIAL] = { 0 };
+extern void fnLogRx(int iPort, unsigned char *ptrDebugIn, unsigned short usLen)
+{
+    CHAR rxData[(1024 * 3) + 32];
+    CHAR *ptrBuffer;
+    unsigned long ulDiffMS;
+    if (iUART_Rx_File[iPort] == 0) {
+        CHAR fileName[] = "UART0.sim";
+        fileName[4] = ('0' + iPort);
+        #if _VC80_UPGRADE<0x0600
+        iUART_Rx_File[iPort] = _open(fileName, (_O_TRUNC | _O_CREAT | _O_WRONLY), _S_IWRITE);
+        #else
+        _sopen_s(&iUART_Rx_File[iPort], fileName, (_O_TRUNC | _O_CREAT | _O_WRONLY), _SH_DENYWR, _S_IWRITE);
+        #endif
+        ulLastRx[iPort] = uTaskerSystemTick;
+    }
+    if (usLen > 1024) {
+        usLen = 1024;
+    }
+    rxData[0] = '+';
+    ulDiffMS = (uTaskerSystemTick - ulLastRx[iPort]);                    // difference in ticks since last reception
+    ulLastRx[iPort] = uTaskerSystemTick;
+    ulDiffMS *= (1000/SEC);
+    ptrBuffer = fnBufferDec(ulDiffMS, 0, &rxData[1]);
+    *ptrBuffer++ = ' ';
+    *ptrBuffer++ = 'U';
+    *ptrBuffer++ = 'A';
+    *ptrBuffer++ = 'R';
+    *ptrBuffer++ = 'T';
+    *ptrBuffer++ = '-';
+    *ptrBuffer++ = ('0' + iPort);
+    *ptrBuffer++ = ' ';
+    while (usLen-- != 0) {
+        ptrBuffer = fnBufferHex(*ptrDebugIn++, (WITH_SPACE | sizeof(unsigned char)), ptrBuffer);
+    }
+    *ptrBuffer++ = '\r';
+    *ptrBuffer++ = '\n';
+    _write(iUART_Rx_File[iPort], rxData, (ptrBuffer - rxData));
+}
+#endif
 
 static int iUART_File0 = 0;
 extern void fnLogTx0(unsigned char ucTxByte)
@@ -1572,7 +1711,7 @@ static int iUART_File2 = 0;
 extern void fnLogTx2(unsigned char ucTxByte)
 {
 #if defined LOG_UART2
-	if (!iUART_File2) {
+	if (iUART_File2 == 0) {
     #if _VC80_UPGRADE<0x0600
 	    iUART_File2 = _open("UART2.txt", (_O_TRUNC  | _O_CREAT | _O_WRONLY), _S_IWRITE);
     #else
@@ -1665,7 +1804,7 @@ static int iUART_File5 = 0;
 extern void fnLogTx5(unsigned char ucTxByte)                             // {56}
 {
 #if defined LOG_UART5
-	if (!iUART_File5) {
+	if (iUART_File5 == 0) {
     #if _VC80_UPGRADE<0x0600
 	    iUART_File5 = _open("UART5.txt", (_O_TRUNC  | _O_CREAT | _O_WRONLY), _S_IWRITE);
     #else
@@ -1967,7 +2106,7 @@ extern void fnLogUSB(int iEndpoint, unsigned char ucToken, unsigned short usLeng
         if (usLength == 0) {
             _write(iUSB_Log[iEndpoint], "ZERO-DATA", 9);
         }
-        while (usLength--) {
+        while (usLength-- != 0) {
             unsigned char ucTemp1 = (*ptrUSBData >> 4);
             unsigned char ucTemp2 = (*ptrUSBData & 0x0f);
             if (ucTemp1 <= 9) {
@@ -2063,36 +2202,36 @@ static void fnCloseAll(void)
         }
     }
 #endif
-	if (iUART_File0) {
+	if (iUART_File0 != 0) {
 	    _close(iUART_File0);
 	}
-	if (iUART_File1) {
+	if (iUART_File1 != 0) {
 	    _close(iUART_File1);
 	}
-	if (iUART_File2) {
+	if (iUART_File2 != 0) {
 	    _close(iUART_File2);
 	}
-	if (iUART_File3) {
+	if (iUART_File3 != 0) {
 	    _close(iUART_File3);
 	}
 #if NUMBER_EXTERNAL_SERIAL > 0                                           // {49}
-	if (iExt_UART_File0) {
+	if (iExt_UART_File0 != 0) {
 	    _close(iExt_UART_File0);
 	}
-	if (iExt_UART_File1) {
+	if (iExt_UART_File1 != 0) {
 	    _close(iExt_UART_File1);
 	}
-	if (iExt_UART_File2) {
+	if (iExt_UART_File2 != 0) {
 	    _close(iExt_UART_File2);
 	}
-	if (iExt_UART_File3) {
+	if (iExt_UART_File3 != 0) {
 	    _close(iExt_UART_File3);
 	}
 #endif
-	if (iEthTxFile) {
+	if (iEthTxFile != 0) {
 	    _close(iEthTxFile);
 	}
-    if (iSSC_File0) {                                                    // {47}
+    if (iSSC_File0 != 0) {                                               // {47}
 	    _close(iSSC_File0);        
     }
 #if defined SDCARD_SUPPORT
@@ -2218,13 +2357,13 @@ extern unsigned long fnGetExtFlashSize(void)
 
 
 
-#if defined SPI_SW_UPLOAD || defined SPI_FLASH_FAT || (defined SPI_FILE_SYSTEM && defined FLASH_FILE_SYSTEM) // {2}{8}
+#if defined _iMX || defined SPI_SW_UPLOAD || defined SPI_FLASH_FAT || (defined SPI_FILE_SYSTEM && defined FLASH_FILE_SYSTEM) // {2}{8}
 
-#ifndef SPI_FLASH_DEVICE_COUNT                                           // {4}
+#if !defined SPI_FLASH_DEVICE_COUNT                                      // {4}
     #define SPI_FLASH_DEVICE_COUNT         1
 #endif
 
-    #if !defined SPI_FLASH_ST && !defined SPI_FLASH_SST25 && !defined SPI_FLASH_W25Q && !defined SPI_FLASH_S25FL1_K // {14}
+    #if !defined SPI_FLASH_ST && !defined SPI_FLASH_SST25 && !defined SPI_FLASH_W25Q && !defined SPI_FLASH_S25FL1_K && !defined SPI_FLASH_MX25L && !defined SPI_FLASH_MX66L && !defined SPI_FLASH_IS25 && !defined SPI_FLASH_S26KL && !defined SPI_FLASH_ATXP && !defined SPI_FLASH_AT25SF // {14}
 
 static unsigned char ucAT45DBXXX[SPI_DATA_FLASH_SIZE];                   // all SPI FLASH devices in one buffer
 
@@ -2247,7 +2386,7 @@ extern unsigned long fnGetDataFlashSize(void)
 }
 
 
-extern unsigned char fnSimAT45DBXXX(int iSimType, unsigned char ucTxByte)// {16}{48}
+extern unsigned char fnSimSPI_Flash(int iSimType, unsigned char ucTxByte)// {16}{48}
 {
     #if SPI_FLASH_PAGES == 512
         #define FLASH_SIZE 0x0c                                          // 1MBit
@@ -2286,14 +2425,14 @@ extern unsigned char fnSimAT45DBXXX(int iSimType, unsigned char ucTxByte)// {16}
 #if defined SPI_FLASH_MULTIPLE_CHIPS
     int iCntCS = 0;
     unsigned long ulDeviceOffset = 0;
-    if (SPI_CS0_PORT & CS0_LINE) {                                       // {16}
+    if ((SPI_CS0_PORT & CS0_LINE) != 0) {                                // {16}
         ucChipCommand[0] = 0;
         iState[0] = 0;
     }
     else {
         iCntCS++;
     }
-    if (SPI_CS1_PORT & CS1_LINE) {
+    if ((SPI_CS1_PORT & CS1_LINE) != 0) {
         ucChipCommand[1] = 0;
         iState[1] = 0;
     }
@@ -2304,9 +2443,9 @@ extern unsigned char fnSimAT45DBXXX(int iSimType, unsigned char ucTxByte)// {16}
     }
     #if defined QSPI_CS2_LINE || defined CS2_LINE
         #if defined QSPI_CS2_LINE
-    if (SPI_CS2_PORT & QSPI_CS2_LINE) 
+    if ((SPI_CS2_PORT & QSPI_CS2_LINE) != 0)
         #else
-    if (SPI_CS2_PORT & CS2_LINE) 
+    if ((SPI_CS2_PORT & CS2_LINE) != 0)
         #endif
     {
         ucChipCommand[2] = 0;
@@ -2320,9 +2459,9 @@ extern unsigned char fnSimAT45DBXXX(int iSimType, unsigned char ucTxByte)// {16}
     #endif
     #if defined QSPI_CS3_LINE || defined CS3_LINE
         #if defined QSPI_CS3_LINE
-    if (SPI_CS3_PORT & QSPI_CS3_LINE) 
+    if ((SPI_CS3_PORT & QSPI_CS3_LINE) != 0) 
         #else
-    if (SPI_CS3_PORT & CS3_LINE) 
+    if ((SPI_CS3_PORT & CS3_LINE) != 0) 
         #endif
     {
         ucChipCommand[3] = 0;
@@ -2335,14 +2474,14 @@ extern unsigned char fnSimAT45DBXXX(int iSimType, unsigned char ucTxByte)// {16}
     }
     #endif
     if (iCntCS > 1) {
-        *(unsigned char *)(0) = 0;                                       // 2 CS selected at same time - serious error
+        _EXCEPTION("2 CS selected at same time - serious error");
     }
     else if (iCntCS == 0) {
         return 0xff;                                                     // chip not selected, return idle
     }
 #else
     #define ulDeviceOffset 0
-    if (SPI_CS0_PORT & CS0_LINE) {                                       // {16}
+    if ((SPI_CS0_PORT & CS0_LINE) != 0) {                                // {16}
         ucChipCommand[0] = 0;
         iState[0] = 0;
         return 0xff;                                                     // chip not selected, return idle
@@ -2725,7 +2864,7 @@ extern unsigned long fnGetDataFlashSize(void)
     return SPI_DATA_FLASH_SIZE;
 }
 
-extern unsigned char fnSimSTM25Pxxx(int iSimType, unsigned char ucTxByte)
+extern unsigned char fnSimSPI_Flash(int iSimType, unsigned char ucTxByte)
 {
     static unsigned char  ucChipCommand[SPI_FLASH_DEVICE_COUNT] = {0};
     static int            iState[SPI_FLASH_DEVICE_COUNT] = {0};
@@ -2739,7 +2878,7 @@ extern unsigned char fnSimSTM25Pxxx(int iSimType, unsigned char ucTxByte)
         #if defined SPI_FLASH_MULTIPLE_CHIPS
     int iCntCS = 0;
     unsigned long ulDeviceOffset = 0;
-    if (SPI_CS0_PORT & CS0_LINE) {
+    if ((SPI_CS0_PORT & CS0_LINE) != 0) {
         if ((ucChipCommand[0] == 0x02) || (ucChipCommand[0] == 0xD8)) {
             WEL[0] = 0;
         }
@@ -2819,7 +2958,7 @@ extern unsigned char fnSimSTM25Pxxx(int iSimType, unsigned char ucTxByte)
     }
     #else
     #define ulDeviceOffset 0
-    if (SPI_CS0_PORT & CS0_LINE) {
+    if ((SPI_CS0_PORT & CS0_LINE) != 0) {
         ucChipCommand[0] = 0;
         iState[0] = 0;
         return 0xff;                                                     // chip not selected, return idle
@@ -2897,7 +3036,6 @@ extern unsigned char fnSimSTM25Pxxx(int iSimType, unsigned char ucTxByte)
                 }
                 iState[iSel]++;
                 break;   
-            
             }
         }
     }
@@ -2939,15 +3077,78 @@ extern unsigned char fnSimSTM25Pxxx(int iSimType, unsigned char ucTxByte)
     }
     return 0xff;
 }
-    #elif defined SPI_FLASH_W25Q
-        #define MANUFACTURER_WB     0xef
+    #elif (defined SPI_FLASH_W25Q && !(defined SPI_FLASH_SECOND_SOURCE_MODE && defined SIM_DISABLE_W25Q)) || (defined SPI_FLASH_IS25 && !(defined SPI_FLASH_SECOND_SOURCE_MODE && defined SIM_DISABLE_IS25)) || (defined SPI_FLASH_AT25SF && !(defined SPI_FLASH_SECOND_SOURCE_MODE && defined SIM_DISABLE_AT25SF)) || (defined SPI_FLASH_S26KL && !(defined SPI_FLASH_SECOND_SOURCE_MODE && defined SIM_DISABLE_S26KL)) || (defined SPI_FLASH_ATXP && !(defined SPI_FLASH_SECOND_SOURCE_MODE && defined SIM_DISABLE_ATXP))
+        #if (defined SPI_FLASH_ATXP && !defined SIM_DISABLE_ATXP)
+            #define MEMORY_TYPE               0x05                       // ATXPxxxx series
 
-        #if defined SPI_FLASH_W25Q128                                    // {70}
-            #define MEMORY_TYPE     0x60
-            #define MEMORY_CAPACITY 0x18                                 // 128M Bit
-        #elif defined SPI_FLASH_W25Q16
-            #define MEMORY_TYPE     0x40
-            #define MEMORY_CAPACITY 0x15                                 // 16M Bit
+            #if defined SPI_FLASH_ATXP128
+                 #define MANUFACTURER_ID      0x1f
+                 #define MEMORY_CAPACITY      (0x09 | (MEMORY_TYPE << 5))// 128M bit
+                 #define PRODUCT_VERSION_CODE 0x00
+                 #define MEMORY_CAPACITY      PRODUCT_VERSION_CODE
+            #elif defined SPI_FLASH_ATXP064
+                #define MANUFACTURER_ID       0x43
+                #define MEMORY_CAPACITY       0x08                       // 64M bit
+                #define PRODUCT_VERSION_CODE  0x01
+            #else
+                #define MANUFACTURER_ID       0x43
+                #define MEMORY_CAPACITY       0x07                       // 32M bit
+                #define PRODUCT_VERSION_CODE  0x00
+            #endif
+        #elif (defined SPI_FLASH_AT25SF && !defined SIM_DISABLE_AT25SF)
+            #define MANUFACTURER_ID     0x1f
+            #define MEMORY_TYPE         0x89
+            #define MEMORY_CAPACITY     0x01                             // 128M bit
+        #elif (defined SPI_FLASH_IS25 && !defined SIM_DISABLE_IS25) || (defined SPI_FLASH_S26KL && !defined SIM_DISABLE_S26KL)
+            #define MANUFACTURER_ID     0x9d
+
+            #if defined SPI_FLASH_IS25LP256D
+                #define MEMORY_TYPE     0x60
+                #define MEMORY_CAPACITY 0x19                             // 256M bit
+            #elif defined SPI_FLASH_IS25WP256D
+                #define MEMORY_TYPE     0x70
+                #define MEMORY_CAPACITY 0x19                             // 256M bit
+            #elif defined SPI_FLASH_IS25LP064A
+                #define MEMORY_TYPE     0x60
+                #define MEMORY_CAPACITY 0x17                             // 64M bit
+            #else
+                #define MEMORY_TYPE     0x00
+                #define MEMORY_CAPACITY 0x00
+            #endif
+        #else
+            #if defined MT25Q_COMPATIBLE_OPTION
+                #define MANUFACTURER_ID     0x20                         // micron
+
+                #if defined SPI_FLASH_W25Q256
+                    #define MEMORY_TYPE     0xba
+                    #define MEMORY_CAPACITY 0x19                         // 256M Bit
+                #elif defined SPI_FLASH_W25Q128
+                    #define MEMORY_TYPE     0xba
+                    #define MEMORY_CAPACITY 0x18                         // 128M Bit
+                #elif defined SPI_FLASH_W25Q16
+                    #define MEMORY_TYPE     0xba
+                    #define MEMORY_CAPACITY 0x15                         // 16M Bit
+                #endif
+            #else
+                #define MANUFACTURER_ID     0xef
+
+                #if defined SPI_FLASH_W25Q256                            // {70}
+                    #define MEMORY_TYPE     0x60
+                    #define MEMORY_CAPACITY 0x19                         // 256M Bit
+                #elif defined SPI_FLASH_W25Q128                          // {70}
+                    #define MEMORY_TYPE     0x60
+                    #define MEMORY_CAPACITY 0x18                         // 128M Bit
+                #elif defined SPI_FLASH_W25Q64
+                    #define MEMORY_TYPE     0x70
+                    #define MEMORY_CAPACITY 0x17                         // 64M Bit
+                #elif defined SPI_FLASH_W25Q32
+                    #define MEMORY_TYPE     0x70
+                    #define MEMORY_CAPACITY 0x16                         // 32M Bit
+                #elif defined SPI_FLASH_W25Q16
+                    #define MEMORY_TYPE     0x40
+                    #define MEMORY_CAPACITY 0x15                         // 16M Bit
+                #endif
+            #endif
         #endif
 
  
@@ -2976,7 +3177,14 @@ static unsigned short usAddress[SPI_FLASH_DEVICE_COUNT] = {0};
 static unsigned char  WEL[SPI_FLASH_DEVICE_COUNT] = {0};                 // write enable latches
 static unsigned char  ucProgramBuffer[SPI_FLASH_DEVICE_COUNT][256] = {{0}};
 static unsigned char  ucStatusReg[SPI_FLASH_DEVICE_COUNT] = {0};
-
+static unsigned char  ucConfig[SPI_FLASH_DEVICE_COUNT] = {0};
+#if defined SPI_FLASH_S26KL
+    static int iCFI_overlay[SPI_FLASH_DEVICE_COUNT] = {0};
+    static int iStatusRegisterRead[SPI_FLASH_DEVICE_COUNT] = {0};
+    static unsigned char ucCommandSequence[SPI_FLASH_DEVICE_COUNT][8] = {{0}};
+    static int iSequenceIndex[SPI_FLASH_DEVICE_COUNT] = {0};
+    static int iCommandState[SPI_FLASH_DEVICE_COUNT] = {0};
+#endif
 
 extern void fnInitSPI_DataFlash(void)
 {
@@ -3181,26 +3389,44 @@ static int fnAddressAllowed(int iDev, unsigned long ulAddress)
 
 static void fnActionW25Q(int iSel, unsigned long ulDeviceOffset)
 {
-    if ((ucChipCommand[iSel] == 2) && (WEL[iSel] != 0) && (iState[iSel] == 4)) { // page write to be performed
+#if defined SPI_FLASH_ATXP
+    int iEraseValid = 4;
+    int iProgramValid = 5;
+#else
+    int iEraseValid = 3;
+    int iProgramValid = 4;
+    #if SPI_FLASH_SIZE >= (32 * 1024 * 1024)
+    if ((ucConfig[iSel] & 0x20) != 0) {                                  // 4 byte mode set
+        iEraseValid = 4;
+        iProgramValid = 5;
+    }
+    #endif
+#endif
+    if (((ucChipCommand[iSel] == 0x02) || (ucChipCommand[iSel] == 0x32)) && (WEL[iSel] != 0) && (iState[iSel] == iProgramValid)) { // page write/quad page write to be performed
         unsigned long ulAdd = (ulAccessAddress[iSel] & ~0x000000ff);     // start address of present page
-        if (fnAddressAllowed(0, ulAdd)) {                                // check whether area is protected
+        if (fnAddressAllowed(iSel, ulAdd) != 0) {                        // check whether area is not protected
             int iOffset = 0;
+            ulAdd += (iSel * SPI_DATA_FLASH_0_SIZE);                     // {75} move to device offset when multiple SPI chips are used
             while (iOffset < 256) {
                 ucW25Q[ulAdd + iOffset] &= ucProgramBuffer[iSel][iOffset]; // set bits low in complete page
                 iOffset++;
             }
         }
     }
-    else if ((WEL[iSel] == 1) && (iState[iSel] == 3)) {                  // if erase enabled
-        if (ucChipCommand[iSel] == 0x20) {                               // delete sub-sector
+    else if ((WEL[iSel] == 1) && (iState[iSel] == iEraseValid)) {        // if erase enabled
+    #if defined SPI_FLASH_S26KL
+        _EXCEPTION("To do!");
+    #else
+        if (ucChipCommand[iSel] == 0x20) {                               // delete sector
             memset(&ucW25Q[(ulAccessAddress[iSel] & ~(SPI_FLASH_SUB_SECTOR_LENGTH - 1)) + ulDeviceOffset], 0xff, SPI_FLASH_SUB_SECTOR_LENGTH); // delete sub-sector
         }
         else if (ucChipCommand[iSel] == 0x52) {                          // delete half sector
             memset(&ucW25Q[(ulAccessAddress[iSel] & ~(SPI_FLASH_HALF_SECTOR_LENGTH - 1)) + ulDeviceOffset], 0xff, SPI_FLASH_HALF_SECTOR_LENGTH); // delete half sector
         }
-        else if (ucChipCommand[iSel] == 0xd8) {                          // delete sector
+        else if (ucChipCommand[iSel] == 0xd8) {                          // delete block
             memset(&ucW25Q[(ulAccessAddress[iSel] & ~(SPI_FLASH_SECTOR_LENGTH - 1)) + ulDeviceOffset], 0xff, SPI_FLASH_SECTOR_LENGTH); // delete sector
         }
+    #endif
         ucStatus[iSel] &= ~0x02;
         WEL[iSel] = 0;
     }
@@ -3214,65 +3440,177 @@ static void fnActionW25Q(int iSel, unsigned long ulDeviceOffset)
     }
     ucChipCommand[iSel] = 0;
     iState[iSel] = 0;
+    #if defined SPI_FLASH_S26KL
+    iSequenceIndex[iSel] = 0;
+    iCommandState[iSel] = 0;
+    #endif
 }
 
-extern unsigned char fnSimW25Qxx(int iSimType, unsigned char ucTxByte)
+#if defined SPI_FLASH_S26KL
+unsigned long ulExtractAddress(unsigned char ucCommandSequence[8])
+{
+    unsigned long ulAddress = ucCommandSequence[3];
+    ulAddress |= (ucCommandSequence[2] << 8);
+    ulAddress |= (ucCommandSequence[1] << 16);
+    ulAddress <<= 3;
+    ulAddress |= (ucCommandSequence[5] & 0x7);
+    return ulAddress;
+}
+
+static void ulInsertNewAddress(unsigned char ucCommandSequence[8], unsigned long ulAddr)
+{
+    ulAddr++;
+    if (ulAddr >= SPI_DATA_FLASH_0_SIZE) {
+        ulAddr = 0;
+    }
+    ucCommandSequence[5] = (unsigned char)(ulAddr & 0x7);
+    ulAddr >>= 3;
+    ucCommandSequence[3] = (unsigned char)ulAddr;
+    ulAddr >>= 8;
+    ucCommandSequence[2] = (unsigned char)ulAddr;
+    ulAddr >>= 8;
+    ucCommandSequence[1] = (unsigned char)ulAddr;
+}
+#endif
+
+extern unsigned char fnSimSPI_Flash(int iSimType, unsigned char ucTxByte)
 {
     int iSel = 0;
         #if defined SPI_FLASH_MULTIPLE_CHIPS
     int iCntCS = 0;
     unsigned long ulDeviceOffset = 0;
-    if (SPI_CS0_PORT & CS0_LINE) {
-        fnActionSST25(0, 0);
+    if ((SPI_CS0_PORT & CS0_LINE) != 0) {
+        fnActionW25Q(0, 0);                                              // chip select to this device is negated so reset the device
+    }
+    else {
+        iCntCS++;                                                        // first device is being accessed
+    }
+    if ((SPI_CS1_PORT & CS1_LINE) != 0) {
+        fnActionW25Q(1, SPI_DATA_FLASH_0_SIZE);                          // chip select to this device is negated so reset the device
     }
     else {
         iCntCS++;
-    }
-    if (SPI_CS1_PORT & CS1_LINE) {
-        fnActionSST25(1, SPI_DATA_FLASH_0_SIZE);
-    }
-    else {
-        iCntCS++;
-        iSel = 1;
+        iSel = 1;                                                        // second device is being accessed
         ulDeviceOffset = SPI_DATA_FLASH_0_SIZE;
     }
             #if defined QSPI_CS2_LINE || defined CS2_LINE
-    if (SPI_CS2_PORT & CS2_LINE) {
-        fnActionSST25(2, (SPI_DATA_FLASH_0_SIZE + SPI_DATA_FLASH_1_SIZE));
+    if ((SPI_CS2_PORT & CS2_LINE) != 0) {
+        fnActionW25Q(2, (SPI_DATA_FLASH_0_SIZE + SPI_DATA_FLASH_1_SIZE));// chip select to this device is negated so reset the device
     }
     else {
         iCntCS++;
-        iSel = 2;
+        iSel = 2;                                                        // third device is being accessed
         ulDeviceOffset = (SPI_DATA_FLASH_0_SIZE + SPI_DATA_FLASH_1_SIZE);
     }
             #endif
             #if defined QSPI_CS3_LINE || defined CS3_LINE
-    if (SPI_CS3_PORT & CS3_LINE) {
-        fnActionSST25(3, (SPI_DATA_FLASH_0_SIZE + SPI_DATA_FLASH_1_SIZE + SPI_DATA_FLASH_2_SIZE));
+    if ((SPI_CS3_PORT & CS3_LINE) != 0) {
+        fnActionW25Q(3, (SPI_DATA_FLASH_0_SIZE + SPI_DATA_FLASH_1_SIZE + SPI_DATA_FLASH_2_SIZE)); // chip select to this device is negated so reset the device
     }
     else {
         iCntCS++;
-        iSel = 3;
+        iSel = 3;                                                        // fourth device is being accessed
         ulDeviceOffset = (SPI_DATA_FLASH_0_SIZE + SPI_DATA_FLASH_1_SIZE + SPI_DATA_FLASH_2_SIZE);
     }
             #endif
-    if (iCntCS > 1) {
-        *(unsigned char *)(0) = 0;                                       // 2 CS selected at same time - serious error
+    if (iCntCS > 1) {                                                    // check that there are never multiple chip select lines active at the same time
+        _EXCEPTION("2 CS selected at same time - serious error");
     }
     else if (iCntCS == 0) {
-        return 0xff;                                                     // chip not selected, return idle
+        return 0xff;                                                     // no chip selected, return idle
     }
         #else
         #define ulDeviceOffset 0
-    if (SPI_CS0_PORT & CS0_LINE) {                                       // CS0 line negated
+    if ((SPI_CS0_PORT & CS0_LINE) != 0) {                                // CS0 line negated
         fnActionW25Q(0, 0);
         return 0xff;                                                     // chip not selected, return idle
     }
         #endif
 
     if (iSimType == W25Q_WRITE) {
-        if (ucChipCommand[iSel] == 0) {
+        #if defined SPI_FLASH_S26KL
+        if (iSequenceIndex[iSel] < 8) {
+            ucCommandSequence[iSel][iSequenceIndex[iSel]++] = ucTxByte;
+            if (iSequenceIndex[iSel] == 8) {
+                unsigned long ulAddr = ulExtractAddress(ucCommandSequence[iSel]);
+                if (iCommandState[iSel] == 3) {                          // performing half-word writes
+                    unsigned short usValue = (ucW25Q[(ulAddr & ~0x1) + ulDeviceOffset] << 8);
+                    usValue |= ucW25Q[(ulAddr | 1) + ulDeviceOffset];    // the original value
+                    usValue &= ((ucCommandSequence[iSel][6] << 8) | (ucCommandSequence[iSel][7])); // clear any bits that are to be written to '0'
+                    ucW25Q[(ulAddr & ~0x1) + ulDeviceOffset] = (unsigned char)(usValue >> 8); // write the new value back
+                    ucW25Q[(ulAddr | 1) + ulDeviceOffset] = (unsigned char)(usValue);
+                    ulInsertNewAddress(ucCommandSequence[iSel], ulAddr); // increment the address
+                    ulAddr = ulExtractAddress(ucCommandSequence[iSel]);
+                    ulInsertNewAddress(ucCommandSequence[iSel], ulAddr); // increment the address
+                    iSequenceIndex[iSel] = 6;
+                    return 0xff;
+                }
+                else if (iCommandState[iSel] == 6) {                     // erase
+                    if ((ucTxByte == 0x10) && (ulAddr = 0x00000555)) {   // chip erase
+                        memset(&ucW25Q[0 + ulDeviceOffset], 0xff, SPI_DATA_FLASH_0_SIZE); // erase complete content
+                    }
+                    else if (ucTxByte == 0x30) {                         // sector erase
+                        memset(&ucW25Q[(ulAddr & ~(SPI_FLASH_SECTOR_LENGTH - 1)) + ulDeviceOffset], 0xff, SPI_FLASH_SECTOR_LENGTH); // erase a single sctor
+                    }
+                }
+                if (ulAddr == 0x00000aaa) { // temp - to be corrected?
+                    switch (ucTxByte) {
+                    case 0x98:                                           // enter CFI (common flash interface) mode
+                        iCFI_overlay[iSel] = 1;
+                        break;
+                    case 0x70:                                           // status register read
+                        iStatusRegisterRead[iSel] = 1;
+                        ulAccessAddress[iSel] = 0;
+                        break;
+                    }
+                }
+                else if (ulAddr == 0x00000555) {
+                    switch (ucTxByte) {
+                    case 0xaa:                                           // first command sequence
+                        if (iCommandState[iSel] == 0) {
+                            iCommandState[iSel] = 1;
+                        }
+                        else if (iCommandState[iSel] == 4) {
+                            iCommandState[iSel] = 5;                     // continue in erase sequence
+                        }
+                        break;
+                    case 0xa0:                                           // third command sequence
+                        if (iCommandState[iSel] == 2) {
+                            iCommandState[iSel] = 3;                     // byte program sequence received (followed by program address and program data)
+                        }
+                        break;
+                    case 0x80:                                           // third command sequence
+                        if (iCommandState[iSel] == 2) {
+                            iCommandState[iSel] = 4;                     // possibly chip erase or sector erase
+                        }
+                        break;
+                    }
+                }
+                else if ((ulAddr == 0x000002aa) && (iCommandState[iSel] != 0)) {
+                    switch (ucTxByte) {
+                    case 0x55:
+                        if (iCommandState[iSel] == 1) {
+                            iCommandState[iSel] = 2;                     // second command sequence
+                        }
+                        else if (iCommandState[iSel] == 5) {
+                            iCommandState[iSel] = 6;                     // erase sequence confirmed (followed by sector address and code)
+                        }
+                        break;
+                    }
+                }
+                if (iCFI_overlay[iSel] != 0) {
+                    if ((ucTxByte == 0xf0) || (ucTxByte == 0xff)) {      // exit CFI mode
+                        iCFI_overlay[iSel] = 0;
+                    }
+                }
+                iSequenceIndex[iSel] = 0;
+            }
+            return 0xff;
+        }
+        #endif
+        if (ucChipCommand[iSel] == 0) {                                  // command byte
             ucChipCommand[iSel] = ucTxByte;                              // we interpret a command
+        #if !defined SPI_FLASH_S26KL
             if (ucTxByte == 0x06) {                                      // write enable
                 ucStatus[iSel] |= 0x02;
                 WEL[iSel] = 1;
@@ -3280,6 +3618,15 @@ extern unsigned char fnSimW25Qxx(int iSimType, unsigned char ucTxByte)
             else if (ucTxByte == AAI_WRITE) {
                 ucStatus[iSel] |= 0x40;                                  // mark in AAI mode
             }*/
+            #if SPI_FLASH_SIZE >= (32 * 1024 * 1024)
+            else if (ucTxByte == 0xb7) {
+                ucConfig[iSel] |= 0x20;                                  // 4 byte mode set
+            }
+            else if (ucTxByte == 0xe9) {
+                ucConfig[iSel] &= ~0x20;                                 // 4 byte mode cleared (default 3 byte mode)
+            }
+            #endif
+        #endif
         }
         else {                                                           // in command
             switch (ucChipCommand[iSel]) {
@@ -3288,12 +3635,24 @@ extern unsigned char fnSimW25Qxx(int iSimType, unsigned char ucTxByte)
                 break;
             case 0x9f:                                                   // read manufacturer's ID
                 break;
+            case 0x32:                                                   // quad program in page
             case 0x02:                                                   // program in page
-                if (iState[iSel] == 3) {
-                    memset(ucProgramBuffer[iSel], 0xff, 256);            // clear the buffer before starting collecting new data
-                    iState[iSel] = 4;
+            {
+#if defined SPI_FLASH_ATXP
+                int iValidWrite = 4;
+#else
+                int iValidWrite = 3;
+    #if SPI_FLASH_SIZE >= (32 * 1024 * 1024)
+                if ((ucConfig[iSel] & 0x20) != 0) {                      // 4 byte mode set
+                    iValidWrite = 4;
                 }
-                if (iState[iSel] == 4) {
+    #endif
+#endif
+                if (iState[iSel] == iValidWrite) {
+                    memset(ucProgramBuffer[iSel], 0xff, 256);            // clear the buffer before starting collecting new data
+                    iState[iSel] = (iValidWrite + 1);
+                }
+                if (iState[iSel] == (iValidWrite + 1)) {
                     unsigned char ucProgramAddress = (ulAccessAddress[iSel] & 0xff);
                     ucProgramBuffer[iSel][ucProgramAddress++] = ucTxByte;// collect the data to be programmed
                     if (ucProgramAddress == 0) {
@@ -3304,16 +3663,48 @@ extern unsigned char fnSimW25Qxx(int iSimType, unsigned char ucTxByte)
                     }
                     break;
                 }
+            }
+            // Fall-through intentionally
+            //
             case 0x90:                                                   // read ID
             case 0xab:
             case 0x20:                                                   // sub-sector erase
             case 0x52:                                                   // half-sector erase
-        #ifndef SST25_A_VERSION
+        #if !defined SST25_A_VERSION
             case 0xd8:                                                   // sector erase - not available on A device
         #endif
                 // Else fall through
                 //
+            case 0xeb:                                                   // quad read array
             case 0x03:                                                   // read array
+            case 0x0b:                                                   // fast read
+        #if defined SPI_FLASH_S26KL                                      // CA0 of hypter flash protocol
+            case 0xa0:                                                   // linear burst read
+            case 0x80:                                                   // wrapped burst read
+        #elif SPI_FLASH_SIZE >= (32 * 1024 * 1024)
+                if ((ucConfig[iSel] & 0x20) != 0) {                      // if in 4 byte mode
+                    if (iState[iSel] == 0) {
+                        ulAccessAddress[iSel] = ucTxByte;                // collect access address
+                        ulAccessAddress[iSel] <<= 8;
+                    }
+                    else if (iState[iSel] == 1) {
+                        ulAccessAddress[iSel] |= ucTxByte;               // collect access address
+                        ulAccessAddress[iSel] <<= 8;
+                    }
+                    else if (iState[iSel] == 2) {
+                        ulAccessAddress[iSel] |= ucTxByte;               // collect access address
+                        ulAccessAddress[iSel] <<= 8;
+                    }
+                    else if (iState[iSel] == 3) {
+                        ulAccessAddress[iSel] |= ucTxByte;               // access address complete
+                      //if (ucChipCommand[iSel] == 0x02) {               // page program command
+                      //    uMemcpy(ucProgramBuffer[iSel], &ucS25FLI_K[ulDeviceOffset + (ulAccessAddress[iSel] & ~(256 - 1))], 256); // load the present page content to the program buffer
+                      //}
+                    }
+                    iState[iSel]++;
+                    break;
+                }
+        #endif
                 if (iState[iSel] == 0) {
                     ulAccessAddress[iSel] = ucTxByte;                    // collect access address
                     ulAccessAddress[iSel] <<= 8;
@@ -3325,6 +3716,12 @@ extern unsigned char fnSimW25Qxx(int iSimType, unsigned char ucTxByte)
                 else if (iState[iSel] == 2) {
                     ulAccessAddress[iSel] |= ucTxByte;                   // access address
                 }
+        #if defined SPI_FLASH_ATXP
+                else if (iState[iSel] == 3) {
+                    ulAccessAddress[iSel] <<= 8;
+                    ulAccessAddress[iSel] |= ucTxByte;                   // access address
+                }
+        #endif
                 iState[iSel]++;
                 break; 
 /*                
@@ -3364,7 +3761,7 @@ extern unsigned char fnSimW25Qxx(int iSimType, unsigned char ucTxByte)
         case 0xab:
             if (ulAccessAddress[iSel] == 0) {
                 ulAccessAddress[iSel] = 1;
-                return (MANUFACTURER_WB);                                // Winbond
+                return (MANUFACTURER_ID);
             }
             else if (ulAccessAddress[iSel] == 0x1) {
                 ulAccessAddress[iSel] = 0;
@@ -3373,20 +3770,103 @@ extern unsigned char fnSimW25Qxx(int iSimType, unsigned char ucTxByte)
             break;
         case 0x9f:                                                       // read manufacturer's ID
             iState[iSel]++;
+    #if (defined SPI_FLASH_ATXP && !defined SIM_DISABLE_ATXP) && !defined SPI_FLASH_ATXP128
+            switch (iState[iSel]) {
+            case 1:
+            case 2:
+            case 3:
+            case 4:
+            case 5:
+            case 6:
+            case 7:
+                return (0x7f);                                           // continuation code
+            case 8:
+                return (MANUFACTURER_ID);
+            case 9:
+                return ((MEMORY_TYPE << 5) | MEMORY_CAPACITY);
+            case 10:
+                return PRODUCT_VERSION_CODE;                             // sub code and product version
+            case 11:
+                return 0x01;                                             // extended device information string length
+            case 12:
+                return 0;                                                // extended device information byte
+            default:
+                break;
+            }
+    #else
             if (iState[iSel] == 1) {
-                return (MANUFACTURER_WB);                                // Winbond
+                return (MANUFACTURER_ID);
             }
             else if (iState[iSel] == 2) {
                 return (MEMORY_TYPE);
             }
             else if (iState[iSel] == 3) {
+    #if defined SPI_FLASH_MULTIPLE_CHIPS
+                unsigned char ucMemoryCapacity = MEMORY_CAPACITY;
+        #if defined SPI_FLASH_W25Q128 && (SPI_FLASH_DEVICE_COUNT == 4)   // special project case
+                if (iSel == 3) {
+            #if SPI_DATA_FLASH_3_SIZE == (132 * 1024 * 1024)
+                    ucMemoryCapacity = 0x21;
+            #endif
+                }
+        #endif
+    #endif
                 iState[iSel] = 0;                                        // command complete
+    #if defined SPI_FLASH_MULTIPLE_CHIPS
+                return ucMemoryCapacity;
+    #else
                 return (MEMORY_CAPACITY);
+    #endif
             }
+    #endif
             break;
         case 0x05:                                                       // read status 
             return (ucStatus[iSel]);
-
+    #if defined SPI_FLASH_S26KL
+      //case 0x80:                                                       // wrapped read
+      //case 0xa0:                                                       // linear read
+        case 0:
+            if (iCFI_overlay[iSel] != 0) {                               // if in CFI mode
+                switch (ulAccessAddress[iSel]++ & 0x1f) {
+                case 0:
+                    return 0x00;
+                case 1:
+                    return 0x01;                                         // cypress manufacturer ID
+                case 2:
+                    return 0x00;
+                case 3:
+                    return 0x7e;                                         // device ID
+                case 24:
+                    return 0;
+                case 25:
+                    return 0x05;
+                case 28:
+                    return 0;
+                case 29:
+                    return 0x70;                                         // device ID
+                case 30:
+                    return 0;                                            // device ID
+                case 31:
+                    return 0;                                            // device ID
+                default:
+                    break;
+                }
+            }
+            else if (iStatusRegisterRead[iSel] != 0) {
+                switch (ulAccessAddress[iSel]++) {
+                case 0:
+                    return 0x00;
+                case 1:
+                    ulAccessAddress[iSel] = 0;
+                    iStatusRegisterRead[iSel] = 0;
+                    return 0x80;
+                }
+            }
+            else {                                                       // normal read
+                ulAccessAddress[iSel] = ulExtractAddress(ucCommandSequence[iSel]);
+                ulInsertNewAddress(ucCommandSequence[iSel], ulAccessAddress[iSel]);
+            }
+        #endif
         default:                                                         // assume continuous array read
             {
             unsigned char ucValue = ucW25Q[ulAccessAddress[iSel] + ulDeviceOffset];
@@ -3425,7 +3905,7 @@ extern unsigned char fnSimW25Qxx(int iSimType, unsigned char ucTxByte)
     }
     return 0xff;
 }
-    #elif defined SPI_FLASH_S25FL1_K
+    #elif defined SPI_FLASH_S25FL1_K || defined SPI_FLASH_MX25L || defined SPI_FLASH_MX66L
 
 static unsigned char ucS25FLI_K[SPI_DATA_FLASH_SIZE] = {0};
 
@@ -3441,16 +3921,43 @@ static unsigned char  WESR[SPI_FLASH_DEVICE_COUNT] = {0};                // writ
 static unsigned char  ucProgramBuffer[SPI_FLASH_DEVICE_COUNT][256] = {{0}};
 static unsigned char  ucStatus[SPI_FLASH_DEVICE_COUNT][3] = {0};
 static unsigned char  ucWord[SPI_FLASH_DEVICE_COUNT][2] = {0};
-
-#define MANUFACTURER_SPANSION 0x01
-#define MEMORY_TYPE           0x40
-#if defined SPI_FLASH_S25FL164K
-    #define MEMORY_CAPACITY   0x17
-#elif defined SPI_FLASH_S25FL132K
-    #define MEMORY_CAPACITY   0x16
-#else
-    #define MEMORY_CAPACITY   0x16                                       // S25FL116K
+#if SPI_FLASH_SIZE >= (32 * 1024 * 1024)
+    static unsigned char  ucConfig[SPI_FLASH_DEVICE_COUNT] = {0};
 #endif
+
+#if defined SPI_FLASH_S25FL1_K
+    #define MANUFACTURER_SPANSION 0x01
+    #if defined SPI_FLASH_S25FL164K
+        #define MEMORY_TYPE       0x40
+        #define MEMORY_CAPACITY   0x17
+    #elif defined SPI_FLASH_S25FL132K
+        #define MEMORY_TYPE       0x40
+        #define MEMORY_CAPACITY   0x16
+    #else
+        #define MEMORY_TYPE       0x40
+        #define MEMORY_CAPACITY   0x16                                   // S25FL116K
+    #endif
+#elif defined SPI_FLASH_MX25L || defined SPI_FLASH_MX66L
+    #define MANUFACTURER_MACRONIX 0xc2                                   // Macronix's manufacturer ID
+    #define SPI_FLASH_DEVICE_TYPE 0x20
+
+    #if defined SPI_FLASH_MX25L25635F
+        #define MEMORY_TYPE       0x20
+        #define MEMORY_CAPACITY   0x19                                   // MX25L25635 - 256Mbit
+    #elif defined SPI_FLASH_MX25L12845E
+        #define MEMORY_TYPE       0x20
+        #define MEMORY_CAPACITY   0x18                                   // MX25L12845 - 128Mbit
+    #elif defined SPI_FLASH_MX25L1606E
+        #define MEMORY_TYPE       0x20
+        #define MEMORY_CAPACITY   0x15                                   // MX25L1606 - 2MBytes
+    #else
+        #define MEMORY_TYPE       0x20
+        #define MEMORY_CAPACITY   0x14
+
+    #endif
+#endif
+
+
 
 extern void fnInitSPI_DataFlash(void)
 {
@@ -3475,18 +3982,29 @@ static int fnAddressAllowed(int iDev, unsigned long ulAddress)
 
 static void fnActionS25FL1_K(int iSel, unsigned long ulDeviceOffset)
 {
+    int iEraseValid = 3;
+#if SPI_FLASH_SIZE >= (32 * 1024 * 1024)
+    if ((ucConfig[iSel] & 0x20) != 0) {                                  // 4 byte mode set
+        iEraseValid = 4;
+    }
+#endif
     if (ucChipCommand[iSel] == 0x02) {                                   // page write
         if (WEL[iSel] != 0) {                                            // if write enabled
             uMemcpy(&ucS25FLI_K[ulAccessAddress[iSel] & ~(256 - 1)], ucProgramBuffer[iSel], 256); // write page to flash
             WEL[iSel] = 0;                                               // automatically clear the write enable
         }
     }
-    else if ((WEL[iSel] == 1) && (iState[iSel] == 3)) {                  // if erase enabled
+    else if ((WEL[iSel] == 1) && (iState[iSel] == iEraseValid)) {        // if erase enabled
         if (ucChipCommand[iSel] == 0x20) {                               // delete sector
             memset(&ucS25FLI_K[(ulAccessAddress[iSel] & ~(SPI_FLASH_SECTOR_LENGTH - 1)) + ulDeviceOffset], 0xff, SPI_FLASH_SECTOR_LENGTH); // delete sector
         }
+#if SPI_FLASH_SIZE >= (32 * 1024 * 1024)
+        else if (ucChipCommand[iSel] == 0x52) {                          // delete 32k half-block
+            memset(&ucS25FLI_K[(ulAccessAddress[iSel] & ~((32 * 1024) - 1)) + ulDeviceOffset], 0xff, (32 * 1024)); // delete half-block
+        }
+#endif
         else if (ucChipCommand[iSel] == 0xd8) {                          // delete 64k block
-            memset(&ucS25FLI_K[(ulAccessAddress[iSel] & ~((64 * 1024) - 1)) + ulDeviceOffset], 0xff, (64 * 1024)); // delete sector
+            memset(&ucS25FLI_K[(ulAccessAddress[iSel] & ~((64 * 1024) - 1)) + ulDeviceOffset], 0xff, (64 * 1024)); // delete block
         }
         ucStatus[iSel][0] &= ~0x02;                                      // automatically clear the write enable
         WEL[iSel] = 0;
@@ -3507,7 +4025,7 @@ static void fnActionS25FL1_K(int iSel, unsigned long ulDeviceOffset)
     iState[iSel] = 0;
 }
 
-extern unsigned char fnSimS25FL1_K(int iSimType, unsigned char ucTxByte)
+extern unsigned char fnSimSPI_Flash(int iSimType, unsigned char ucTxByte)
 {
     int iSel = 0;
         #if defined SPI_FLASH_MULTIPLE_CHIPS
@@ -3555,7 +4073,7 @@ extern unsigned char fnSimS25FL1_K(int iSimType, unsigned char ucTxByte)
     }
         #else
         #define ulDeviceOffset 0
-    if (SPI_CS0_PORT & CS0_LINE) {                                       // CS0 line negated
+    if ((SPI_CS0_PORT & CS0_LINE) != 0) {                                // CS0 line negated
         fnActionS25FL1_K(0, 0);
         return 0xff;                                                     // chip not selected, return idle
     }
@@ -3564,9 +4082,19 @@ extern unsigned char fnSimS25FL1_K(int iSimType, unsigned char ucTxByte)
     if (iSimType == S25FL1_K_WRITE) {
         if (ucChipCommand[iSel] == 0) {                                  // command byte being received
             ucChipCommand[iSel] = ucTxByte;                              // we interpret a command
-            if (ucTxByte == 0x06) {                                      // write enable
+            switch (ucTxByte) {
+            case 0x06:                                                   // write enable
                 ucStatus[iSel][0] |= 0x02;                               // set the write enable latch flag in the status register 0
                 WEL[iSel] = 1;
+                break;
+        #if SPI_FLASH_SIZE >= (32 * 1024 * 1024)
+            case 0xb7:
+                ucConfig[iSel] |= 0x20;                                  // 4 byte mode set
+                break;
+            case 0xe9:
+                ucConfig[iSel] &= ~0x20;                                 // 4 byte mode cleared (default 3 byte mode)
+                break;
+        #endif
             }
         }
         else {                                                           // in command
@@ -3577,28 +4105,64 @@ extern unsigned char fnSimS25FL1_K(int iSimType, unsigned char ucTxByte)
             case 0x9f:                                                   // read manufacturer's ID
                 break;
             case 0x02:                                                   // page program  
-                if (iState[iSel] >= 3) {
-                    unsigned char *ptrPageContent = &ucProgramBuffer[iSel][(ulAccessAddress[iSel] + (iState[iSel] - 3)) & (256 - 1)];
-                    if (~(*ptrPageContent) & ucTxByte) {                 // is a bit being set from '0' to '1'?
-                        _EXCEPTION("Writing a '1' to a bit that is already programmed to '0'!!!");
+                {
+                    int iValidWrite = 3;
+        #if SPI_FLASH_SIZE >= (32 * 1024 * 1024)
+                    if ((ucConfig[iSel] & 0x20) != 0) {                  // 4 byte mode set
+                        iValidWrite = 4;
                     }
-                    *ptrPageContent = ucTxByte;                          // collect the bytes to be programmed in the program buffer
-                    iState[iSel]++;
-                    if (iState[iSel] >= (256 + 3)) {                     // if more than a page is written wrap back to the beginning
-                        iState[iSel] = 3;
+        #endif
+                    if (iState[iSel] >= iValidWrite) {
+                        unsigned char *ptrPageContent = &ucProgramBuffer[iSel][(ulAccessAddress[iSel] + (iState[iSel] - iValidWrite)) & (256 - 1)];
+                        if (~(*ptrPageContent) & ucTxByte) {                 // is a bit being set from '0' to '1'?
+                            _EXCEPTION("Writing a '1' to a bit that is already programmed to '0'!!!");
+                        }
+                        *ptrPageContent = ucTxByte;                          // collect the bytes to be programmed in the program buffer
+                        iState[iSel]++;
+                        if (iState[iSel] >= (256 + iValidWrite)) {                     // if more than a page is written wrap back to the beginning
+                            iState[iSel] = iValidWrite;
+                        }
+                        break;
                     }
-                    break;
                 }
+                // Fall-through intentionally
+                //
             case 0x90:                                                   // read ID
             case 0xab:
             case 0x20:                                                   // sub-sector erase
             case 0x52:                                                   // half-sector erase
-        #ifndef SST25_A_VERSION
+        #if !defined SST25_A_VERSION
             case 0xd8:                                                   // sector erase - not available on A device
         #endif
                 // Else fall through
                 //
             case 0x03:                                                   // read array
+        #if SPI_FLASH_SIZE >= (32 * 1024 * 1024)
+                if ((ucConfig[iSel] & 0x20) != 0) {                      // if in 4 byte mode
+                    if (iState[iSel] == 0) {
+                        ulAccessAddress[iSel] = ucTxByte;                // collect access address
+                        ulAccessAddress[iSel] <<= 8;
+                    }
+                    else if (iState[iSel] == 1) {
+                        ulAccessAddress[iSel] |= ucTxByte;               // collect access address
+                        ulAccessAddress[iSel] <<= 8;
+                    }
+                    else if (iState[iSel] == 2) {
+                        ulAccessAddress[iSel] |= ucTxByte;               // collect access address
+                        ulAccessAddress[iSel] <<= 8;
+                    }
+                    else if (iState[iSel] == 3) {
+                        ulAccessAddress[iSel] |= ucTxByte;               // access address complete
+                        if (ucChipCommand[iSel] == 0x02) {               // page program command
+                            uMemcpy(ucProgramBuffer[iSel], &ucS25FLI_K[ulDeviceOffset + (ulAccessAddress[iSel] & ~(256 - 1))], 256); // load the present page content to the program buffer
+                        }
+                    }
+                    iState[iSel]++;
+                    break;
+                }
+        #endif
+                // 3 byte addressing mode
+                //
                 if (iState[iSel] == 0) {
                     ulAccessAddress[iSel] = ucTxByte;                    // collect access address
                     ulAccessAddress[iSel] <<= 8;
@@ -3614,7 +4178,7 @@ extern unsigned char fnSimS25FL1_K(int iSimType, unsigned char ucTxByte)
                     }
                 }
                 iState[iSel]++;
-                break;             
+                break;
             }
         }
     }
@@ -3624,7 +4188,11 @@ extern unsigned char fnSimS25FL1_K(int iSimType, unsigned char ucTxByte)
         case 0xab:
             if (ulAccessAddress[iSel] == 0) {
                 ulAccessAddress[iSel] = 1;
+    #if defined SPI_FLASH_MX25L || defined SPI_FLASH_MX66L
+                return (MANUFACTURER_MACRONIX);                          // Macronix
+    #else
                 return (MANUFACTURER_SPANSION);                          // Spansion
+    #endif
             }
             else if (ulAccessAddress[iSel] == 0x1) {
                 ulAccessAddress[iSel] = 0;
@@ -3634,7 +4202,11 @@ extern unsigned char fnSimS25FL1_K(int iSimType, unsigned char ucTxByte)
         case 0x9f:                                                       // read JEDEC ID
             iState[iSel]++;
             if (iState[iSel] == 1) {
+    #if defined SPI_FLASH_MX25L || defined SPI_FLASH_MX66L
+                return (MANUFACTURER_MACRONIX);                          // Macronix
+    #else
                 return (MANUFACTURER_SPANSION);                          // Spansion
+    #endif
             }
             else if (iState[iSel] == 2) {
                 return (MEMORY_TYPE);
@@ -3958,7 +4530,7 @@ static void fnActionSST25(int iSel, unsigned long ulDeviceOffset)
             ucSST25[ulAccessAddress[iSel] + ulDeviceOffset] &= ucWord[iSel][0];
         }
         ulAccessAddress[iSel]++;
-        #ifndef SST25_A_VERSION
+        #if !defined SST25_A_VERSION
         if (fnAddressAllowed(0, ulAccessAddress[iSel])) {
             ucSST25[ulAccessAddress[iSel] + ulDeviceOffset] &= ucWord[iSel][1];
         }
@@ -3983,7 +4555,7 @@ static void fnActionSST25(int iSel, unsigned long ulDeviceOffset)
         else if (ucChipCommand[iSel] == 0x52) {                          // delete half sector
             memset(&ucSST25[(ulAccessAddress[iSel] & ~(SPI_FLASH_HALF_SECTOR_LENGTH - 1)) + ulDeviceOffset], 0xff, SPI_FLASH_HALF_SECTOR_LENGTH); // delete half sector
         }
-        #ifndef SST25_A_VERSION
+        #if !defined SST25_A_VERSION
         else if (ucChipCommand[iSel] == 0xd8) {                          // delete sector
             memset(&ucSST25[(ulAccessAddress[iSel] & ~(SPI_FLASH_SECTOR_LENGTH - 1)) + ulDeviceOffset], 0xff, SPI_FLASH_SECTOR_LENGTH); // delete sector
         }
@@ -4007,13 +4579,13 @@ static void fnActionSST25(int iSel, unsigned long ulDeviceOffset)
     iState[iSel] = 0;
 }
 
-extern unsigned char fnSimSST25(int iSimType, unsigned char ucTxByte)
+extern unsigned char fnSimSPI_Flash(int iSimType, unsigned char ucTxByte)
 {
     int iSel = 0;
         #if defined SPI_FLASH_MULTIPLE_CHIPS
     int iCntCS = 0;
     unsigned long ulDeviceOffset = 0;
-    if (SPI_CS0_PORT & CS0_LINE) {
+    if ((SPI_CS0_PORT & CS0_LINE) != 0) {
         fnActionSST25(0, 0);
     }
     else {
@@ -4055,7 +4627,7 @@ extern unsigned char fnSimSST25(int iSimType, unsigned char ucTxByte)
     }
         #else
         #define ulDeviceOffset 0
-    if (SPI_CS0_PORT & CS0_LINE) {                                       // CS0 line negated
+    if ((SPI_CS0_PORT & CS0_LINE) != 0) {                                // CS0 line negated
         fnActionSST25(0, 0);
         return 0xff;                                                     // chip not selected, return idle
     }
@@ -4089,7 +4661,7 @@ extern unsigned char fnSimSST25(int iSimType, unsigned char ucTxByte)
             case 0xab:
             case 0x20:                                                   // sub-sector erase
             case 0x52:                                                   // half-sector erase
-        #ifndef SST25_A_VERSION
+        #if !defined SST25_A_VERSION
             case 0xd8:                                                   // sector erase - not available on A device
         #endif
                 // Else fall through
@@ -4153,7 +4725,7 @@ extern unsigned char fnSimSST25(int iSimType, unsigned char ucTxByte)
             }
             break;
         case 0x9f:                                                       // read manufacturer's ID
-        #ifndef SST25_A_VERSION                                          // only supported from B-types
+        #if !defined SST25_A_VERSION                                     // only supported from B-types
             iState[iSel]++;
             if (iState[iSel] == 1) {
                 return (MANUFACTURER_SST);                               // SST

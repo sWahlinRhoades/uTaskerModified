@@ -11,12 +11,14 @@
     File:      TaskConfig.h
     Project:   Single Chip Embedded Internet
     ---------------------------------------------------------------------
-    Copyright (C) M.J.Butcher Consulting 2004..2016
+    Copyright (C) M.J.Butcher Consulting 2004..2018
     *********************************************************************
     07.05.2011 Application task dependent on SERIAL_INTERFACE            {1}
     22.01.2012 Add SD card support                                       {2}
     15.04.2014 Add web server upload support                             {3}
     04.06.2014 Add network indicator task option for PHY polling         {4}
+    05.10.2017 Add modbus task                                           {5}
+    17.01.2018 Add I2C dependancy                                        {6}
 
 */
  
@@ -34,8 +36,10 @@
 #define TASK_USB                'u'                                      // USB device task
 #define TASK_USB_HOST           'H'                                      // USB host task
 #define TASK_MASS_STORAGE       'M'                                      // mass storage task
+#define TASK_MODBUS             'm'                                      // MODBUS task
 #define TASK_SD_LOADER          'S'                                      // SD loader
 #define TASK_NETWORK_INDICATOR  'N'                                      // task displaying network activity
+#define TASK_LCD                'L'                                      // application LCD task
 
 #undef  OWN_TASK
 
@@ -53,6 +57,8 @@ extern void fnLowPower(TTASKTABLE *);
 extern void fnMassStorage(TTASKTABLE *);
 extern void fnSD_loader(TTASKTABLE *);                                   // {2}
 extern void fnNetworkIndicator(TTASKTABLE *);
+extern void fnLCD(TTASKTABLE *);
+extern void fnMODBUS(TTASKTABLE *);                                      // {13}
 
 
 
@@ -99,12 +105,20 @@ const UTASK_TASK ctNodes[] = {                                           // we u
     TASK_USB_HOST,                                                       // USB host task
     TASK_USB,                                                            // USB device task
 #endif
+#if defined USE_MODBUS
+    TASK_MODBUS,                                                         // {13} MODBUS task
+#endif
 #if defined SDCARD_SUPPORT || defined SPI_FLASH_FAT || defined USB_MSD_HOST_LOADER // {2}
     TASK_MASS_STORAGE,                                                   // mass storage task
+    #if !defined SDCARD_ACCESS_WITHOUT_UTFAT
     TASK_SD_LOADER,
+    #endif
 #endif
-#if defined SERIAL_INTERFACE || defined ETH_INTERFACE || defined USE_USB_CDC
+#if defined SERIAL_INTERFACE || defined ETH_INTERFACE || defined USE_USB_CDC || defined SUPPORT_GLCD || defined I2C_INTERFACE // {6}
     TASK_APPLICATION,                                                    // application task
+#endif
+#if defined SUPPORT_GLCD
+    TASK_LCD,                                                            // LCD task
 #endif
 #if defined SUPPORT_LOW_POWER
     TASK_LOW_POWER,                                                      // low power task
@@ -121,53 +135,65 @@ const UTASK_TASK ctNodes[] = {                                           // we u
 #endif
 
 const UTASKTABLEINIT ctTaskTable[] = {
-  // task name,  task routine,   input queue size, start delay, period, initial task state
+   // task name,  task routine,   input queue size, start delay, period, initial task state
 #if defined _HW_SAM7X
-  { "Wdog",      fnTaskWatchdog, NO_QUE,   (DELAY_LIMIT)(0.2 * SEC), (DELAY_LIMIT)(0.2 * SEC),  UTASKER_STOP}, // watchdog task (Note SAM7X is not allowed to start watchdog immediately since it also checks for too fast triggering!!)
+    { "Wdog",      fnTaskWatchdog, NO_QUE,   (DELAY_LIMIT)(0.2 * SEC), (DELAY_LIMIT)(0.2 * SEC),  UTASKER_STOP}, // watchdog task (Note SAM7X is not allowed to start watchdog immediately since it also checks for too fast triggering!!)
 #else
-  { "Wdog",      fnTaskWatchdog, NO_QUE,   0, (DELAY_LIMIT)(0.1 * SEC),  UTASKER_GO}, // watchdog task (runs immediately and then periodically)
+    { "Wdog",      fnTaskWatchdog, NO_QUE,   0, (DELAY_LIMIT)(0.1 * SEC),  UTASKER_GO}, // watchdog task (runs immediately and then periodically)
 #endif
 #if defined USE_IP || defined USE_IPV6                                   // {3} warning - start ARP task before Ethernet. If Ethernet messages are received before ARP table is ready there would be an error..
-  { "ARP",       fnTaskArp,      MEDIUM_QUE, (DELAY_LIMIT)(0.05 * SEC), 0, UTASKER_STOP}, // ARP task check periodically state of ARP table
+    { "ARP",       fnTaskArp,      MEDIUM_QUE, (DELAY_LIMIT)(0.05 * SEC), 0, UTASKER_STOP}, // ARP task check periodically state of ARP table
 #endif
 #if defined ETH_INTERFACE                                                // {3}
-  { "Eth",       fnTaskEthernet, (HEADER_LENGTH * 12), (DELAY_LIMIT)((0.05 * SEC) + (PHY_POWERUP_DELAY)), 0, UTASKER_STOP}, // ethernet task - runs automatically
+    { "Eth",       fnTaskEthernet, (HEADER_LENGTH * 12), (DELAY_LIMIT)((0.05 * SEC) + (PHY_POWERUP_DELAY)), 0, UTASKER_STOP}, // ethernet task - runs automatically
     #if defined PHY_POLL_LINK                                            // {4}
-  {"NetInd",    fnNetworkIndicator, NO_QUE,   (DELAY_LIMIT)(2 * SEC), (DELAY_LIMIT)(2 * SEC), UTASKER_STOP}, // network activity task polling PHY state once every 2s (after initial 2s delay)
+    {"NetInd",    fnNetworkIndicator, NO_QUE,   (DELAY_LIMIT)(2 * SEC), (DELAY_LIMIT)(2 * SEC), UTASKER_STOP}, // network activity task polling PHY state once every 2s (after initial 2s delay)
     #endif
 #endif
 #if defined USE_DHCP_CLIENT
-  {"DHCP",      fnDHCP,          SMALL_QUEUE, (DELAY_LIMIT)(NO_DELAY_RESERVE_MONO), 0, UTASKER_STOP}, // delay only for timer queue space
+    {"DHCP",      fnDHCP,          SMALL_QUEUE, (DELAY_LIMIT)(NO_DELAY_RESERVE_MONO), 0, UTASKER_STOP}, // delay only for timer queue space
 #endif
 #if defined USE_TFTP
-  {"tFTP",      fnTftp,          SMALL_QUEUE, (DELAY_LIMIT)(NO_DELAY_RESERVE_MONO), 0, UTASKER_STOP},
+    {"tFTP",      fnTftp,          SMALL_QUEUE, (DELAY_LIMIT)(NO_DELAY_RESERVE_MONO), 0, UTASKER_STOP},
 #endif
 #if defined USE_TCP                                                      // {3}
-  { "TCP",       fnTaskTCP,      MEDIUM_QUE,  (DELAY_LIMIT)(0.10 * SEC), 0, UTASKER_STOP}, // TCP task checks periodically state of session timeouts (controlled by task itself)
+    { "TCP",       fnTaskTCP,      MEDIUM_QUE,  (DELAY_LIMIT)(0.10 * SEC), 0, UTASKER_STOP}, // TCP task checks periodically state of session timeouts (controlled by task itself)
 #endif
-#if defined SERIAL_INTERFACE || defined ETH_INTERFACE || defined USE_USB_CDC
-  { "app",       fnApplication,  MEDIUM_QUE,  (DELAY_LIMIT)((0.10 * SEC) + (PHY_POWERUP_DELAY)), 0, UTASKER_STOP}, // Application - start after Ethernet to be sure we have Ethernet handle
+#if defined USE_MODBUS
+    { "mod",       fnMODBUS,     MEDIUM_QUE,  (DELAY_LIMIT)(NO_DELAY_RESERVE_MONO), 0, UTASKER_STOP }, // {13} MODBUS task  
+#endif
+#if defined SERIAL_INTERFACE || defined I2C_INTERFACE || defined ETH_INTERFACE || defined USE_USB_CDC || defined SUPPORT_GLCD // {6}
+    { "app",       fnApplication,  MEDIUM_QUE,  (DELAY_LIMIT)((0.10 * SEC) + (PHY_POWERUP_DELAY)), 0, UTASKER_STOP}, // Application - start after Ethernet to be sure we have Ethernet handle
 #endif
 #if defined USB_INTERFACE
     #if defined USB_MSD_HOST_LOADER
-  { "Host",      fnTaskUSB_host, SMALL_QUEUE, (DELAY_LIMIT)(NO_DELAY_RESERVE_MONO), 0, UTASKER_STOP}, // USB host (application) task (started by the SD loader task when required)
+    { "Host",      fnTaskUSB_host, SMALL_QUEUE, (DELAY_LIMIT)(NO_DELAY_RESERVE_MONO), 0, UTASKER_STOP}, // USB host (application) task (started by the SD loader task when required)
     #endif
     #if !defined USB_MSD_HOST_LOADER || defined USB_MSD_DEVICE_LOADER
-  { "usb",       fnTaskUSB,      SMALL_QUEUE, (DELAY_LIMIT)(NO_DELAY_RESERVE_MONO), 0, UTASKER_ACTIVATE}, // USB (application) task
+        #if (defined BLAZE_K22 && defined SUPPORT_TOUCH_SCREEN) || defined SPECIAL_VERSION_SDCARD
+    { "usb",       fnTaskUSB,      SMALL_QUEUE, (DELAY_LIMIT)(NO_DELAY_RESERVE_MONO), 0, UTASKER_STOP }, // USB (application) task is only started if commanded
+        #else
+    { "usb",       fnTaskUSB,      SMALL_QUEUE, (DELAY_LIMIT)(NO_DELAY_RESERVE_MONO), 0, UTASKER_ACTIVATE}, // USB (application) task
+        #endif
     #endif
 #endif
 #if defined SDCARD_SUPPORT || defined SPI_FLASH_FAT || defined USB_MSD_HOST_LOADER // {2}
-  { "MassSt",    fnMassStorage,  MEDIUM_QUE,  (DELAY_LIMIT)(NO_DELAY_RESERVE_MONO), 0, UTASKER_ACTIVATE}, // mass storage task
-    #if defined USB_MSD_HOST_LOADER && defined USB_MSD_DEVICE_LOADER
-  { "SD",        fnSD_loader,    SMALL_QUEUE, (DELAY_LIMIT)(NO_DELAY_RESERVE_MONO), 0, UTASKER_STOP}, // SD card loader task (not started automatically)
-    #else
-  { "SD",        fnSD_loader,    SMALL_QUEUE, (DELAY_LIMIT)(NO_DELAY_RESERVE_MONO), 0, UTASKER_ACTIVATE}, // SD card loader task
+    { "MassSt",    fnMassStorage,  MEDIUM_QUE,  (DELAY_LIMIT)(NO_DELAY_RESERVE_MONO), 0, UTASKER_ACTIVATE}, // mass storage task
+    #if !defined SDCARD_ACCESS_WITHOUT_UTFAT
+        #if defined USB_MSD_HOST_LOADER && (defined USB_MSD_DEVICE_LOADER && !defined USB_MSD_HOST_DEVICE_PARALLEL)
+    { "SD",        fnSD_loader,    SMALL_QUEUE, (DELAY_LIMIT)(NO_DELAY_RESERVE_MONO), 0, UTASKER_STOP}, // SD card loader task (not started automatically)
+        #else
+    { "SD",        fnSD_loader,    SMALL_QUEUE, (DELAY_LIMIT)(NO_DELAY_RESERVE_MONO), 0, UTASKER_ACTIVATE}, // SD card loader task
+        #endif
     #endif
 #endif
-#if defined SUPPORT_LOW_POWER
-  { "lowPower", fnLowPower,      NO_QUE,      0, 0, UTASKER_GO},         // low power task
+#if defined SUPPORT_GLCD
+    {"LCD",       fnLCD,           LARGE_QUE,  (DELAY_LIMIT)(NO_DELAY_RESERVE_MONO), 0, UTASKER_STOP}, // large queue for queuing text
 #endif
-  { 0 }
+#if defined SUPPORT_LOW_POWER
+    { "lowPower", fnLowPower,      NO_QUE,      0, 0, UTASKER_GO},         // low power task
+#endif
+    { 0 }
 };
 #endif                                                                   // end of task configuration
 

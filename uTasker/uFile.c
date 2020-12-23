@@ -11,7 +11,7 @@
     File:      uFile.c
     Project:   Single Chip Embedded Internet
     ---------------------------------------------------------------------
-    Copyright (C) M.J.Butcher Consulting 2004..2016
+    Copyright (C) M.J.Butcher Consulting 2004..2020
     *********************************************************************
     01.03.2007 Optional uCompareFile() added
     19.05.2007 Add FLASH unprotect/protect support for devices which require or support it {1}
@@ -48,6 +48,14 @@
     10.04.2012 Allow writing to end of sub-file file system when the file system ends with small sectors {31}
     04.06.2013 Added UFILE_MALLOC() default                              {32}
     04.10.2014 Added error when the extended file system is used but the standard uFileSystem file block quantity is larger than 61 (0,1..A,..Z, a..y) so that the extended area starts at 'z' {33}
+    18.06.2019 Allow user files to have a fixed length and no uFile header content {34}
+    19.06.2019 Allow writing a file to uFileSystem without first scanning for overlapping data - NO_UFILE_OVERLAP_CHECKING
+    04.07.2019 Add generic I2C FRAM interface for multiple 64k FRAM devices {35}
+    08.07.2019 FRAM erase deletes only file header and not complete file content {36}
+	18.01.2020 Respect SPI flash erase granularity when appending data   {37}
+    20.02.2020 Ensure no writes are ever accepted to addresses outside the uFileSystem {38}
+    21.02.2020 Allow optional watchdog retriggers between erase operations {39}
+    21.02.2020 Add uOpenFileIntegrityCheck()                             {40}
 
 */
 
@@ -85,6 +93,18 @@
   //#define SUB_FILE_OFF
 #endif
 
+#if defined USE_PARAMETER_BLOCK                                          // if the parameter system is also being used
+    #if PARAMETER_BLOCK_START >= uFILE_START
+        #if (uFILE_START + FILE_SYSTEM_SIZE) > PARAMETER_BLOCK_START
+            #error "uFileSystem and uParameter system are overlapping!!"
+        #endif
+    #else
+        #if (PARAMETER_BLOCK_START + PAR_BLOCK_SIZE) > uFILE_START
+            #error "uFileSystem and uParameter system are overlapping!!"
+        #endif
+    #endif
+#endif
+
 #if defined EXTENSION_FILE_COUNT_VARIABLE
     #define _EXTENSION_FILE_COUNT     iExtensionFileCount
     #define _LAST_FILE_BLOCK          (LAST_FILE_BLOCK + iExtensionFileCount)
@@ -112,7 +132,7 @@
     #if defined EXTENDED_UFILESYSTEM                                     // {28}
         #define _uFILE_SYSTEM_END (uFILE_SYSTEM_END + EXTENDED_FILE_SYSTEM_SIZE)
     #else
-        #define _uFILE_SYSTEM_END uFILE_SYSTEM_END
+        #define _uFILE_SYSTEM_END (uFILE_SYSTEM_END)
     #endif
 #endif
 
@@ -154,9 +174,12 @@
 #if defined EXTENSION_FILE_COUNT_VARIABLE
     static int iExtensionFileCount = 0;                                  // extension file size - initially zero until known
 #endif
+#if defined _STORAGE_I2C_FRAM_ENABLED
+    static int iFileSytemErase = 0;                                      // {36}
+#endif
 
 #if defined MANAGED_FILES                                                // {24}
-// When managed files are in operation the FLASH driver will return MEDIA_BUSY if writes can not yet be performed.
+// When managed files are in operation the FLASH driver will return MEDIA_BUSY if writes cannot yet be performed.
 // This module waits for the write to complete by recalling if necessary
 //
 static int _fnWriteBytesFlash(unsigned char *ucDestination, unsigned char *ucData, MAX_FILE_LENGTH Length)
@@ -173,7 +196,7 @@ static int _fnWriteBytesFlash(unsigned char *ucDestination, unsigned char *ucDat
 #endif
 
 #if defined ACTIVE_FILE_SYSTEM
-    #if (SPI_FLASH_PAGE_LENGTH != 256 && SPI_FLASH_PAGE_LENGTH != 512) && (defined SPI_FILE_SYSTEM && defined FLASH_FILE_SYSTEM)
+    #if (defined SPI_FLASH_PAGE_LENGTH && (SPI_FLASH_PAGE_LENGTH != 256 && SPI_FLASH_PAGE_LENGTH != 512) && (defined SPI_FILE_SYSTEM && defined FLASH_FILE_SYSTEM)) || defined FILE_GRANULARITY_NOT_MODULO
         static void fnGetLowerBoundary(MAX_FILE_LENGTH *length, MAX_FILE_LENGTH granularity)
         {
             MAX_FILE_LENGTH lower_boundary = granularity;
@@ -186,8 +209,8 @@ static int _fnWriteBytesFlash(unsigned char *ucDestination, unsigned char *ucDat
         #define ROUNDDOWN_BOUNDARY(length, GRANULARITY) fnGetLowerBoundary(&length, GRANULARITY);
         #define ROUNDUP_BOUNDARY(length, GRANULARITY)   fnGetLowerBoundary(&length, GRANULARITY); length += GRANULARITY  // {5}
     #else
-        #define ROUNDUP_BOUNDARY(length, GRANULARITY)  length &= ~(GRANULARITY-1); length += GRANULARITY  // {5}
-        #define ROUNDDOWN_BOUNDARY(length, GRANULARITY) length &= ~(GRANULARITY-1);                       // {5}
+        #define ROUNDUP_BOUNDARY(length, GRANULARITY)  length &= ~(GRANULARITY - 1); length += GRANULARITY // {5}
+        #define ROUNDDOWN_BOUNDARY(length, GRANULARITY) length &= ~(GRANULARITY - 1); // {5}
     #endif
 #endif                                                                   // {12}
 
@@ -206,7 +229,7 @@ extern int fnSetPar(unsigned short usParameterReference, unsigned char *ucValue,
         ucValidPars ^= 0x3;                                              // swap blocks
     }
 
-    if (usParameterReference & TEMPORARY_PARAM_SET) {
+    if ((usParameterReference & TEMPORARY_PARAM_SET) != 0) {
         ucValidPars |= TEMP_PARS;
         ucValidPars ^= 0x3;                                              // swap blocks
     }
@@ -225,7 +248,7 @@ extern int fnGetPar(unsigned short usParameterReference, unsigned char *ucValue,
     unsigned char ucValidPars;
     unsigned char ucValidSet = PRESENT_VALID_BLOCK;
 
-    if (usParameterReference & TEMPORARY_PARAM_SET) {
+    if ((usParameterReference & TEMPORARY_PARAM_SET) != 0) {
         usParameterReference &= ~TEMPORARY_PARAM_SET;
         ucValidSet = PRESENT_TEMP_BLOCK;
     }
@@ -268,7 +291,6 @@ extern int fnDelPar(unsigned char ucDeleteType)
     return (fnSetParameters(ucValidPars, 1, 0, 0));                      // delete and invalidate (temp) parameter block
 }
 #elif defined USE_PARAMETER_AREA                                         // {17}
-
 static unsigned char *fnGetValidParArea(unsigned short usLength, unsigned char **ppNext)
 {
     unsigned char *pucArea = (unsigned char *)PARAMETER_BLOCK_START;     // the start of the parameter area
@@ -287,7 +309,7 @@ static unsigned char *fnGetValidParArea(unsigned short usLength, unsigned char *
     }
     if (ppNext != 0) {
         if ((*fnGetFlashAdd(pucArea) == 0xff) || (pucNextBlock >= (unsigned char *)(PARAMETER_BLOCK_START + PAR_BLOCK_SIZE - usRoundedLength))) {
-            pucNextBlock = pucArea;                                      // empty or no further room so next block is same a present block
+            pucNextBlock = pucArea;                                      // empty or no further room so next block is same as present block
         }
         *ppNext = pucNextBlock;
     }
@@ -396,7 +418,7 @@ static MAX_FILE_SYSTEM_OFFSET fnGetExtendedFilePointer(CHAR *ucIp_Data)
     int iNameExtension = EXTENDED_UFILESYSTEM;
     int iExtension = 0;
     MAX_FILE_SYSTEM_OFFSET file_location = (LAST_FILE_BLOCK * FILE_GRANULARITY);
-    while (iNameExtension--) {
+    while (iNameExtension-- != 0) {
         if ((*ucIp_Data >= '0') && (*ucIp_Data <= '9')) {
             iExtension = ((iExtension * 8) + (iExtension * 2));          // multiply by 10
             iExtension += (*ucIp_Data - '0');
@@ -523,7 +545,7 @@ extern MEMORY_RANGE_POINTER uOpenUserFile(CHAR *file_name)
 
 // Search through the user files to match a pointer to the content start
 //
-static USER_FILE *fnFilterUserFile(unsigned char *ptrfile)
+extern USER_FILE *fnFilterUserFile(unsigned char *ptrfile)
 {
     USER_FILE *ptrFiles = (USER_FILE *)ptrUserFiles;
     if (ptrFiles == 0) {
@@ -584,7 +606,7 @@ static void fnInsertStringNames(USER_FILE *ptrRAM_table)
 {
     CHAR temp[64];                                                       // {23}
     CHAR *new_string;
-    int iLength;
+    size_t iLength;
     while (ptrRAM_table->file_content != 0) {
         fnGetParsFile((unsigned char *)ptrRAM_table->fileName, (unsigned char *)temp, sizeof(temp)); // get a string
         iLength = uStrlen(temp);
@@ -627,7 +649,7 @@ extern USER_FILE *fnActivateEmbeddedUserFiles(CHAR *cFile, int iType)
     test_file.fileName = (unsigned char *)((((CAST_POINTER_ARITHMETIC)test_file.fileName << 24) & 0xff000000) | (((CAST_POINTER_ARITHMETIC)test_file.fileName << 8) & 0x00ff0000) | (((CAST_POINTER_ARITHMETIC)test_file.fileName >> 8) & 0x0000ff00) | ((CAST_POINTER_ARITHMETIC)test_file.fileName >> 24));
     test_file.file_length = (unsigned long)((((CAST_POINTER_ARITHMETIC)test_file.file_length << 24) & 0xff000000) | (((CAST_POINTER_ARITHMETIC)test_file.file_length << 8) & 0x00ff0000) | (((CAST_POINTER_ARITHMETIC)test_file.file_length >> 8) & 0x0000ff00) | ((CAST_POINTER_ARITHMETIC)test_file.file_length >> 24));
         #endif
-    while (1) {
+    FOREVER_LOOP() {
         if (((CHAR *)test_file.fileName > last_string) && ((unsigned char *)test_file.fileName < (unsigned char *)ptrUserTable)) {
             if (((unsigned char *)test_file.file_content > last_content) && ((unsigned char *)test_file.file_content < (unsigned char *)ptrUserTable)) {
                 if (test_file.file_length < file_length) {
@@ -693,6 +715,81 @@ extern unsigned char fnUserFileProperties(unsigned char *ptrfile)
     #endif
 #endif                                                                   // end #if defined INTERNAL_USER_FILES
 
+#if defined ACTIVE_FILE_SYSTEM && defined UFILE_SYSTEM_INTEGRITY_CHECK && !defined _NO_FILE_INTERFACE // {40}
+static int fnBlankCheck(unsigned char *ptrBuffer, MAX_FILE_LENGTH checkLength)
+{
+    while (checkLength-- != 0) {
+        if (*ptrBuffer++ != 0xff) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static int fnCheckCleanContent(MEMORY_RANGE_POINTER test_file, MAX_FILE_LENGTH fileLength)
+{
+    #if !defined SPI_FILE_SYSTEM_XIP_
+    unsigned char ucTestBuffer[128];
+    MAX_FILE_LENGTH checkLength;
+    #endif
+    MEMORY_RANGE_POINTER endBoundary = test_file;
+    test_file += (fileLength + FILE_HEADER);                             // the rest of the content must be blank (0xff) or else it is not considered valid
+    ROUNDUP_BOUNDARY(fileLength, FILE_GRANULARITY);                      // round up to the next file granularity location
+    endBoundary += fileLength;
+    fnRetriggerWatchdog();
+    #if defined SPI_FILE_SYSTEM_XIP_
+    return (fnBlankCheck(fnGetFlashAdd(test_file), (endBoundary - test_file)));
+    #else
+    while (test_file < endBoundary) {
+        checkLength = (endBoundary - test_file);
+        if (checkLength > sizeof(ucTestBuffer)) {
+            checkLength = sizeof(ucTestBuffer);
+        }
+        fnGetParsFile(test_file, ucTestBuffer, checkLength);
+        if (fnBlankCheck(ucTestBuffer, checkLength) != 0) {
+            return 1;
+        }
+        test_file += checkLength;
+    }
+    return 0;
+    #endif
+}
+
+extern int uOpenFileIntegrityCheck(void)                                 // {40}
+{
+    MEMORY_RANGE_POINTER test_file = uOpenFile("0");                     // first file
+    MAX_FILE_LENGTH fileLength;
+    MAX_FILE_LENGTH MaxfileLength = (FILE_SYSTEM_SIZE - FILE_HEADER);
+    int iRogueFiles = 0;
+    fnDebugMsg("Start: ");
+    fnDebugHex((unsigned long)test_file, (sizeof(test_file) | WITH_LEADIN | WITH_CR_LF));
+    fnDebugMsg("Granularity: ");
+    fnDebugHex((FILE_GRANULARITY), (sizeof(unsigned long) | WITH_LEADIN | WITH_CR_LF));
+    fnDebugMsg("End: ");
+    fnDebugHex((unsigned long)(test_file + FILE_SYSTEM_SIZE - 1), (sizeof(test_file) | WITH_LEADIN | WITH_CR_LF));
+    do {
+        fnGetParsFile(test_file, (unsigned char *)&fileLength, sizeof(MAX_FILE_LENGTH));
+        if (fileLength == 0) {                                           // zero length is invalid
+            fileLength = (MAX_FILE_LENGTH)(-1);                          // cause it to be deleted
+        }
+        else if (fileLength == (MAX_FILE_LENGTH)(-1)) {                  // check for blank FLASH memory
+            fileLength = 0;                                              // no length so empty
+        }
+        if ((fileLength > MaxfileLength) || (fnCheckCleanContent(test_file, fileLength) != 0)) { // impossible size detected or the content doesn't match with the length
+            iRogueFiles++;
+            fnDebugMsg("Cleaning: ");
+            fnDebugHex((unsigned long)test_file, (sizeof(test_file) | WITH_LEADIN | WITH_CR_LF));
+            uFileErase(test_file, FILE_GRANULARITY);                     // delete the rogue file's first block
+            fileLength = 0;
+        }
+        ROUNDUP_BOUNDARY(fileLength, FILE_GRANULARITY);                  // round up to the next file granularity location
+        test_file += fileLength;                                         // move to next possible file
+        MaxfileLength -= fileLength;
+    } while (test_file < (MEMORY_RANGE_POINTER)(uFILE_START + FILE_SYSTEM_SIZE - FILE_HEADER));
+    return iRogueFiles;
+}
+#endif
+
 #if (defined ACTIVE_FILE_SYSTEM || defined INTERNAL_USER_FILES) && !defined _NO_FILE_INTERFACE  // {14}
 // This routine returns a pointer to a file (which can either be empty, exits or overlap - this is not checked here)
 //
@@ -732,7 +829,7 @@ extern MAX_FILE_LENGTH uGetFileLength(MEMORY_RANGE_POINTER ptrfile)
     MAX_FILE_LENGTH FileLength;
     #if defined INTERNAL_USER_FILES                                      // {13}
     USER_FILE *ptrUserFile = fnFilterUserFile(ptrfile);
-    if (ptrUserFile != 0) {
+    if ((ptrUserFile != 0) && ((ptrUserFile->ucProperties & FILE_USE_HEADER_LENGTH) == 0)) { // {34}
         return ptrUserFile->file_length;                                 // return user file length
     }
     #endif
@@ -767,7 +864,7 @@ static MAX_FILE_LENGTH uGetFileLength_variable_header(MEMORY_RANGE_POINTER ptrfi
 {
     MAX_FILE_LENGTH FileLength;
     USER_FILE *ptrUserFile = fnFilterUserFile(ptrfile);                  // check for a user file
-    if (ptrUserFile != 0) {
+    if ((ptrUserFile != 0) && ((ptrUserFile->ucProperties & FILE_USE_HEADER_LENGTH) == 0)) { // {34}
         #if defined _WINDOWS
         if (ptrUserFile->ucProperties & FILE_NOT_CODE) {
             *ptrHeaderLength = 0x80;                                     // signal that the content is not in code
@@ -797,6 +894,8 @@ static MAX_FILE_LENGTH uGetFileLength_variable_header(MEMORY_RANGE_POINTER ptrfi
 #endif
 
 #if defined ACTIVE_FILE_SYSTEM && !defined _NO_FILE_INTERFACE
+
+#if !defined NO_UFILE_OVERLAP_CHECKING
 // This routine returns a pointer to the next file in the system, or zero when no more
 //
 #if defined SUPPORT_MIME_IDENTIFIER
@@ -825,7 +924,7 @@ static MAX_FILE_LENGTH uGetFileLength_variable_header(MEMORY_RANGE_POINTER ptrfi
         ptrfileLocation += ThisLength;                                   // address of next possible block
     }
 
-    while (1) {
+    FOREVER_LOOP() {
         if (ptrfileLocation >= (_uFILE_SYSTEM_END - 1)) {                // end of file system reached
             *FileLength = 0;                                             // file length is zero
             return 0;                                                    // nothing found
@@ -848,15 +947,45 @@ static MAX_FILE_LENGTH uGetFileLength_variable_header(MEMORY_RANGE_POINTER ptrfi
     #endif
     }
 }
+#endif
 
 // Erase all sectors occupied by file
 //
 extern int uFileErase(MEMORY_RANGE_POINTER ptrFile, MAX_FILE_LENGTH FileLength) // {4}
 {
-    if (fnEraseFlashSector(ptrFile, FileLength)) {                       // erase a file block
-        return  (-1);                                                    // return error if one found
+    int iReturn = 0;
+#if defined MAXIMUM_ERASE_CHUNK_WITHOUT_WDOG_RETRIGGER && (FILE_SYSTEM_SIZE > MAXIMUM_ERASE_CHUNK_WITHOUT_WDOG_RETRIGGER) // if there is a risk that erasures will be long we retrigger the watchdog during the operation
+    MAX_FILE_LENGTH TotalFileLength = FileLength;
+    FOREVER_LOOP() {
+        fnRetriggerWatchdog();                                           // {39} retrigger watchdog between erasing chunks of memory
+        if (TotalFileLength > (MAXIMUM_ERASE_CHUNK_WITHOUT_WDOG_RETRIGGER)) { // if the erasure size is larger than the defined max. block size
+            FileLength = (MAXIMUM_ERASE_CHUNK_WITHOUT_WDOG_RETRIGGER);   // erase a single block
+        }
+        else {
+            FileLength = TotalFileLength;                                // erase remaining size
+        }
+#endif
+#if defined _STORAGE_I2C_FRAM_ENABLED
+        iFileSytemErase = 1;                                             // {36} mark that if FRAM content is erased it only needs to delete headers and not complete content
+#endif
+        if (fnEraseFlashSector(ptrFile, FileLength) != 0) {              // erase a file block
+            iReturn = -1;                                                // return error if one found
+#if defined MAXIMUM_ERASE_CHUNK_WITHOUT_WDOG_RETRIGGER && (FILE_SYSTEM_SIZE > MAXIMUM_ERASE_CHUNK_WITHOUT_WDOG_RETRIGGER)
+            break;
+#endif
+        }
+#if defined _STORAGE_I2C_FRAM_ENABLED
+        iFileSytemErase = 0;                                             // {36}
+#endif
+#if defined MAXIMUM_ERASE_CHUNK_WITHOUT_WDOG_RETRIGGER && (FILE_SYSTEM_SIZE > MAXIMUM_ERASE_CHUNK_WITHOUT_WDOG_RETRIGGER)
+        TotalFileLength -= FileLength;                                   // the amount remaining
+        if (TotalFileLength == 0) {                                      // if all memory has been erased
+            break;                                                       // the defined size has been erased
+        }
+        ptrFile += FileLength;
     }
-    return 0;
+#endif
+    return iReturn;
 }
 
 
@@ -934,27 +1063,35 @@ extern unsigned char *uOpenFileAppend(CHAR *ptrfileName)
     extern MAX_FILE_LENGTH uFileWrite(MEMORY_RANGE_POINTER ptrFile, unsigned char *ptrData, MAX_FILE_LENGTH DataLength)
     #endif
 {
-    #if defined SUPPORT_MIME_IDENTIFIER
-    #define MIME_TYPE , &ucMimeType
-    #define UOPENNEXTFILE uOpenNextMimeFile
+    #if !defined NO_UFILE_OVERLAP_CHECKING
+        #if defined SUPPORT_MIME_IDENTIFIER
+            #define MIME_TYPE , &ucMimeType
+            #define UOPENNEXTFILE uOpenNextMimeFile
     unsigned char ucMimeType;
-    #else
-    #define UOPENNEXTFILE uOpenNextFile
-    #define MIME_TYPE
+        #else
+            #define UOPENNEXTFILE uOpenNextFile
+            #define MIME_TYPE
+        #endif
     #endif
 
-    if (DataLength == 0) {
-        return LengthInProgress;
+    if (DataLength == 0) {                                               // request the current write length and not a write
+        return LengthInProgress;                                         // return the current write length
     }
 
     if (LengthInProgress == 0) {                                         // first write
         MAX_FILE_LENGTH FileLength;
+    #if !defined NO_UFILE_OVERLAP_CHECKING
         MEMORY_RANGE_POINTER prtPresentFile;
+    #endif
         MEMORY_RANGE_POINTER ptrNewFile = (ptrFile + FILE_HEADER);       // leave space for file header
     #if defined SPI_SW_UPLOAD                                            // {3}
         MEMORY_RANGE_POINTER ptrFileSysEnd = (MEMORY_RANGE_POINTER)(uFILE_START + FILE_SYSTEM_SIZE);
         MEMORY_RANGE_POINTER ptrSPI_FlashEnd = (ptrFileSysEnd + SPI_DATA_FLASH_SIZE);
     #endif
+        if ((ptrFile < uFILE_SYSTEM_START) || (ptrNewFile >= _uFILE_SYSTEM_END)) { // {38}
+            _EXCEPTION("Bad file system location!!");
+            return 0;                                                    // ignore writes to locations outside of the file system
+        }
         FileInProgress = ptrNewFile;
     #if defined SPI_SW_UPLOAD                                            // {3}
         if ((ptrFile >= ptrFileSysEnd) && (ptrFile < ptrSPI_FlashEnd)) { // we are working from external SPI FLASH memory
@@ -973,23 +1110,29 @@ extern unsigned char *uOpenFileAppend(CHAR *ptrfileName)
         fnUnprotectFile();                                               // {1}
     #endif
     #if defined SUB_FILE_SIZE
-        if (ucSubFile == 0) {
+        if (ucSubFile == 0) {                                            // don't check subfiles since they do not erase space
     #endif
-        if ((prtPresentFile = UOPENNEXTFILE(0, &FileLength  MIME_TYPE  SUB_FILE_OFF)) != 0) { // get details of first file in the system
-            do {
-                FileLength += (_FILE_GRANULARITY + (FILE_HEADER - 1));   // round the length up to next file block size
-                ROUNDDOWN_BOUNDARY(FileLength, _FILE_GRANULARITY);       // {5}
-                if ((ptrNewFile >= prtPresentFile) && (ptrNewFile < (prtPresentFile + FileLength))) {
-                    uFileErase(prtPresentFile, FileLength);              // erase present file to make space for new one
-                    if (FileLength >= DataLength) {
-                        break;                                           // we now have enough space to save the new data
-                    }
-                    ptrNewFile += FileLength;                            // we may still have to make more space
-                }
-                prtPresentFile = UOPENNEXTFILE(prtPresentFile, &FileLength  MIME_TYPE  SUB_FILE_OFF); // try next present file
+    #if defined NO_UFILE_OVERLAP_CHECKING
+            if ((FileLength = uGetFileLength(ptrFile)) != 0) {           // if the file location that will be written to is not empty
+                uFileErase(ptrFile, FileLength);                         // erase present file to make space for new one (which should not be larger than the single file area size)
             }
-            while ((prtPresentFile != 0) && (prtPresentFile <= ptrNewFile));
-        }
+    #else
+            if ((prtPresentFile = UOPENNEXTFILE(0, &FileLength  MIME_TYPE  SUB_FILE_OFF)) != 0) { // get details of first file in the system (scan the file system until the first file with data is found)
+                do {
+                    FileLength += (_FILE_GRANULARITY + (FILE_HEADER - 1)); // round the length up to next file block size
+                    ROUNDDOWN_BOUNDARY(FileLength, _FILE_GRANULARITY);   // {5}
+                    if ((ptrNewFile >= prtPresentFile) && (ptrNewFile < (prtPresentFile + FileLength))) { // if there is file content where we wish to write to
+                        uFileErase(prtPresentFile, FileLength);          // erase present file to make space for new one
+                        if (FileLength >= DataLength) {                  // is there now adequate space to save the data that we will write?
+                            break;                                       // we now have enough space to save the new data
+                        }
+                        ptrNewFile += FileLength;                        // we may still have to make more space
+                    }
+                    prtPresentFile = UOPENNEXTFILE(prtPresentFile, &FileLength  MIME_TYPE  SUB_FILE_OFF); // try next present file
+                }
+                while ((prtPresentFile != 0) && (prtPresentFile <= ptrNewFile));
+            }
+    #endif
     #if defined SUB_FILE_SIZE
         }
     #endif
@@ -1077,7 +1220,7 @@ extern unsigned char *uOpenFileAppend(CHAR *ptrfileName)
     #endif
     #if defined FLASH_LINE_SIZE && FLASH_LINE_SIZE > 0                   // {6}
     if (LengthInProgress < (FLASH_LINE_SIZE - FILE_HEADER)) {            // save first FLASH line of file in backup buffer
-        size_t CopyLength = ((FLASH_LINE_SIZE - FILE_HEADER) - LengthInProgress); // {21} the length of the data that can be copied to the line buffer
+        MAX_FILE_LENGTH CopyLength = (MAX_FILE_LENGTH)((FLASH_LINE_SIZE - FILE_HEADER) - LengthInProgress); // {21} the length of the data that can be copied to the line buffer
         if (DataLength < CopyLength) {
             CopyLength = DataLength;
         }
@@ -1113,10 +1256,10 @@ extern MAX_FILE_LENGTH uGetFileData(MEMORY_RANGE_POINTER ptrFile, MAX_FILE_SYSTE
     #else
     MAX_FILE_SYSTEM_OFFSET RemainingLength = uGetFileLength(ptrFile);
     #endif
-    if (RemainingLength) {
+    if (RemainingLength != 0) {
         RemainingLength -= FileOffset;                                   // this is remaining length in file from this position
         if (RemainingLength != 0) {
-            if (RemainingLength >= DataLength) {
+            if (RemainingLength > DataLength) {
                  RemainingLength = DataLength;
             }
     #if defined INTERNAL_USER_FILES                                      // {19}
@@ -1144,17 +1287,29 @@ extern MAX_FILE_LENGTH uGetFileData(MEMORY_RANGE_POINTER ptrFile, MAX_FILE_SYSTE
 //
 static MAX_FILE_LENGTH fnAppendFileLength(unsigned char *ptrFile)
 {
+	#if defined SPI_FILE_SYSTEM && defined SPI_FLASH_SUB_SECTOR_LENGTH && (SPI_FLASH_SUB_SECTOR_LENGTH > FLASH_GRANULARITY) // {37}
+		#define MAX_FLASH_GRANULARITY    SPI_FLASH_SUB_SECTOR_LENGTH     // ensure the backup buffer is the maximum required size
+	#else
+		#define MAX_FLASH_GRANULARITY    FLASH_GRANULARITY
+	#endif
+
     MAX_FILE_LENGTH *ptrLength;
     MAX_FILE_LENGTH Len = LengthInProgress;
     MAX_FILE_LENGTH SectorLength;
-    unsigned long  ulBuffer[FLASH_GRANULARITY/sizeof(unsigned long)];    // sector backup space on stack (assumes internal granularity is valid) - buffer long word aligned
+    unsigned long  ulBuffer[MAX_FLASH_GRANULARITY/sizeof(unsigned long)];// sector backup space on stack (assumes internal granularity is valid) - buffer long word aligned
+	unsigned long  ulThisFlashGranularity = FLASH_GRANULARITY;
+    #if defined SPI_FILE_SYSTEM && defined SPI_FLASH_SUB_SECTOR_LENGTH
+	if (fnGetStorageType(ptrFile, 0) == _STORAGE_SPI_FLASH) {            // {37} if the file header is in SPI flash
+		ulThisFlashGranularity = SPI_FLASH_SUB_SECTOR_LENGTH;            // set the corresponding granularity to be backed up
+	}
+    #endif
     #if defined FLASH_LINE_SIZE && FLASH_LINE_SIZE > 0
     _fnWriteBytesFlash(ptrFile, 0, 0);                                   // {30} close any outstanding FLASH buffer
     if (ptrAppendLine != 0) {
         if (ptrFile != ptrAppendSector) {                                // insert the start flash line buffer into the initial sector
             SectorLength = ((LengthInProgress + FILE_HEADER) - (ptrAppendSector - ptrFile));
-            if (SectorLength > FLASH_GRANULARITY) {
-                SectorLength = FLASH_GRANULARITY;
+            if (SectorLength > ulThisFlashGranularity) {
+                SectorLength = ulThisFlashGranularity;
             }
             fnGetParsFile(ptrAppendSector, (unsigned char *)ulBuffer, SectorLength); // read the first append sector's content (or less if there is not a complete sector length)
             uMemcpy(&ulBuffer[((ptrAppendLine - ptrAppendSector)/sizeof(unsigned long))], ucFirstLine, FLASH_LINE_SIZE); // fill the first line content
@@ -1162,14 +1317,14 @@ static MAX_FILE_LENGTH fnAppendFileLength(unsigned char *ptrFile)
             if (_fnWriteBytesFlash(ptrAppendSector, (unsigned char *)ulBuffer, SectorLength)) { // {30} save the flash sector back
                 return 0;
             }
-            _fnWriteBytesFlash(ptrFile, 0, 0);                            // {30} close any outstanding FLASH buffer
+            _fnWriteBytesFlash(ptrFile, 0, 0);                           // {30} close any outstanding FLASH buffer
             ptrAppendLine = 0;
         }
     }
     #endif
     SectorLength = (LengthInProgress + FILE_HEADER);
-    if (SectorLength > FLASH_GRANULARITY) {
-        SectorLength = FLASH_GRANULARITY;
+    if (SectorLength > ulThisFlashGranularity) {
+        SectorLength = ulThisFlashGranularity;
     }
     fnGetParsFile(ptrFile, (unsigned char *)ulBuffer, SectorLength);     // read the first sector's content (or less if there is not a complete sector length)
     #if defined FLASH_LINE_SIZE && FLASH_LINE_SIZE > 0                   // {27}
@@ -1208,7 +1363,7 @@ static MAX_FILE_LENGTH fnAppendFileLength(unsigned char *ptrFile)
         #if defined ONLY_INTERNAL_FLASH_STORAGE
             return fnAppendFileLength(ptrFile);                          // close with update of file length
         #else
-        if (!(fnGetStorageType((unsigned char *)ptrFile, 0) & EEPROM_CHARACTERISTICS)) { // if the initial sector of memory is not EEPROM type
+        if ((fnGetStorageType((unsigned char *)ptrFile, 0) & EEPROM_CHARACTERISTICS) == 0) { // if the initial sector of memory is not EEPROM type
             return fnAppendFileLength(ptrFile);                          // close with update of file length
         }
             #if defined SUPPORT_MIME_IDENTIFIER
@@ -1352,6 +1507,174 @@ extern int uCompareFile(unsigned char *ptrFile, unsigned char *ptrData, MAX_FILE
     }
     return 0;                                                            // contents are identical
     #endif
+}
+#endif
+
+#if defined _STORAGE_I2C_FRAM_ENABLED                                    // {35}
+    #if defined _WINDOWS
+extern unsigned long fnSimInts(char *argv[]);
+    #endif
+
+static QUEUE_HANDLE I2CI_FRAM_ID = NO_ID_ALLOCATED;                      // I2C interface handle used by FRAM
+
+static STORAGE_AREA_ENTRY spi_flash_storage_FRAM = {
+    (void *)0,                                                           // link to following stogare type
+    (unsigned char *)(I2C_FRAM_FLASH_START),                             // FRAM area start
+    (unsigned char *)(I2C_FRAM_FLASH_START + (I2C_FRAM_SIZE - 1)),       // size of FRAM area
+    _STORAGE_I2C_FRAM,                                                   // type
+    0                                                                    // not multiple devices
+};
+
+// The user must call this once before use of FRAM or the file system
+//
+extern QUEUE_HANDLE InitI2C_FRAM_Interface(QUEUE_HANDLE existing_handle)
+{
+    _CONFIG_FRAM_WRITE_PROTECT();                                        // initially set the write protect line
+    if (existing_handle != NO_ID_ALLOCATED) {                            // if the user is passing an existing I2C handle we use that for the interface
+        I2CI_FRAM_ID = existing_handle;
+    }
+    else {                                                               // else configure a dedicated I2C interface
+        I2CTABLE tI2CParameters;
+        tI2CParameters.Channel = FRAM_I2C_INTERFACE;
+        tI2CParameters.usSpeed = FRAM_I2C_INTERFACE_SPEED;
+    #if defined _STORAGE_I2C_BLOCKING_INTERFACE
+        tI2CParameters.Rx_tx_sizes.TxQueueSize = 0;                      // use the interface in blocking mode (no queues)
+        tI2CParameters.Rx_tx_sizes.RxQueueSize = 0;
+    #else
+        tI2CParameters.Rx_tx_sizes.TxQueueSize = 260;                    // interrupt-driven interface
+        tI2CParameters.Rx_tx_sizes.RxQueueSize = 260;
+    #endif
+        tI2CParameters.Task_to_wake = 0;                                 // no wake on transmission
+        I2CI_FRAM_ID = fnOpen(TYPE_I2C, FOR_I_O, &tI2CParameters);       // open the interface
+    }
+    spi_flash_storage_FRAM.ptrNext = UserStorageListPtr;
+    UserStorageListPtr = (STORAGE_AREA_ENTRY *)&spi_flash_storage_FRAM;  // insert FRAM as storage medium
+    return I2CI_FRAM_ID;                                                 // return the interface handle in case the user requires access to it
+}
+
+// The I2C interface routines are called by the file and parameter system interface when accesses are made into the FRAM's area
+//
+extern void fnWriteI2C_FRAM(ACCESS_DETAILS *ptrAccessDetails, unsigned char *ptrData)
+{
+    unsigned long ulAddress = ptrAccessDetails->ulOffset;
+    unsigned long ulLength = ptrAccessDetails->BlockLength;
+    unsigned long ulRemainingLength = ulLength;
+    volatile unsigned char *ptr;
+    I2CQue *ptI2CQue;
+    unsigned char ucTxBuffer[256];
+    _REMOVE_FRAM_WRITE_PROTECT();                                        // allow writes
+    #if defined _STORAGE_I2C_BLOCKING_INTERFACE
+    _EXCEPTION("In development");
+    #else
+    do {
+        if (ulLength > 253) {
+            ulLength = 253;
+        }
+        if (((ulAddress & 0xffff) + ulLength) > 0x10000) {               // if the write will cross a FRAM chip boundary
+            ulLength = (0x10000 - (ulAddress & 0xffff));                 // limit to the single FRAM
+        }
+        ucTxBuffer[0] = FRAM_WRITE_ADDRESS;
+        ucTxBuffer[0] |= ((ulAddress >> 15) & 0x0e);                     // A18..A16
+        ucTxBuffer[1] = (unsigned char)(ulAddress >> 8);                 // A15..A8
+        ucTxBuffer[2] = (unsigned char)(ulAddress);                      // A7..A0
+        uMemcpy(&ucTxBuffer[3], ptrData, ulLength);
+        fnWrite(I2CI_FRAM_ID, ucTxBuffer, (QUEUE_TRANSFER)(ulLength + 3)); // write to FRAM (the chip is selected automatically via the address)
+        ptI2CQue = (struct stI2CQue *)(que_ids[I2CI_FRAM_ID - 1].output_buffer_control); // set to output control block
+        ptr = &ptI2CQue->ucState;
+        while ((*ptr & TX_ACTIVE) != 0) {                                // wait until the transmission has terminated
+        #if defined _WINDOWS
+            fnSimInts(0);
+        #endif
+        }
+        ulRemainingLength -= ulLength;
+        ulAddress += ulLength;
+        ptrData += ulLength;
+        ulLength = ulRemainingLength;
+    } while (ulRemainingLength != 0);
+    #endif
+    _SET_FRAM_WRITE_PROTECT();                                           // disable writes
+}
+
+extern void fnReadI2C_FRAM(ACCESS_DETAILS *ptrAccessDetails, unsigned char *ptrData)
+{
+    unsigned long ulAddress = ptrAccessDetails->ulOffset;
+    unsigned long ulLength = ptrAccessDetails->BlockLength;
+    unsigned long ulRemainingLength = ulLength;
+    unsigned char ucTxBuffer[3];
+    QUEUE_TRANSFER length;
+    #if defined _STORAGE_I2C_BLOCKING_INTERFACE
+    _EXCEPTION("In development");
+    #else
+    do {
+        if (ulLength > 255) {
+            ulLength = 255;
+        }
+        if (((ulAddress & 0xffff) + ulLength) > 0x10000) {               // if the read will cross a FRAM chip boundary
+            ulLength = (0x10000 - (ulAddress & 0xffff));                 // limit to the single FRAM
+        }
+        ucTxBuffer[0] = FRAM_WRITE_ADDRESS;
+        ucTxBuffer[0] |= ((ulAddress >> 15) & 0x0e);                     // A18..A16
+        ucTxBuffer[1] = (unsigned char)(ulAddress >> 8);                 // A15..A8
+        ucTxBuffer[2] = (unsigned char)(ulAddress);                      // A7..A0
+        fnWrite(I2CI_FRAM_ID, ucTxBuffer, 3);                            // write random read address
+        ucTxBuffer[1] = (ucTxBuffer[0] | FRAM_READ_ADDRESS);
+        ucTxBuffer[0] = (unsigned char)ulLength;
+        ucTxBuffer[2] = 0;
+        fnRead(I2CI_FRAM_ID, ucTxBuffer, 0);                             // start read of requested length of data
+        do {
+            length = fnRead(I2CI_FRAM_ID, ptrData, (QUEUE_TRANSFER)ulLength);
+        #if defined _WINDOWS
+            fnSimInts(0);
+        #endif
+        } while (length == 0);
+        ulRemainingLength -= ulLength;
+        ulAddress += ulLength;
+        ptrData += ulLength;
+        ulLength = ulRemainingLength;
+    } while (ulRemainingLength != 0);
+    #endif
+}
+
+extern void fnEraseI2C_FRAM(ACCESS_DETAILS *ptrAccessDetails)
+{
+    unsigned long ulErased = ptrAccessDetails->BlockLength;              // the total length to erase
+    ACCESS_DETAILS access;
+    unsigned char ucDeletedData[253];
+    access.ucDeviceNumber = 0;
+    access.ulOffset = ptrAccessDetails->ulOffset;
+    if (iFileSytemErase != 0) {                                          // {36} FRAM file erasure
+        uMemset(ucDeletedData, 0xff, FILE_HEADER);                       // erase only header content
+        FOREVER_LOOP() {
+            if (ulErased <= FILE_HEADER) {
+                access.BlockLength = ulErased;
+            }
+            else {
+                access.BlockLength = FILE_HEADER;
+            }
+            fnWriteI2C_FRAM(&access, ucDeletedData);
+    #if defined NO_UFILE_OVERLAP_CHECKING
+            return;                                                      // only the original file header is deleted
+    #else
+            access.ulOffset += FILE_GRANULARITY;
+            if (ulErased <= FILE_GRANULARITY) {
+                break;
+            }
+            ulErased -= FILE_GRANULARITY;
+    #endif
+        }
+        return;                                                          // allo possible file headers in the file data erased
+    }
+    do {
+        if (ulErased <= sizeof(ucDeletedData)) {
+            access.BlockLength = ulErased;
+        }
+        else {
+            access.BlockLength = sizeof(ucDeletedData);
+        }
+        fnWriteI2C_FRAM(&access, ucDeletedData);
+        access.ulOffset += access.BlockLength;
+        ulErased -= access.BlockLength;
+    } while (ulErased != 0);
 }
 #endif
 

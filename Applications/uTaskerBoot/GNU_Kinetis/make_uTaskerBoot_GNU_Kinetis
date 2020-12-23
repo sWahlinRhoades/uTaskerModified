@@ -3,6 +3,10 @@
 # 18.07.2011 Add zero_config.c and K40 linker script options
 # 20.04.2014 Add m0+ compile option and new linker script file name
 # 05.08.2014 Modified compiler and linker options to achieve around 7% smaller code size
+# 13.07.2017 Add peripheral and SPI Flash dependencies
+# 03.07.2018 Add -Wundef in order to discover any undefined definitions
+# 04.07.2018 Add ../../../Hardware/packages.h
+# 09.03.2019 Change location of SPI memory includes (to ../SPI_Memory)
 
 # All objects (Hardware, application, uTasker, stack)
 #
@@ -12,11 +16,13 @@ OBJS = Build/uTaskerBootLoader.o Build/kinetis_boot.o
 
 #General dependencies
 #
-DEPENDS = ../config.h ../types.h ../../../Hardware/hardware.h ../../../Hardware/Kinetis/kinetis.h 
+DEPENDS = ../config.h ../types.h ../../../Hardware/hardware.h ../../../Hardware/packages.h ../../../Hardware/Kinetis/kinetis.h make_uTaskerBoot_GNU_Kinetis
 
-C_FLAGS = -mcpu=cortex-m4 -mthumb -mlittle-endian -mthumb -Wall -Wstrict-prototypes -fmessage-length=0 -fsigned-char  -ffunction-sections -fdata-sections 
-#C_FLAGS = -mcpu=cortex-m0 -mthumb -mlittle-endian -mthumb -Wall -Wstrict-prototypes -fmessage-length=0 -fsigned-char -ffunction-sections -fdata-sections 
+C_FLAGS = -mcpu=cortex-m0 -mthumb -mlittle-endian -mthumb -Wall -Wstrict-prototypes -fmessage-length=0 -fsigned-char -ffunction-sections -fdata-sections -Wundef
+#C_FLAGS = -mcpu=cortex-m4 -mthumb -mlittle-endian -mthumb -Wall -Wstrict-prototypes -fmessage-length=0 -fsigned-char  -ffunction-sections -fdata-sections -Wundef
+#C_FLAGS = -mcpu=cortex-m7 -mthumb -mlittle-endian -mthumb -Wall -Wstrict-prototypes -fmessage-length=0 -fsigned-char -ffunction-sections -fdata-sections -Wundef
 
+LINKER_SCRIPT = KL_128_96
 
 OPTS    = -D _GNU -D _KINETIS -g -c -Os
 
@@ -24,6 +30,29 @@ CC      = arm-none-eabi-gcc
 CC_OBJ  = arm-none-eabi-objcopy
 CC_SIZE = arm-none-eabi-size
 
+# Hardware peripheral dependencies
+#
+PERIPH_DEP = ../../../Hardware/Kinetis/kinetis_FLASH.h \
+             ../../../Hardware/Kinetis/kinetis_K_CLOCK.h \
+             ../../../Hardware/Kinetis/kinetis_MCG_LITE.h \
+             ../../../Hardware/Kinetis/kinetis_HIRC.h \
+             ../../../Hardware/Kinetis/kinetis_KL_CLOCK.h \
+             ../../../Hardware/Kinetis/kinetis_KV_CLOCK.h \
+             ../../../Hardware/Kinetis/kinetis_KW_CLOCK.h \
+             ../../../Hardware/Kinetis/kinetis_KM_CLOCK.h \
+             ../../../Hardware/Kinetis/kinetis_KE_CLOCK.h \
+             ../../../Hardware/Kinetis/kinetis_PORTS.h \
+             ../../../Hardware/SPI_Memory/spi_flash_interface.h
+
+# SPI FLASH dependencies
+#
+SPI_FLASH_DEP = ../../../Hardware/SPI_Memory/spi_flash_kinetis_atmel.h \
+                ../../../Hardware/SPI_Memory/spi_flash_kinetis_stmicro.h \
+				../../../Hardware/SPI_Memory/spi_flash_kinetis_sst25.h \
+				../../../Hardware/SPI_Memory/spi_flash_w25q.h \
+				../../../Hardware/SPI_Memory/spi_flash_s25fl1-k.h \
+				../../../Hardware/SPI_Memory/spi_flash_MX25L.h \
+                ../../../Hardware/SPI_Memory/spi_eeprom_25AA160.h
 
 all: uTaskerBoot.elf
 
@@ -35,15 +64,15 @@ Build/uTaskerBootLoader.o: ../uTaskerBootLoader.c $(DEPENDS)
 # Hardware files
 #
 
-Build/kinetis_boot.o: ../../../Hardware/Kinetis/kinetis_boot.c $(DEPENDS)
+Build/kinetis_boot.o: ../../../Hardware/Kinetis/kinetis_boot.c $(DEPENDS) $(PERIPH_DEP) $(SPI_FLASH_DEP)
 		$(CC) $(C_FLAGS) -I../../uTaskerBoot $(OPTS) ../../../Hardware/Kinetis/kinetis_boot.c -o Build/kinetis_boot.o
 
 
 # Link
 # Create output files and show program size
 #
-uTaskerBoot.elf: $(OBJS)  K_1M_256.ld K_256_256.ld K_1M_128.ld K_512_64.ld K_256_64.ld K_128_16.ld KW_512_64.ld KW_256_32.ld KL_256_32.ld KL_128_16.ld KL_64_8.ld KL_32_4.ld KL_32_2.ld KV_32_8.ld KV_512_96.ld KE_128_16.ld KE_64_4.ld KE_8_1.ld KEA_128_16.ld
-	$(CC) $(C_FLAGS) -Os -g -TK_512_128.ld -nostartfiles -Xlinker --gc-sections -Wl,-Map,"uTaskerBoot.map" -o "uTaskerBoot.elf" $(OBJS)
+uTaskerBoot.elf: $(OBJS)  K_1M_256.ld K_256_256.ld K_1M_128.ld K_512_64.ld K_256_64.ld K_128_16.ld KW_512_64.ld KW_256_32.ld KL_256_32.ld KL_128_32.ld KL_128_16.ld KL_64_8.ld KL_32_4.ld KL_32_2.ld KV_32_8.ld KV_512_96.ld KE_128_16.ld KE_64_4.ld KE_8_1.ld KEA_128_16.ld
+	$(CC) $(C_FLAGS) -Os -g -T$(LINKER_SCRIPT).ld -nostartfiles -Xlinker --gc-sections -Wl,-Map,"uTaskerBoot.map" -o "uTaskerBoot.elf" $(OBJS)
 	$(CC_OBJ) --output-target=binary uTaskerBoot.elf uTaskerBoot.bin
 	$(CC_SIZE)   uTaskerBoot.elf
 	$(CC) -v

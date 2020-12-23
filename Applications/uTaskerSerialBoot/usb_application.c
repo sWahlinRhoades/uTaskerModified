@@ -11,10 +11,13 @@
     File:      usb_application.c - MSD
     Project:   uTasker project
     ---------------------------------------------------------------------
-    Copyright (C) M.J.Butcher Consulting 2004..2016
+    Copyright (C) M.J.Butcher Consulting 2004..2020
     *********************************************************************
     This application is the same as the USB application in the uTaskerV1.4 project - state 20.7.2015,
     whereby the USB-MSD model is used to allow USB-MSD (on SD card) to be operated whilst in the boot loader
+    14.01.2018 Block USB-MSD further command handling until complete write data has been received {1}
+    02.03.2018 Add local option to read SD card directly to USB output buffer in order to save copy steps {2}
+    06.06.2020 Extended to support dual-USB and make use of new global USB host function fnDisplayEndpoint()
 
 */
 
@@ -27,6 +30,9 @@
 
 #if (defined USB_INTERFACE && defined USE_USB_MSD && defined SDCARD_SUPPORT)
 
+#define BYPASS_READ_BUFFER                                               // {2} read from SD card directly into USB transmission buffer
+//#define READ_SPECULATION_BUFFERS            8                          // additional speculative block reads which can be used to increase overall read speed
+
 /* =================================================================== */
 /*                          local definitions                          */
 /* =================================================================== */
@@ -38,10 +44,6 @@
 #endif
 #if !defined MODBUS_USB_CDC_COUNT
     #define MODBUS_USB_CDC_COUNT            0
-#endif
-
-#if !defined USB_SPEC_VERSION                                            // {28}
-    #define USB_SPEC_VERSION                USB_SPEC_VERSION_1_1         // default is to report USB1.1 since it is equivalent to USB2.0 but requires one less descriptor exchange
 #endif
 
 #if defined USB_HOST_SUPPORT
@@ -186,11 +188,12 @@ static unsigned char  ucCollectingMode = 0;
     static unsigned short usMSDBulkInEndpointSize = 0;
     static unsigned char ucMSDBulkOutEndpoint = 0;                       // the endpoint that is to be used as MSD bulk OUT endpoint
     static unsigned short usMSDBulkOutEndpointSize = 0;
+    static unsigned char ucHostSpeed = 0;
 #endif
 #if defined USE_USB_CDC                                                  // local variables required by USB-CDC
     static CDC_PSTN_LINE_CODING uart_setting[USB_CDC_COUNT];             // use a static struct to ensure that non-buffered transmission remains stable. Use also to receive new settings to
     static QUEUE_HANDLE USBPortID_interrupt[USB_CDC_COUNT] = {NO_ID_ALLOCATED}; // interrupt endpoint (not actually used)
-    #if !defined MODBUS_USB_SLAVE                                        // {11}
+    #if !defined MODBUS_USB_SLAVE
     static QUEUE_HANDLE USBPortID_comms[USB_CDC_COUNT] = {NO_ID_ALLOCATED}; // USB port endpoint handle(s)
     #endif
     #if USB_CDC_COUNT > 1
@@ -205,7 +208,7 @@ static unsigned char  ucCollectingMode = 0;
 #if defined USE_USB_HID_RAW
     static QUEUE_HANDLE USBPortID_HID_raw = NO_ID_ALLOCATED;            // USB handle for HID raw communication
 #endif
-#if defined USE_USB_HID_KEYBOARD                                         // {34}
+#if defined USE_USB_HID_KEYBOARD
     static QUEUE_HANDLE USBPortID_HID_kb = NO_ID_ALLOCATED;              // USB handle for HID keyboard communication
     static CHAR cLastInput = 0;
     static int iUSB_keyboard_state = 0;
@@ -218,10 +221,19 @@ static unsigned char  ucCollectingMode = 0;
     static unsigned long ulLogicalBlockAdr = 0;                          // present logical block address (shared between read and write)
     static unsigned long ulReadBlock = 0;                                // the outstanding blocks to be read from the media
     static unsigned long ulWriteBlock = 0;                               // the outstanding blocks to be written to the media
+    static int iWriteInProgress = 0;                                     // {1} flag indicating that reception is write data and not commands
     static int iContent = 0;
     static const UTDISK *ptrDiskInfo[DISK_COUNT] = {0};
     static USB_MASS_STORAGE_CSW csw = {{'U', 'S', 'B', 'S'}, {0}, {0}, CSW_STATUS_COMMAND_PASSED };
     static unsigned char ucActiveLUN = DISK_D;
+    #if defined BYPASS_READ_BUFFER                                       // {2}
+        USBQUE *ptrUsbMSD_Queue = 0;                                     // USB-MSD output queue
+        #if defined READ_SPECULATION_BUFFERS && (READ_SPECULATION_BUFFERS > 0)
+            static unsigned long ulSpeculationBuffers[READ_SPECULATION_BUFFERS][512/sizeof(unsigned long)] = {{0}};
+            static unsigned long ulSpeculationAdr = 0;
+            static unsigned long ulCache = 0;
+        #endif
+    #endif
 #endif
 
 #if defined USB_STRING_OPTION && defined USB_RUN_TIME_DEFINABLE_STRINGS
@@ -265,7 +277,7 @@ static void fnConfigureUSB(void);                                        // rout
     static unsigned char fnDisplayDeviceInfo(void);
     static void fnDeviceLun(unsigned char *ptrData, unsigned short usLength, unsigned short usExpected);
 #endif
-#if defined USE_USB_HID_KEYBOARD                                         // {34}
+#if defined USE_USB_HID_KEYBOARD
     static void fnSetKeyboardOutput(unsigned char ucOutputs);
     static void fnKeyboardInput(void);
 #endif
@@ -282,13 +294,13 @@ extern void fnTaskUSB(TTASKTABLE *ptrTaskTable)
 {
     QUEUE_HANDLE PortIDInternal = ptrTaskTable->TaskID;                  // queue ID for task input
     unsigned char ucInputMessage[LARGE_MESSAGE];                         // reserve space for receiving messages
-#if defined USE_USB_HID_MOUSE                                            // {23}
+#if defined USE_USB_HID_MOUSE
     static int iUSB_mouse_state = 0;
 #endif
 #if defined USB_HOST_SUPPORT || defined USE_USB_MSD || defined USE_USB_CDC
     QUEUE_TRANSFER Length;
 #endif
-#if defined USE_USB_CDC                                                  // {11}
+#if defined USE_USB_CDC
     #if (USB_CDC_COUNT > 1) && ((USB_CDC_COUNT > (MODBUS_USB_CDC_COUNT + 1)) || !defined USE_MAINTENANCE)
     int iCDC_input;
     #endif
@@ -298,7 +310,7 @@ extern void fnTaskUSB(TTASKTABLE *ptrTaskTable)
 #if defined USE_USB_HID_KEYBOARD
         keyboardQueue = fnOpen(TYPE_FIFO, FOR_I_O, (FIFO_LENGTH)64);     // open a FIFO queue (of 64 bytes length) for receiving input to be sent from the keyboard
 #endif
-#if (defined KWIKSTIK || defined TWR_K40X256 || defined TWR_K40D100M || defined TWR_K53N512 || defined FRDM_KL46Z || defined FRDM_KL43Z || defined TWR_KL43Z48M || defined TWR_KL46Z48M) // {3}{6}
+#if (defined KWIKSTIK || defined TWR_K40X256 || defined TWR_K40D100M || defined TWR_K53N512 || defined FRDM_KL46Z || defined FRDM_KL43Z || defined TWR_KL43Z48M || defined TWR_KL46Z48M || defined FRDM_K32L2B3)
         CONFIGURE_SLCD();
 #endif
 #if defined USB_STRING_OPTION && defined USB_RUN_TIME_DEFINABLE_STRINGS  // if dynamic strings are supported, prepare a specific serial number ready for enumeration
@@ -308,10 +320,10 @@ extern void fnTaskUSB(TTASKTABLE *ptrTaskTable)
         fnOpenUSB_UARTs(0);                                              // configure and open additional UARTs to be used with USB CDC connection
 #endif
         fnConfigureUSB();                                                // configure the USB interface
-#if defined MODBUS_USB_SLAVE                                             // {11}
+#if defined MODBUS_USB_SLAVE
         fnInitModbus();                                                  // initialise MODBUS since the USB handle is now ready
 #endif
-#if defined USE_USB_HID_MOUSE                                            // {23}
+#if defined USE_USB_HID_MOUSE
         CONFIGURE_MOUSE_INPUTS();
 #endif
 #if defined USE_USB_MSD
@@ -344,9 +356,9 @@ extern void fnTaskUSB(TTASKTABLE *ptrTaskTable)
 //fnInterruptMessage(OWN_TASK, EVENT_LUN_READY);
             }
 #endif
-#if defined USE_USB_HID_MOUSE                                            // {23}
+#if defined USE_USB_HID_MOUSE
             if (iUSB_mouse_state != 0) {                                 // T_MOUSE_ACTION assumed
-                static unsigned char ucMouseLastState[4] = {0, 0, 0, 0}; // {24}
+                static unsigned char ucMouseLastState[4] = {0, 0, 0, 0};
                 static unsigned char ucMouseState[4] = {0, 0, 0, 0};     // this must be static since the interrupt IN endpoint uses non-buffered transmission
                 if (MOUSE_LEFT_CLICK()) {
                     ucMouseState[0] |= 0x01;                             // mouse left key held down
@@ -372,25 +384,26 @@ extern void fnTaskUSB(TTASKTABLE *ptrTaskTable)
                 else {
                     ucMouseState[2] = 0;
                 }
-                if (uMemcmp(ucMouseLastState, ucMouseState, sizeof(ucMouseState)) != 0) { // {24} if change to the mouse state
+                if (uMemcmp(ucMouseLastState, ucMouseState, sizeof(ucMouseState)) != 0) { // if change to the mouse state
                     fnWrite(USBPortID_HID_mouse, (unsigned char *)&ucMouseState, sizeof(ucMouseState)); // prepare interrupt IN (non-buffered)
                     uMemcpy(ucMouseLastState, ucMouseState, sizeof(ucMouseState));
                 }
                 uTaskerMonoTimer(OWN_TASK, MOUSE_INTERVAL, T_MOUSE_ACTION); // next mouse state poll
             }
 #endif
-#if defined USE_USB_HID_KEYBOARD  && !defined IN_COMPLETE_CALLBACK       // {34}
+#if defined USE_USB_HID_KEYBOARD  && !defined IN_COMPLETE_CALLBACK
             fnKeyboardInput();                                           // T_KEYBOARD_ACTION assumed - handle keyboard input
 #endif
             break;
         case INTERRUPT_EVENT:                                            // interrupt event without data
             switch (ucInputMessage[MSG_INTERRUPT_EVENT]) {               // specific interrupt event type
+            case EVENT_USB_RESET_1:
             case EVENT_USB_RESET:                                        // active USB connection has been reset
-#if defined USE_USB_HID_MOUSE                                            // {23}
+#if defined USE_USB_HID_MOUSE
                 iUSB_mouse_state = 0;                                    // mark that the mouse function is not active
                 uTaskerStopTimer(OWN_TASK);
 #endif
-#if defined USE_USB_HID_KEYBOARD                                         // {34}
+#if defined USE_USB_HID_KEYBOARD
                 iUSB_keyboard_state = 0;                                 // mark that the keyboard function is not active
                 cLastInput = 0;
     #if !defined IN_COMPLETE_CALLBACK
@@ -413,10 +426,11 @@ extern void fnTaskUSB(TTASKTABLE *ptrTaskTable)
                 ulWriteBlock = 0;                                        // reset local variables on each reset
                 ulReadBlock = 0;
                 iContent = 0;
+                iWriteInProgress = 0;                                    // {1}
 #endif
 #if defined USE_USB_CDC && defined USE_MAINTENANCE
                 if (usUSB_state != ES_NO_CONNECTION) {                   // if the USB connection was being used for debug menu, restore previous interface
-    #if defined SERIAL_INTERFACE && defined DEMO_UART                    // {8}
+    #if defined SERIAL_INTERFACE && defined DEMO_UART
                     DebugHandle = SerialPortID;
     #else
                     DebugHandle = NETWORK_HANDLE;
@@ -426,13 +440,16 @@ extern void fnTaskUSB(TTASKTABLE *ptrTaskTable)
                 }
 #endif
                 fnDebugMsg("USB Reset\n\r");                             // display that the USB bus has been reset
-                DEL_USB_SYMBOL();                                        // {21} optionally display the new USB state
+#if defined DEL_USB_SYMBOL
+                DEL_USB_SYMBOL();                                        // optionally display the new USB state
+#endif
                 break;
 
+            case EVENT_USB_SUSPEND_1:
             case EVENT_USB_SUSPEND:                                      // a suspend condition has been detected. A bus powered device should reduce consumption to <= 500uA or <= 2.5mA (high power device)
 #if defined USE_USB_CDC && defined USE_MAINTENANCE
                 if (usUSB_state != ES_NO_CONNECTION) {                   // if the USB connection was being used for debug menu, restore previous interface
-    #if defined SERIAL_INTERFACE && defined DEMO_UART                    // {8}
+    #if defined SERIAL_INTERFACE && defined DEMO_UART
                     DebugHandle = SerialPortID;
     #else
                     DebugHandle = NETWORK_HANDLE;
@@ -445,7 +462,7 @@ extern void fnTaskUSB(TTASKTABLE *ptrTaskTable)
                 iUSB_mouse_state = 0;                                    // mark that the mouse function is not active
                 uTaskerStopTimer(OWN_TASK);                              // stop mouse polling timer
 #endif
-#if defined USE_USB_HID_KEYBOARD                                         // {34}
+#if defined USE_USB_HID_KEYBOARD
                 iUSB_keyboard_state = 0;                                 // mark that the keyboard function is not active
                 cLastInput = 0;
     #if defined IN_COMPLETE_CALLBACK
@@ -457,18 +474,22 @@ extern void fnTaskUSB(TTASKTABLE *ptrTaskTable)
 #endif
                 fnSetUSBConfigState(USB_DEVICE_SUSPEND, 0);              // set all endpoint states to suspended
                 fnDebugMsg("USB Suspended\n\r");
-                DEL_USB_SYMBOL();                                        // {21} optionally display the new USB state
+#if defined DEL_USB_SYMBOL
+                DEL_USB_SYMBOL();                                        // optionally display the new USB state
+#endif
                 break;
-
+            case EVENT_USB_RESUME_1:
             case EVENT_USB_RESUME:                                       // a resume sequence has been detected so full power consumption can be resumed
                 fnSetUSBConfigState(USB_DEVICE_RESUME, 0);               // remove suspended state from all endpoints
                 fnDebugMsg("USB Resume\n\r");
-                SET_USB_SYMBOL();                                        // {21} optionally display the new USB state
-#if defined USE_USB_HID_MOUSE                                            // {23}
+#if defined SET_USB_SYMBOL
+                SET_USB_SYMBOL();                                        // optionally display the new USB state
+#endif
+#if defined USE_USB_HID_MOUSE
                 iUSB_mouse_state = 1;                                    // mark that the mouse function is active
                 uTaskerMonoTimer(OWN_TASK, MOUSE_INTERVAL, T_MOUSE_ACTION); // start polling the USB state since the USB connection has resumed
 #endif
-#if defined USE_USB_HID_KEYBOARD                                         // {34}
+#if defined USE_USB_HID_KEYBOARD
                 iUSB_keyboard_state = KEYBOARD_ENUMERATED;               // mark that the keyboard function is active
     #if !defined IN_COMPLETE_CALLBACK
                 uTaskerMonoTimer(OWN_TASK, KEYBOARD_INTERVAL, T_KEYBOARD_ACTION); // start polling the USB state since the USB connection has resumed
@@ -485,15 +506,19 @@ extern void fnTaskUSB(TTASKTABLE *ptrTaskTable)
                 fnContinueMedia();                                       // the output buffer has space so continue with data transfer
                 break;
 #endif
-#if defined USB_HOST_SUPPORT                                             // {32}
+#if defined USB_HOST_SUPPORT
+            case EVENT_USB_DETECT_HS_1:
             case EVENT_USB_DETECT_HS:
-            case EVENT_USB_DETECT_LS:
+            case EVENT_USB_DETECT_FS_1:
             case EVENT_USB_DETECT_FS:
+            case EVENT_USB_DETECT_LS_1:
+            case EVENT_USB_DETECT_LS:
                 fnDebugMsg("USB ");
-                if (EVENT_USB_DETECT_HS == ucInputMessage[MSG_INTERRUPT_EVENT]) {
+                ucHostSpeed = (ucInputMessage[MSG_INTERRUPT_EVENT] & ~1);
+                if (EVENT_USB_DETECT_HS == ucHostSpeed) {
                     fnDebugMsg("H");
                 }
-                else if (EVENT_USB_DETECT_FS == ucInputMessage[MSG_INTERRUPT_EVENT]) {
+                else if (EVENT_USB_DETECT_FS == ucHostSpeed) {
                     fnDebugMsg("F");
                 }
                 else {
@@ -501,6 +526,7 @@ extern void fnTaskUSB(TTASKTABLE *ptrTaskTable)
                 }
                 fnDebugMsg("S device detected\r\n");
                 break;
+            case EVENT_USB_REMOVAL_1:
             case EVENT_USB_REMOVAL:
                 fnDebugMsg("USB device removed\r\n");
                 break;
@@ -539,7 +565,8 @@ extern void fnTaskUSB(TTASKTABLE *ptrTaskTable)
                 fnRead(PortIDInternal, &ucInputMessage[MSG_CONTENT_COMMAND], ucInputMessage[MSG_CONTENT_LENGTH]); // get the content
                 ucEndpointConfiguration = ucInputMessage[MSG_CONTENT_COMMAND + 1];
                 switch (ucInputMessage[MSG_CONTENT_COMMAND]) {           // switch on the event type
-#if defined USB_HOST_SUPPORT                                             // {32}
+#if defined USB_HOST_SUPPORT
+                case E_USB_DEVICE_INFO_1:
                 case E_USB_DEVICE_INFO:                                  // the USB host has collected information ready to decide how to work with a device
                     fnDebugMsg("USB device information ready:\r\n");
                     ucEndpointConfiguration = fnDisplayDeviceInfo();     // analyse and display information
@@ -550,18 +577,19 @@ extern void fnTaskUSB(TTASKTABLE *ptrTaskTable)
                         fnDriver(USB_control, (TX_ON), ucEndpointConfiguration); // enable configuration - this causes the generic USB layer to send SetConfiguration
                     }
                     break;
+                case E_USB_DEVICE_STALLED_1:
                 case E_USB_DEVICE_STALLED:
-                    fnDebugMsg("Stall on EP-");
-                    fnDebugDec(ucEndpointConfiguration, 0);              // display the endpoint that stalled
-                    fnDebugMsg("\n\r");
-                    fnClearFeature(USB_control, ucEndpointConfiguration);// clear the stalled endpoint
+                    fnDebugMsg("Stall on ");
+                    fnShowEndpoint(ucEndpointConfiguration);
+                    fnClearFeature(USB_control, ucEndpointConfiguration, USB_HOST_REF);// clear the stalled endpoint
                     break;
+                case E_USB_DEVICE_CLEARED_1:
                 case E_USB_DEVICE_CLEARED:
-                    fnDebugMsg("EP-");
-                    fnDebugDec(ucEndpointConfiguration, 0);              // display the endpoint that was cleared
-                    fnDebugMsg(" cleared\n\r");
+                    fnDebugMsg("Cleared ");
+                    fnShowEndpoint(ucEndpointConfiguration);
                     uTaskerMonoTimer(OWN_TASK, (DELAY_LIMIT)(0.05 * SEC), T_GET_STATUS); // collect the status after a short delay
                     break;
+                case E_USB_HOST_ERROR_REPORT_1:
                 case E_USB_HOST_ERROR_REPORT:
                     fnDebugMsg("USB Host error: EP-");
                     fnDebugDec((ucEndpointConfiguration >> 4), 0);
@@ -569,12 +597,15 @@ extern void fnTaskUSB(TTASKTABLE *ptrTaskTable)
                     fnDebugDec((ucEndpointConfiguration & 0x0f), WITH_CR_LF);
                     break;
 #endif
+                case E_USB_ACTIVATE_CONFIGURATION_1:
                 case E_USB_ACTIVATE_CONFIGURATION:
                     fnDebugMsg("Enumerated (");                          // the interface has been activated and enumeration has completed
-                    fnDebugDec(ucEndpointConfiguration, 0);              // {10} the configuration
+                    fnDebugDec(ucEndpointConfiguration, 0);              // the configuration
                     fnDebugMsg(")\n\r");
-                    SET_USB_SYMBOL();                                    // {21} display connection in LCD, on LED etc.
-#if defined USB_HOST_SUPPORT                                             // {32}
+#if defined SET_USB_SYMBOL
+                    SET_USB_SYMBOL();                                    // display connection in LCD, on LED etc.
+#endif
+#if defined USB_HOST_SUPPORT
                     fnConfigureApplicationEndpoints(ucEndpointConfiguration); // configure endpoints according to configuration
                     iUSB_MSD_OpCode = 0;
     /* WARNING - < 1s doesn't allow Cruzer 2 to work yet - since it requires multiple stalls to be cleared *///uTaskerMonoTimer(OWN_TASK, (DELAY_LIMIT)(0.20 * SEC), T_REQUEST_LUN); // request LUN after a delay to ensure that the stick is ready
@@ -584,7 +615,7 @@ extern void fnTaskUSB(TTASKTABLE *ptrTaskTable)
                     iUSB_mouse_state = 1;                                // mark that the mouse function is active
                     uTaskerMonoTimer(OWN_TASK, MOUSE_INTERVAL, T_MOUSE_ACTION); // start polling the mouse state
 #endif
-#if defined USE_USB_HID_KEYBOARD                                         // {34}
+#if defined USE_USB_HID_KEYBOARD
                     iUSB_keyboard_state = KEYBOARD_ENUMERATED;           // mark that the keyboard function is enumerated and active
     #if !defined IN_COMPLETE_CALLBACK
                     uTaskerMonoTimer(OWN_TASK, KEYBOARD_INTERVAL, T_KEYBOARD_ACTION); // start polling the USB state since the USB connection has resumed
@@ -606,7 +637,7 @@ extern void fnTaskUSB(TTASKTABLE *ptrTaskTable)
     }
     while (fnMsgs(USBPortID_host) != 0) {                                // reception from host IN endpoint
 #if defined _WINDOWS
-//utWriteMSD(ucInputMessage, 123); // quick test
+    //utWriteMSD(ucInputMessage, 123);                                   // quick test
 #endif
         Length = fnRead(USBPortID_host, ucInputMessage, 64);             // read the content (up to 64 bytes content each time)
         switch (iUSB_MSD_OpCode) {
@@ -706,21 +737,40 @@ extern void fnTaskUSB(TTASKTABLE *ptrTaskTable)
 #if defined USE_USB_MSD        
     while (fnMsgs(USBPortID_MSD) != 0) {                                 // handle USB-MSD host receptions
         if (ulWriteBlock != 0) {                                         // write data expected
-            static unsigned char ucBuffer[512];                          // intermediate buffer to collect each sector content
-            Length = fnRead(USBPortID_MSD, &ucBuffer[iContent], (QUEUE_TRANSFER)(512 - iContent)); // read the content directly to the intermediate buffer
-            ulWriteBlock -= Length;
-            iContent += Length;
-            if (iContent >= 512) {                                       // input buffer is complete
-                fnWriteSector(ucActiveLUN, ucBuffer, ulLogicalBlockAdr++); // commit the buffer content to the media
-                iContent = 0;                                            // reset intermediate buffer
-                if (ulWriteBlock != 0) {                                 // block not complete
-                    uTaskerStateChange(OWN_TASK, UTASKER_ACTIVATE);      // {17} yield after a write when further data is expected but schedule again immediately to read any remaining queue content
+            static unsigned long ulBuffer[512/sizeof(unsigned long)];    // aligned intermediate buffer to collect each sector content in
+            unsigned char *ptrBuffer = (unsigned char *)ulBuffer;
+            Length = fnRead(USBPortID_MSD, (ptrBuffer + iContent), (QUEUE_TRANSFER)(512 - iContent)); // read the content directly to the intermediate buffer
+            ulWriteBlock -= Length;                                      // the amount of data that is still to be collected
+            iContent += Length;                                          // the content now in the buffer
+            if (iContent >= 512) {                                       // input buffer content is complete
+    #if defined UTFAT_WRITE                                              // if no write support is enabled the writes to disk are ignored
+                int iResult = fnWriteSector(ucActiveLUN, (unsigned char *)ulBuffer, ulLogicalBlockAdr); // commit the buffer content to the media
+                if (iResult != UTFAT_SUCCESS) {
+                    fnDebugMsg("Write failed: ");
+                    fnDebugDec(iResult, (DISPLAY_NEGATIVE | WITH_CR_LF));
+                    iResult = fnWriteSector(ucActiveLUN, (unsigned char *)ulBuffer, ulLogicalBlockAdr); // commit the buffer content to the media
+                    if (iResult == UTFAT_SUCCESS) {
+                        fnDebugMsg("Retry OK!!\r\n");
+                    }
+                    else {
+                        fnDebugMsg("Retry too!\r\n");
+                    }
+                }
+    #endif
+                ulLogicalBlockAdr++;                                     // following writes are to the subsequent logical block
+                iContent = 0;                                            // reset intermediate buffer content
+                if (ulWriteBlock != 0) {                                 // if block not complete
+                    uTaskerStateChange(OWN_TASK, UTASKER_ACTIVATE);      // yield after a write when further data is expected but schedule again immediately to read any remaining queue content
                     return;
                 }
             }
             if (ulWriteBlock != 0) {                                     // more data expected
                 continue;
             }                                                            // allow CSW to be sent after a complete transfer has completed
+    #if defined SPECIAL_VERSION_SDCARD
+            uTaskerMonoTimer(TASK_SD_LOADER, (DELAY_LIMIT)(SEC * 5), T_RECHECK_CARD); // check the SD card after writes to the SD card have taken place
+    #endif
+            iWriteInProgress = 0;                                        // {1} allow further USB-MSD commands to be interpreted
         }
         else {
           //unsigned long ulTransferLength;
@@ -754,7 +804,7 @@ extern void fnTaskUSB(TTASKTABLE *ptrTaskTable)
                         }
                     }
                     break;
-                case UFI_MODE_SENSE_6:                                   // {15}
+                case UFI_MODE_SENSE_6:
                     {
                         MODE_PARAMETER_6 SelectDataWP;
                         uMemcpy(&SelectDataWP, &SelectData, sizeof(SelectData));
@@ -781,6 +831,32 @@ extern void fnTaskUSB(TTASKTABLE *ptrTaskTable)
                         else {
                             ulReadBlock = ((ptrRead->ucTransferLength[0] << 8) | ptrRead->ucTransferLength[1]); // the total number of blocks to be returned
                         }
+    #if defined UTFAT_MULTIPLE_BLOCK_READ
+        #if defined READ_SPECULATION_BUFFERS && (READ_SPECULATION_BUFFERS > 0)
+                        if ((ulLogicalBlockAdr != 0) && (ulReadBlock >= 8)) { // on larger block reads we add speculative buffer reads (we don't allow starting at sector 0)
+                            ulSpeculationAdr = (ulLogicalBlockAdr + ulReadBlock); // the cached content
+                            ulReadBlock += READ_SPECULATION_BUFFERS;     // we will read additional blocks to cache since we may be able to speed up following reads with them
+                        }
+                        else {
+                            ulSpeculationAdr = 0;
+                        }
+                        if (ulCache != 0) {                              // if there is already cached data that will be used instead of card reads
+                            unsigned long ulReadBlockLength = ulReadBlock;
+                            if (ulLogicalBlockAdr == ulCache) {          // if there is a cache match
+                                ulReadBlockLength -= READ_SPECULATION_BUFFERS; // reduce the block count that will be read from the card
+                            }
+                            else {
+                                ulCache = 0;                             // since there will ne no match we invalidate the cache
+                            }
+                            fnPrepareBlockRead(ucActiveLUN, ulReadBlockLength);
+                        }
+                        else {
+                            fnPrepareBlockRead(ucActiveLUN, ulReadBlock);// since we know that there will be a read from one or more blocks we can prepare the disk so that it can read faster
+                        }
+        #else
+                        fnPrepareBlockRead(ucActiveLUN, ulReadBlock);    // since we know that there will be a read from one or more blocks we can prepare the disk so that it can read faster
+        #endif
+    #endif
                         fnContinueMedia();
                         continue;                                        // the transfer has not completed so don't send termination stage yet
                     }
@@ -806,7 +882,7 @@ extern void fnTaskUSB(TTASKTABLE *ptrTaskTable)
                         unsigned short usLengthAccepted = ((ptrCapacities->ucAllocationLength[0] << 8) | (ptrCapacities->ucAllocationLength[1]));
                         CBW_CAPACITY_LIST mediaCapacity;
                         uMemcpy(&mediaCapacity, &formatCapacityNoMedia, sizeof(CBW_CAPACITY_LIST)); // assume no disk
-                        if (ptrDiskInfo[ucActiveLUN]->usDiskFlags & (DISK_MOUNTED | DISK_UNFORMATTED)) { // {16}
+                        if ((ptrDiskInfo[ucActiveLUN]->usDiskFlags & (DISK_MOUNTED | DISK_UNFORMATTED)) != 0) {
                             if (ptrDiskInfo[ucActiveLUN]->usDiskFlags & DISK_FORMATTED) {
                                 mediaCapacity.capacityDescriptor.ucDescriptorCode = DESC_CODE_FORMATTED_MEDIA;
                             }
@@ -862,10 +938,10 @@ extern void fnTaskUSB(TTASKTABLE *ptrTaskTable)
                             ulWriteBlock = ((ptrWrite->ucTransferLength[0] << 24) | (ptrWrite->ucTransferLength[1] << 16) | (ptrWrite->ucTransferLength[2] << 8) | ptrWrite->ucTransferLength[3]);
                         }
                         else {
-                            ulWriteBlock = ((ptrWrite->ucTransferLength[0] << 8) | ptrWrite->ucTransferLength[1]); // the total number of blocks to be returned
+                            ulWriteBlock = ((ptrWrite->ucTransferLength[0] << 8) | ptrWrite->ucTransferLength[1]); // the total number of blocks to be written
                         }
-    #if defined UTFAT_MULTIPLE_BLOCK_WRITE
-                        fnPrepareBlockWrite(ucActiveLUN, ulWriteBlock, 1); // {31} since we know that there will be a write to one or more blocks we can prepare the disk so that it can write faster
+    #if defined UTFAT_MULTIPLE_BLOCK_WRITE && defined UTFAT_WRITE
+                        fnPrepareBlockWrite(ucActiveLUN, ulWriteBlock, 1); // since we know that there will be a write to one or more blocks we can prepare the disk so that it can write faster
     #endif
                         ulWriteBlock *= 512;                             // convert to byte count
                     }
@@ -876,7 +952,7 @@ extern void fnTaskUSB(TTASKTABLE *ptrTaskTable)
         fnWrite(USBPortID_MSD, (unsigned char *)&csw, sizeof(csw));      // close with CSW stage
     }
 #endif
-#if defined FREEMASTER_CDC && (USB_CDC_COUNT == 1)                       // {35} FreeMaster run-time debugging on single USB-CDC connection rather than command-line interface
+#if defined FREEMASTER_CDC && (USB_CDC_COUNT == 1)                       // FreeMaster run-time debugging on single USB-CDC connection rather than command-line interface
     if ((Length = fnRead(USBPortID_comms[0], ucInputMessage, MEDIUM_MESSAGE)) != 0) { // read available data
         fnHandleFreeMaster(USBPortID_comms[0], ucInputMessage, Length);  // handle the received data
     }
@@ -884,7 +960,7 @@ extern void fnTaskUSB(TTASKTABLE *ptrTaskTable)
     while (fnMsgs(USBPortID_comms[0]) != 0) {                            // reception from OUT endpoint on first CDC interface
         if (usUSB_state & (ES_USB_DOWNLOAD_MODE | ES_USB_RS232_MODE)) {
             if (usUSB_state & ES_USB_RS232_MODE) {
-    #if defined SERIAL_INTERFACE && defined DEMO_UART                    // {8}
+    #if defined SERIAL_INTERFACE && defined DEMO_UART
                 if (fnWrite(SerialPortID, 0, MEDIUM_MESSAGE) != 0) {     // check that there is space for a block of data
                     Length = fnRead(USBPortID_comms[0], ucInputMessage, MEDIUM_MESSAGE); // read the content
                     fnWrite(SerialPortID, ucInputMessage, Length);       // send input to serial port
@@ -924,7 +1000,7 @@ extern void fnTaskUSB(TTASKTABLE *ptrTaskTable)
     }
     #if (USB_CDC_COUNT > 1) && (USB_CDC_COUNT > (MODBUS_USB_CDC_COUNT + 1))
     for (iCDC_input = (1 + MODBUS_USB_CDC_COUNT); iCDC_input < USB_CDC_COUNT; iCDC_input++) { // for each CDC interface
-        #if defined FREEMASTER_CDC && (USB_CDC_COUNT > 1)                // {35} FreeMaster run-time debugging on final USB-CDC connection
+        #if defined FREEMASTER_CDC && (USB_CDC_COUNT > 1)                // FreeMaster run-time debugging on final USB-CDC connection
         if (iCDC_input == (USB_CDC_COUNT - 1)) {                         // final CDC instance if used for FreeMaster run-time debugging
             if ((Length = fnRead(USBPortID_comms[iCDC_input], ucInputMessage, MEDIUM_MESSAGE)) != 0) { // read available data
                 fnHandleFreeMaster(USBPortID_comms[iCDC_input], ucInputMessage, Length); // handle the received data
@@ -979,7 +1055,7 @@ extern void fnTaskUSB(TTASKTABLE *ptrTaskTable)
         #define iCDC_input 0
     #endif
         Length = fnRead(USBPortID_comms[iCDC_input], ucInputMessage, LARGE_MESSAGE); // read any CDC input content
-    #if defined SERIAL_INTERFACE && defined USB_SERIAL_CONNECTIONS       // {8} CDC-UART bridge
+    #if defined SERIAL_INTERFACE && defined USB_SERIAL_CONNECTIONS       // CDC-UART bridge
         {
         #if USB_CDC_COUNT > 1
             QUEUE_HANDLE uartID = CDCSerialPortID[iCDC_input];           // the associated UART to bridge to/from
@@ -1016,7 +1092,7 @@ extern void fnTaskUSB(TTASKTABLE *ptrTaskTable)
 #endif
 }
 
-#if defined USE_USB_HID_KEYBOARD                                         // {34}
+#if defined USE_USB_HID_KEYBOARD
 static void fnSetKeyboardOutput(unsigned char ucOutputs)                 // assumed to be set report with a single byte content
 {
     // Directly change the state of outputs
@@ -1241,23 +1317,78 @@ static void fnRawHIDPolled(unsigned char ucEndpoint)
 //
 static void fnContinueMedia(void)
 {
-    QUEUE_TRANSFER buffer_space = fnWrite(USBPortID_MSD, 0, 0);          // check whether there is space available in the USB output buffer to queue
+    int iResult;
+    QUEUE_TRANSFER buffer_space;
+    #if defined BYPASS_READ_BUFFER                                       // {2}
+    // When a transfer starts it is always aligned at the start of the output buffer
+    // - the buffer length is a multiple of the 512 byte sector size
+    // - the usual transmitter handling is performed locally to bypass copying data to the output queue since it is written there directly from the SD card read
+    //
+    QUEQUE *USB_queue = &(ptrUsbMSD_Queue->USB_queue);
+    buffer_space = (USB_queue->buf_length - USB_queue->chars);           // the amount of space in the USB-MSD output buffer that could be filled (on entry)
+    #else
+    buffer_space = fnWrite(USBPortID_MSD, 0, 0);                         // check whether there is space available in the USB output buffer to queue data to
+    #endif
     while ((ulReadBlock != 0) && (buffer_space >= 512)) {                // send as many blocks as possible as long as the output buffer has space
-        if (UTFAT_SUCCESS == fnReadSector(ucActiveLUN, 0, ulLogicalBlockAdr)) { // read a sector from the disk
+    #if defined READ_SPECULATION_BUFFERS && (READ_SPECULATION_BUFFERS > 0)
+        if ((ulCache != 0) && (ulLogicalBlockAdr >= ulCache) && (ulLogicalBlockAdr < (ulCache + READ_SPECULATION_BUFFERS))) {
+            iResult = UTFAT_SUCCESS;
+            uMemcpy(USB_queue->put, &ulSpeculationBuffers[ulLogicalBlockAdr - ulCache][0], 512); // copy from cache to the USB buffer withot needing to access the SD card
+        }
+        else {
+    #endif
+    #if defined BYPASS_READ_BUFFER                                       // {2}
+            iResult = fnReadSector(ucActiveLUN, USB_queue->put, ulLogicalBlockAdr);  // read a sector from the disk directly to the USB-MSD output buffer
+    #else
+            iResult = fnReadSector(ucActiveLUN, 0, ulLogicalBlockAdr);   // read a sector from the disk to the disk's sector buffer
+    #endif
+    #if defined READ_SPECULATION_BUFFERS && (READ_SPECULATION_BUFFERS > 0)
+        }
+    #endif
+        if (UTFAT_SUCCESS == iResult) {
+    #if defined BYPASS_READ_BUFFER                                       // {2}
+            USB_queue->put += 512;                                       // increment the put pointer and handle circular buffer overflow
+            if (USB_queue->put >= USB_queue->buffer_end) {
+                USB_queue->put = USB_queue->QUEbuffer;
+            }
+            uDisable_Interrupt();                                        // protect the count value during modification
+                USB_queue->chars += 512;                                 // the new amount of data waiting to be sent (the USB driver can start using this if it is already active)
+                if ((ptrUsbMSD_Queue->endpoint_control->ucState & TX_ACTIVE) == 0) { // if transmission is already in progress don't initiate any more activity because the USB interrupt driver will do it
+                    fnStartUSB_send(ptrUsbMSD_Queue->endpoint_control->ucEndpointNumber, ptrUsbMSD_Queue, 512); // start sending message content since the USB driver was not active
+                }
+            uEnable_Interrupt();                                         // end protected region
+    #else
             fnWrite(USBPortID_MSD, ptrDiskInfo[ucActiveLUN]->ptrSectorData, 512); // send it to the USB output queue
-            buffer_space -= 512;
-            ulLogicalBlockAdr++;
+    #endif
+            buffer_space -= 512;                                         // less USB-MSD output buffer space is now available
+            ulLogicalBlockAdr++;                                         // move to the next sector
         }
         else {
             // Error reading media
             //
         }
-        ulReadBlock--;                                                   // one less block to be sent
+        ulReadBlock--;                                                   // one less block to be prepared for transmission
+    #if defined READ_SPECULATION_BUFFERS && (READ_SPECULATION_BUFFERS > 0)
+        while ((ulSpeculationAdr != 0) && (ulReadBlock <= READ_SPECULATION_BUFFERS)) { // data to collect has been sent - if enabled we can now continue with some speculative reads
+            if (UTFAT_SUCCESS == fnReadSector(ucActiveLUN, (unsigned char *)&ulSpeculationBuffers[READ_SPECULATION_BUFFERS - ulReadBlock][0], ulLogicalBlockAdr)) { // read a sector from the disk into the cache buffers
+                ulLogicalBlockAdr++;
+            }
+            else {
+                // Error reading media
+                //
+            }
+            if (--ulReadBlock == 0) {                                    // speculative reads have completed
+                ulCache = ulSpeculationAdr;                              // mark that the cache contains valid data
+                buffer_space = (USB_queue->buf_length - USB_queue->chars); // the amount of space in the USB-MSD output buffer that could still be filled
+                break;                                                   // cache has been filled
+            }
+        }
+    #endif
     }
     if (ulReadBlock == 0) {                                              // all blocks have been read and put to the output queue
-        if (buffer_space >= sizeof(csw)) {
+        if (buffer_space >= sizeof(csw)) {                               // as long as there is enough buffer space for the CSW stage
             fnWrite(USBPortID_MSD, (unsigned char *)&csw, sizeof(csw));  // close with CSW stage
-            return;
+            return;                                                      // transfer complete
         }
     }
     if (buffer_space < 512) {                                            // if there is too little buffer space for a complete sector
@@ -1357,7 +1488,7 @@ static void fnOpenUSB_UARTs(int iInterface)
 // The application must always supply this routine and return its device descriptor when requested
 // This example shows a single fixed device configuration but multiple configurations could be selected (eg. for experimental use)
 //
-extern void *fnGetUSB_device_descriptor(unsigned short *usLength)
+extern void *fnGetUSB_device_descriptor(unsigned short *usLength, int iChannel)
 {
 #if defined USB_HOST_SUPPORT
     return 0;
@@ -1370,7 +1501,7 @@ extern void *fnGetUSB_device_descriptor(unsigned short *usLength)
 // The application must always supply this routine and return its configuration descriptor when requested
 // This example shows a single fixed configuration but multiple configurations could be selected (eg. for programmable device types)
 //
-extern void *fnGetUSB_config_descriptor(unsigned short *usLength)
+extern void *fnGetUSB_config_descriptor(unsigned short *usLength, int iChannel)
 {
 #if defined USB_HOST_SUPPORT
     return 0;                                                            // in host mode we return a zero so that the generic driver uses its own information
@@ -1385,7 +1516,7 @@ extern void *fnGetUSB_config_descriptor(unsigned short *usLength)
 // This routine constructs a USB string descriptor for use by the USB interface during emumeration
 // - the new string has to respect the descriptor format (using UNICODE) and is built in preparation so that it can be passed in an interrupt
 //
-static void fnSetSerialNumberString(CHAR *ptrSerialNumber) {             // {12}
+static void fnSetSerialNumberString(CHAR *ptrSerialNumber) {
     unsigned char ucDescriptorLength = (sizeof(USB_STRING_DESCRIPTOR) - 2);
     unsigned char *ptrString;
     int iStringLength = (uStrlen(ptrSerialNumber) * 2);
@@ -1643,7 +1774,7 @@ static void fnComitt_UART(int iInterface)
         temp_pars->temp_parameters.SerialMode &= ~(CHAR_7 | RS232_EVEN_PARITY | RS232_ODD_PARITY | ONE_HALF_STOPS | TWO_STOPS);
         temp_pars->temp_parameters.SerialMode |= usNewSerialMode;
         temp_pars->temp_parameters.ucSerialSpeed = ucNewSerialSpeed;
-    #if defined SERIAL_INTERFACE && defined DEMO_UART                    // {8}
+    #if defined SERIAL_INTERFACE && defined DEMO_UART
         fnSetNewSerialMode(MODIFY_CONFIG);                               // modify the debug interface setting accordingly
         return;
     #endif
@@ -1663,9 +1794,9 @@ static void fnComitt_UART(int iInterface)
 #endif
 
 #if defined USE_USB_MSD
-static int mass_storage_callback(unsigned char *ptrData, unsigned short length, int iType)
+static int mass_storage_callback(unsigned char *ptrData, unsigned short length, int iType, int iChannel)
 {
-    if (ulWriteBlock != 0) {                                             // data expected
+    if (iWriteInProgress != 0) {                                         // {1} data expected
         return TRANSPARENT_CALLBACK;                                     // handle data in task
     }
     if (uMemcmp(cCBWSignature, ptrData, sizeof(cCBWSignature)) == 0) {   // check that the signature matches
@@ -1676,7 +1807,7 @@ static int mass_storage_callback(unsigned char *ptrData, unsigned short length, 
                 if (ptrCBW->dmCBWFlags & CBW_IN_FLAG) {
                     switch (ptrCBW->CBWCB[CBW_OperationCode]) {
                     case UFI_MODE_SENSE_6:
-                        {                                                // {15}
+                        {
                             CBW_MODE_SENSE_6 *ptrSense = (CBW_MODE_SENSE_6 *)ptrCBW->CBWCB;
                             unsigned char ucLogicalUnitNumber = (ptrSense->ucLogicalUnitNumber_DBD >> 5);
                             if (fnGetPartition(ucLogicalUnitNumber, 0) != 0) {
@@ -1690,15 +1821,15 @@ static int mass_storage_callback(unsigned char *ptrData, unsigned short length, 
                     case UFI_INQUIRY:
                         return TRANSPARENT_CALLBACK;                     // the call-back has done its work and the input buffer can now be used
 
-                    case UFI_READ_CAPACITY:                              // {36}
+                    case UFI_READ_CAPACITY:
                     case UFI_READ_FORMAT_CAPACITY:
-                        if (ptrDiskInfo[ucActiveLUN]->usDiskFlags & (DISK_MOUNTED | DISK_UNFORMATTED)) { // {16} only respond when there is media inserted, else stall
+                        if (ptrDiskInfo[ucActiveLUN]->usDiskFlags & (DISK_MOUNTED | DISK_UNFORMATTED)) { // only respond when there is media inserted, else stall
                             return TRANSPARENT_CALLBACK;             // the call-back has done its work and the input buffer can now be used
                         }
                         break;                                           // stall
                     case UFI_READ_10:
                     case UFI_READ_12:
-                        if (ptrDiskInfo[ucActiveLUN]->usDiskFlags & (DISK_MOUNTED | DISK_UNFORMATTED)) { // {16} only respond when there is media inserted, else stall
+                        if (ptrDiskInfo[ucActiveLUN]->usDiskFlags & (DISK_MOUNTED | DISK_UNFORMATTED)) { // only respond when there is media inserted, else stall
                             CBW_READ_10 *ptrRead = (CBW_READ_10 *)ptrCBW->CBWCB;
                             ulLogicalBlockAdr = ((ptrRead->ucLogicalBlockAddress[0] << 24) | (ptrRead->ucLogicalBlockAddress[1] << 16) | (ptrRead->ucLogicalBlockAddress[2] << 8) | ptrRead->ucLogicalBlockAddress[3]);
                             if (ulLogicalBlockAdr < ptrDiskInfo[ucActiveLUN]->ulSD_sectors) { // check that the sector is valid
@@ -1717,12 +1848,14 @@ static int mass_storage_callback(unsigned char *ptrData, unsigned short length, 
                         return TRANSPARENT_CALLBACK;                     // the call-back has done its work and the input buffer can now be used
                     case UFI_WRITE_10:
                     case UFI_WRITE_12:
-                        if (ptrDiskInfo[ucActiveLUN]->usDiskFlags & (DISK_MOUNTED | DISK_UNFORMATTED)) { // {16} only respond when there is media inserted, else stall
+                        if (ptrDiskInfo[ucActiveLUN]->usDiskFlags & (DISK_MOUNTED | DISK_UNFORMATTED)) { // only respond when there is media inserted, else stall
                             CBW_WRITE_10 *ptrWrite = (CBW_WRITE_10 *)ptrCBW->CBWCB;
                             ulLogicalBlockAdr = ((ptrWrite->ucLogicalBlockAddress[0] << 24) | (ptrWrite->ucLogicalBlockAddress[1] << 16) | (ptrWrite->ucLogicalBlockAddress[2] << 8) | ptrWrite->ucLogicalBlockAddress[3]);
                             if (ulLogicalBlockAdr < ptrDiskInfo[ucActiveLUN]->ulSD_sectors) { // check that the sector is valid
+                                iWriteInProgress = 1;                    // {1} do not handle further commands until the data had been received
                                 return TRANSPARENT_CALLBACK;             // the call-back has done its work and the input buffer can now be used
-                            }                        }
+                            }                        
+                        }
                         break;                                           // stall
                     default:
                         break;
@@ -1760,7 +1893,7 @@ static unsigned char *fnGetPartition(unsigned char ucLUN, QUEUE_TRANSFER *length
 //
 // If further data is to be received, this may arrive in multiple frames and the call-back needs to manage this to be able to know when the data is complete
 //
-static int control_callback(unsigned char *ptrData, unsigned short length, int iType)
+static int control_callback(unsigned char *ptrData, unsigned short length, int iType, int iChannel)
 {
 #if defined USE_USB_CDC
     static int iInterface = 0;
@@ -1769,7 +1902,7 @@ static int control_callback(unsigned char *ptrData, unsigned short length, int i
     switch (iType) {
 #if defined USE_USB_MSD
     case ENDPOINT_CLEARED:                                               // halted endpoint has been freed
-    #if defined _LPC23XX || defined _LPC17XX                             // {20}
+    #if defined _LPC23XX || defined _LPC17XX
         if (*ptrData == (IN_ENDPOINT | 0x05))                            // BULK IN 5 is the only endpoint that is expect to be halted
     #else
         if (*ptrData == (IN_ENDPOINT | USB_MSB_IN_ENDPOINT_NUMBER))      // this BULK IN is the only endpoint that is expect to be halted
@@ -1784,7 +1917,7 @@ static int control_callback(unsigned char *ptrData, unsigned short length, int i
     case SETUP_DATA_RECEPTION:
         {
             USB_SETUP_HEADER *ptrSetup = (USB_SETUP_HEADER *)ptrData;    // interpret the received data as a setup header
-#if !defined USE_USB_HID_MOUSE && !defined USE_USB_HID_KEYBOARD && !defined USE_USB_HID_RAW // {23}{34}
+#if !defined USE_USB_HID_MOUSE && !defined USE_USB_HID_KEYBOARD && !defined USE_USB_HID_RAW
             if ((ptrSetup->bmRequestType & ~STANDARD_DEVICE_TO_HOST) != REQUEST_INTERFACE_CLASS) { // 0x21
                 return STALL_ENDPOINT;                                   // stall on any unsupported request types
             }
@@ -1794,7 +1927,7 @@ static int control_callback(unsigned char *ptrData, unsigned short length, int i
             if (ptrSetup->bmRequestType & STANDARD_DEVICE_TO_HOST) {     // request for information
                 usExpectedData = 0;                                      // no data expected to be received by us
                 switch (ptrSetup->bRequest) {
-#if defined USE_USB_HID_MOUSE || defined USE_USB_HID_KEYBOARD || defined USE_USB_HID_RAW // {23}
+#if defined USE_USB_HID_MOUSE || defined USE_USB_HID_KEYBOARD || defined USE_USB_HID_RAW
                 case USB_REQUEST_GET_DESCRIPTOR:                         // standard request
                     if (ptrSetup->wValue[1] == DESCRIPTOR_TYPE_REPORT) {
     #if defined USE_USB_HID_MOUSE && defined USE_USB_HID_KEYBOARD
@@ -1810,7 +1943,7 @@ static int control_callback(unsigned char *ptrData, unsigned short length, int i
                         }
     #elif defined USE_USB_HID_MOUSE
                         fnWrite(USB_control, (unsigned char *)&ucMouseReport, sizeof(ucMouseReport)); // return directly (non-buffered)
-    #elif defined USE_USB_HID_KEYBOARD                                     // {34}
+    #elif defined USE_USB_HID_KEYBOARD
                         fnWrite(USB_control, (unsigned char *)&ucKeyboardReport, sizeof(ucKeyboardReport)); // return directly (non-buffered)
     #elif defined USE_USB_HID_RAW
                         fnWrite(USB_control, (unsigned char *)&ucRawReport, sizeof(ucRawReport)); // return directly (non-buffered)
@@ -1847,18 +1980,18 @@ static int control_callback(unsigned char *ptrData, unsigned short length, int i
                 }
             }
             else {                                                       // command
-                iRtn = TERMINATE_ZERO_DATA;                              // {5} acknowledge receipt of the request if we have no data to return (default)
+                iRtn = TERMINATE_ZERO_DATA;                              // acknowledge receipt of the request if we have no data to return (default)
                 switch (ptrSetup->bRequest) {
-#if defined USE_USB_CDC                                                  // {23}
+#if defined USE_USB_CDC
                 case SET_LINE_CODING:                                    // 0x20 - the host is informing us of parameters to use
                     ucCollectingMode = ptrSetup->bRequest;               // the next OUT frame will contain the settings
                     iInterface = (ptrSetup->wIndex[0] | (ptrSetup->wIndex[1] << 8)); // remember the interface that this command belongs to
-                    iRtn = BUFFER_CONSUMED_EXPECT_MORE;                  // {5} the present buffer has been consumed but extra data is subsequently expected
+                    iRtn = BUFFER_CONSUMED_EXPECT_MORE;                  // the present buffer has been consumed but extra data is subsequently expected
                     break;
 
                 case SET_CONTROL_LINE_STATE:                             // OUT - 0x22 (controls RTS and DTR)
                     iInterface = (ptrSetup->wIndex[0] | (ptrSetup->wIndex[1] << 8)); // remember the interface that this command belongs to
-    #if defined SERIAL_INTERFACE && defined SUPPORT_HW_FLOW && defined DEMO_UART // {8}
+    #if defined SERIAL_INTERFACE && defined SUPPORT_HW_FLOW && defined DEMO_UART
                     {
                         QUEUE_HANDLE serialHandle = SerialPortID;
         #if USB_CDC_COUNT > 1
@@ -1886,11 +2019,11 @@ static int control_callback(unsigned char *ptrData, unsigned short length, int i
     #endif
                     break;
 #endif
-#if defined USE_USB_HID_MOUSE || defined USE_USB_HID_KEYBOARD || defined USE_USB_HID_RAW // {23}{34}
+#if defined USE_USB_HID_MOUSE || defined USE_USB_HID_KEYBOARD || defined USE_USB_HID_RAW
                 case HID_SET_IDLE:                                       // 0x0a - this can silence a report
                     break;                                               // answer with zero data
 #endif
-#if defined USE_USB_HID_KEYBOARD                                         // {34}
+#if defined USE_USB_HID_KEYBOARD
                 case HID_SET_REPORT:                                     // 0x09 - set report
                     return BUFFER_CONSUMED_EXPECT_MORE;                  // the present buffer has been consumed but extra data is subsequently expected
 #endif
@@ -1919,16 +2052,15 @@ static int control_callback(unsigned char *ptrData, unsigned short length, int i
 #if defined USE_USB_CDC
             case SET_LINE_CODING:
                 fnNewUART_settings(ptrData, length, usExpectedData, ((iInterface - FIRST_CDC_INTERFACE)/2)); // set the new UART mode (the complete data will always be received here so we can always terminate now, otherwise BUFFER_CONSUMED_EXPECT_MORE would be returned until complete)
-              //iRtn = TERMINATE_ZERO_DATA;                              // {5}
                 break;
 #endif
             default:
-#if defined USE_USB_HID_KEYBOARD                                         // {34}
+#if defined USE_USB_HID_KEYBOARD
                 fnSetKeyboardOutput(*ptrData);                           // assumed to be set report with a single byte content
 #endif
                 break;
             }
-            ucCollectingMode = 0;                                        // {9} reset to avoid repeat of command when subsequent, invalid commands are received
+            ucCollectingMode = 0;                                        // reset to avoid repeat of command when subsequent, invalid commands are received
             if (length >= usExpectedData) {
                 usExpectedData = 0;                                      // all of the expected data belonging to this transfer has been received
                 return TERMINATE_ZERO_DATA;
@@ -1970,8 +2102,8 @@ static unsigned char fnDisplayDeviceInfo(void)
     USB_INTERFACE_DESCRIPTOR *ptr_interface_desc;
     unsigned char *ptr_string;
     unsigned short usVendor_product;
-    ptr_device_descriptor = (USB_DEVICE_DESCRIPTOR *)fnGetDeviceInfo(REQUEST_USB_DEVICE_DESCRIPTOR);
-    ptr_config_desc = (USB_CONFIGURATION_DESCRIPTOR *)fnGetDeviceInfo(REQUEST_USB_CONFIG_DESCRIPTOR);
+    ptr_device_descriptor = (USB_DEVICE_DESCRIPTOR *)fnGetDeviceInfo(REQUEST_USB_DEVICE_DESCRIPTOR, USB_HOST_REF);
+    ptr_config_desc = (USB_CONFIGURATION_DESCRIPTOR *)fnGetDeviceInfo(REQUEST_USB_CONFIG_DESCRIPTOR, USB_HOST_REF);
     fnDebugMsg("USB");
     if (ptr_device_descriptor->bcdUSB[1] == 2) {
         fnDebugMsg("2.0");
@@ -1988,19 +2120,19 @@ static unsigned char fnDisplayDeviceInfo(void)
     usVendor_product = ((ptr_device_descriptor->idProduct[1] << 8) | ptr_device_descriptor->idProduct[0]);
     fnDebugHex(usVendor_product, (WITH_LEADIN | WITH_CR_LF | sizeof(usVendor_product)));
     #if defined USB_STRING_OPTION
-    ptr_string = (unsigned char *)fnGetDeviceInfo(REQUEST_USB_STRING_DESCRIPTOR + ptr_device_descriptor->iManufacturer);
+    ptr_string = (unsigned char *)fnGetDeviceInfo((REQUEST_USB_STRING_DESCRIPTOR + ptr_device_descriptor->iManufacturer), USB_HOST_REF);
     if (ptr_string != 0) {
         fnDebugMsg("Manufacturer = \x22");
         fnDisplayUSB_string(ptr_string);
         fnDebugMsg("\x22\r\n");
     }
-    ptr_string = (unsigned char *)fnGetDeviceInfo(REQUEST_USB_STRING_DESCRIPTOR + ptr_device_descriptor->iProduct);
+    ptr_string = (unsigned char *)fnGetDeviceInfo((REQUEST_USB_STRING_DESCRIPTOR + ptr_device_descriptor->iProduct), USB_HOST_REF);
     if (ptr_string != 0) {
         fnDebugMsg("Product = \x22");
         fnDisplayUSB_string(ptr_string);
         fnDebugMsg("\x22\r\n");
     }
-    ptr_string = (unsigned char *)fnGetDeviceInfo(REQUEST_USB_STRING_DESCRIPTOR + ptr_device_descriptor->iSerialNumber);
+    ptr_string = (unsigned char *)fnGetDeviceInfo((REQUEST_USB_STRING_DESCRIPTOR + ptr_device_descriptor->iSerialNumber), USB_HOST_REF);
     if (ptr_string != 0) {
         fnDebugMsg("Serial Number = \x22");
         fnDisplayUSB_string(ptr_string);
@@ -2029,50 +2161,17 @@ static unsigned char fnDisplayDeviceInfo(void)
         fnDebugHex(ptr_interface_desc->bInterfaceProtocol, (WITH_SPACE | WITH_LEADIN | WITH_CR_LF | sizeof(ptr_interface_desc->bInterfaceProtocol)));
         fnDebugMsg("Endpoints:\r\n");
         ptr_endpoint_desc = (USB_ENDPOINT_DESCRIPTOR *)(ptr_interface_desc + 1);
-        while (iEndpoints--) {
-            unsigned short usEndpointLength = (ptr_endpoint_desc->wMaxPacketSize[0] | (ptr_endpoint_desc->wMaxPacketSize[1] << 8));
-            unsigned char ucEndpointNumber = (ptr_endpoint_desc->bEndpointAddress & ~(IN_ENDPOINT));
-            fnDebugDec(ucEndpointNumber, 0);
-            fnDebugMsg(" = ");
-            switch (ptr_endpoint_desc->bmAttributes) {
-            case ENDPOINT_BULK:
-                fnDebugMsg("BULK");
-                break;
-            case ENDPOINT_INTERRUPT:
-                fnDebugMsg("INTERRUPT");
-                break;
-            case ENDPOINT_ISOCHRONOUS:
-                fnDebugMsg("ISOCHRONOUS");
-                break;
-            case ENDPOINT_CONTROL:
-                fnDebugMsg("CONTROL");
-                break;
-            default:
-                fnDebugMsg("??");
-                break;
+        while (iEndpoints-- != 0) {
+            USB_ENDPOINT_INFO EndpointInfo;
+            fnDisplayEndpoint(ptr_endpoint_desc, &EndpointInfo, ucHostSpeed, 1);
+            if (EndpointInfo.ucEndpointType == ENDPOINT_BULK_IN) {       // it is expected that MSD has only one bulk IN endpoint
+                ucMSDBulkInEndpoint = EndpointInfo.ucEndpointNumber;     // the endpoint that is to be used as IN endpoint
+                usMSDBulkInEndpointSize = EndpointInfo.usEndpointSize;   // the length of the IN endpoint
             }
-            if (ptr_endpoint_desc->bEndpointAddress & IN_ENDPOINT) {
-                fnDebugMsg(" IN");
-                if (ptr_endpoint_desc->bmAttributes == ENDPOINT_BULK) {  // it is expected that MSD has only one IN endpoint
-                    ucMSDBulkInEndpoint = ucEndpointNumber;              // the endpoint that is to be used as IN endpoint
-                    usMSDBulkInEndpointSize = usEndpointLength;
-                }
+            else if (EndpointInfo.ucEndpointType == ENDPOINT_BULK_OUT) { // it is expected that MSD has only one bulk OUT endpoint
+                ucMSDBulkOutEndpoint = EndpointInfo.ucEndpointNumber;    // the endpoint that is to be used as OUT endpoint
+                usMSDBulkOutEndpointSize = EndpointInfo.usEndpointSize;  // the length of the OUT endpoint
             }
-            else {
-                fnDebugMsg(" OUT");
-                if (ptr_endpoint_desc->bmAttributes == ENDPOINT_BULK) {  // it is expected that MSD has only one OUT endpoint
-                    ucMSDBulkOutEndpoint = ucEndpointNumber;             // the endpoint that is to be used as OUT endpoint
-                    usMSDBulkOutEndpointSize = usEndpointLength;
-                }
-            }
-            fnDebugMsg(" with size");
-            fnDebugDec(usEndpointLength, WITH_SPACE);
-            if (ptr_endpoint_desc->bmAttributes == ENDPOINT_INTERRUPT) {
-                fnDebugMsg(" (polling interval =");
-                fnDebugDec(ptr_endpoint_desc->bInterval, WITH_SPACE);
-                fnDebugMsg("ms)");
-            }
-            fnDebugMsg("\r\n");
             ptr_endpoint_desc++;
         }
         return (ptr_config_desc->bConfigurationValue);                   // the valid configuration to be enabled
@@ -2158,7 +2257,7 @@ static int fnSendMSD_host(unsigned char ucOpcode)
     default:
         return -1;
     }
-     fnFlush(USBPortID_host, FLUSH_TX);                                  // always flush the tx buffer to ensure message alignment in buffer before sending
+    fnFlush(USBPortID_host, FLUSH_TX);                                   // always flush the tx buffer to ensure message alignment in buffer before sending
     if (fnWrite(USBPortID_host, (unsigned char *)&command_transport, command_length) == command_length) { // write data (buffered on this bulk endpoint)
         if ((ucOpcode != UFI_WRITE_10) && (ucOpcode != UFI_READ_10)) {
             uTaskerMonoTimer(OWN_TASK, (DELAY_LIMIT)(0 * SEC), T_GET_STATUS_TEST); // collect the status after a short delay (we should do it after the transmission has been acked!!!)
@@ -2177,6 +2276,9 @@ static void fnConfigureApplicationEndpoints(unsigned char ucActiveConfiguration)
     USBTABLE tInterfaceParameters;                                       // table for passing information to driver
 
     if (NO_ID_ALLOCATED == USBPortID_host) {
+        #if defined _iMX && (HSUSB_CONTROLLERS > 1)
+            tInterfaceParameters.ucUSB_controller = USB_HOST_REF;        // the HS USB controller used
+        #endif
         tInterfaceParameters.owner_task = OWN_TASK;                      // wake usb task on receptions
         tInterfaceParameters.Endpoint = ucMSDBulkOutEndpoint;            // set USB endpoints to act as an input/output pair - transmitter (OUT)
         tInterfaceParameters.Paired_RxEndpoint = ucMSDBulkInEndpoint;    // receiver (IN)
@@ -2207,14 +2309,14 @@ static int utReadMSD(unsigned char *ptrBuffer, unsigned long ulSectorNumber)
     fnSendMSD_host(UFI_READ_10);                                         // request the read (and enable IN polling for the read data)
     fnDriver(USBPortID_host, (RX_ON), 0);                                // enable IN polling so that we can receive data response
     iWait = 0;
-    while (1) {                                                          // wait until the data has been received
+    FOREVER_LOOP() {                                                     // wait until the data has been received
         Length = fnRead(USBPortID_host, (ptrBuffer + (512 - byte_length)), byte_length); // read received data
         if (Length != 0) {                                               // all or part of the requested data is ready
             byte_length -= Length;                                       // the remaining length
             fnDriver(USBPortID_host, (RX_ON), 0);                        // enable IN polling so that we can receive further data, or the status stage
             iWait = 0;
             if (byte_length == 0) {                                      // data has been completely received so we are waiting for the status stage
-                while (1) {                                              // wait until the status stage has been received
+                FOREVER_LOOP() {                                         // wait until the status stage has been received
                     if (fnRead(USBPortID_host, (unsigned char *)&status_stage, sizeof(status_stage)) != 0) { // read status stage
                         if ((status_stage.dCBWSignatureL == USBS_SIGNATURE) && (status_stage.dCBWTagL == ulTag)) {
                             fnDebugMsg(" OK\r\n");
@@ -2279,8 +2381,8 @@ static int utWriteMSD(unsigned char *ptrBuffer, unsigned long ulSectorNumber)
     fnSendMSD_host(UFI_WRITE_10);                                        // request the write
     fnWrite(USBPortID_host, ptrBuffer, 512);                             // write data (buffered on this bulk endpoint)
     iWait = 0;
-//    fnDriver(USBPortID_host, (RX_ON), 0);                                // enable IN polling so that we can receive data/status response
-    while (1) {                                                          // wait until the status stage has been received
+//  fnDriver(USBPortID_host, (RX_ON), 0);                                // enable IN polling so that we can receive data/status response
+    FOREVER_LOOP() {                                                     // wait until the status stage has been received
         if (fnRead(USBPortID_host, (unsigned char *)&status_stage, sizeof(status_stage)) != 0) { // read status stage
             if ((status_stage.dCBWSignatureL == USBS_SIGNATURE) && (status_stage.dCBWTagL == ulTag)) {
                 fnDebugMsg(" OK\r\n");
@@ -2330,9 +2432,13 @@ static void fnConfigureApplicationEndpoints(void)
     #if defined IN_COMPLETE_CALLBACK
     tInterfaceParameters.INcallback = 0;
     #endif
+    #if defined USB_HS_INTERFACE
+    tInterfaceParameters.usEndpointSize = 512;                           // endpoint queue size (2 buffers of this size will be created for reception)
+    #else
     tInterfaceParameters.usEndpointSize = 64;                            // endpoint queue size (2 buffers of this size will be created for reception)
+    #endif
     #if defined USE_USB_CDC
-        #if defined _LPC23XX || defined _LPC17XX                         // {14}
+        #if defined _LPC23XX || defined _LPC17XX
     tInterfaceParameters.Endpoint = 5;                                   // set USB endpoints to act as an input/output pair - transmitter (IN)
     tInterfaceParameters.Paired_RxEndpoint = 2;                          // receiver (OUT)
         #else
@@ -2349,7 +2455,7 @@ static void fnConfigureApplicationEndpoints(void)
             #endif
         #endif    
     tInterfaceParameters.usb_callback = 0;                               // no call-back since we use rx buffer - the same task is owner
-    tInterfaceParameters.usConfig = USB_TERMINATING_ENDPOINT;            // {13} configure the IN endpoint to terminate messages with a zero length frame is a block transmission equals the endpoint size
+    tInterfaceParameters.usConfig = USB_TERMINATING_ENDPOINT;            // configure the IN endpoint to terminate messages with a zero length frame is a block transmission equals the endpoint size
         #if SIZE_OF_RAM < (16 * 1024)                                    // use smaller buffers when there is limited RAM available
     tInterfaceParameters.queue_sizes.RxQueueSize = 64;                   // optional input queue (used only when no call-back defined)
     tInterfaceParameters.queue_sizes.TxQueueSize = 256;                  // additional tx buffer
@@ -2360,14 +2466,14 @@ static void fnConfigureApplicationEndpoints(void)
         #if defined WAKE_BLOCKED_USB_TX
     tInterfaceParameters.low_water_level = (tInterfaceParameters.queue_sizes.TxQueueSize/2); // TX_FREE event on half buffer empty
         #endif
-        #if defined MODBUS_USB_SLAVE && defined USE_USB_CDC && (MODBUS_USB_INTERFACE_BASE == 0) // {11}{23}
+        #if defined MODBUS_USB_SLAVE && defined USE_USB_CDC && (MODBUS_USB_INTERFACE_BASE == 0)
     tInterfaceParameters.owner_task = TASK_MODBUS;                       // receptions on this endpoint are to be handled by the MODBUS task
         #endif
     USBPortID_comms[0] = fnOpen(TYPE_USB, 0, &tInterfaceParameters);     // open the endpoints with defined configurations (initially inactive)
         #if defined MODBUS_USB_SLAVE && defined USE_USB_CDC && (MODBUS_USB_INTERFACE_BASE == 0)
     tInterfaceParameters.owner_task = OWN_TASK;
         #endif
-        #if USB_CDC_COUNT > 1                                            // {33}
+        #if USB_CDC_COUNT > 1
             #if SIZE_OF_RAM < (32 * 1024) && (USB_CDC_COUNT > 1)
     tInterfaceParameters.queue_sizes.RxQueueSize = 64;                   // reduce the queue sizes used for the extended CDC interfaces when there is little memory
     tInterfaceParameters.queue_sizes.TxQueueSize = 128;
@@ -2392,8 +2498,8 @@ static void fnConfigureApplicationEndpoints(void)
         #endif
     }
         #endif
-    tInterfaceParameters.usConfig = 0;                                   // {13}
-        #if defined _LPC23XX || defined _LPC17XX                         // {14}
+    tInterfaceParameters.usConfig = 0;
+        #if defined _LPC23XX || defined _LPC17XX
     tInterfaceParameters.Endpoint = 4;                                   // set interrupt endpoint
         #else
     tInterfaceParameters.Endpoint = endpointNumberInt;                   // set interrupt endpoint
@@ -2403,7 +2509,7 @@ static void fnConfigureApplicationEndpoints(void)
     tInterfaceParameters.usb_callback = 0;                               // no call back function
     tInterfaceParameters.queue_sizes.TxQueueSize = tInterfaceParameters.queue_sizes.RxQueueSize = 0; // no buffering
     USBPortID_interrupt[0] = fnOpen(TYPE_USB, 0, &tInterfaceParameters); // open the endpoint with defined configurations (initially inactive)
-        #if USB_CDC_COUNT > 1                                            // {33}
+        #if USB_CDC_COUNT > 1
     iCDC_interface = 1;
     while (iCDC_interface < USB_CDC_COUNT) {                             // configure endpoints for each CDC interface
             #if defined USB_SIMPLEX_ENDPOINTS
@@ -2418,7 +2524,7 @@ static void fnConfigureApplicationEndpoints(void)
     endpointNumber++;
     #endif
     #if defined USE_USB_MSD
-        #if defined _LPC23XX || defined _LPC17XX                         // {14}
+        #if defined _LPC23XX || defined _LPC17XX
     tInterfaceParameters.Endpoint = 5;                                   // set USB endpoints to act as an input/output pair - transmitter (IN)
     tInterfaceParameters.Paired_RxEndpoint = 2;                          // receiver (OUT)
         #else
@@ -2430,14 +2536,17 @@ static void fnConfigureApplicationEndpoints(void)
         #endif
     tInterfaceParameters.usb_callback = mass_storage_callback;           // allow receptions to be 'peeked' by call-back
     tInterfaceParameters.queue_sizes.RxQueueSize = 512;                  // optional input queue (used only when no call-back defined) and large enough to hold a full sector
-    tInterfaceParameters.queue_sizes.TxQueueSize = 1024;                 // additional tx buffer
+    tInterfaceParameters.queue_sizes.TxQueueSize = (1024 * 8);           // additional tx buffer (set to multiple of 512)
         #if defined WAKE_BLOCKED_USB_TX
     tInterfaceParameters.low_water_level = (tInterfaceParameters.queue_sizes.TxQueueSize/2); // TX_FREE event on half buffer empty
         #endif
     tInterfaceParameters.owner_task = OWN_TASK;                          // wake the USB task on receptions
     USBPortID_MSD = fnOpen(TYPE_USB, 0, &tInterfaceParameters);          // open the endpoints with defined configurations (initially inactive)
+        #if defined BYPASS_READ_BUFFER                                   // {2}
+    ptrUsbMSD_Queue = (USBQUE *)que_ids[USBPortID_MSD - 1].output_buffer_control; // set to output control block
+        #endif
     #endif
-    #if defined USE_USB_HID_MOUSE || defined USE_USB_HID_KEYBOARD        // {34}
+    #if defined USE_USB_HID_MOUSE || defined USE_USB_HID_KEYBOARD
     tInterfaceParameters.usEndpointSize = 8;                             // endpoint queue size (2 buffers of this size will be created for reception)
         #if defined _LPC23XX || defined _LPC17XX
     tInterfaceParameters.Endpoint = 5;
@@ -2488,13 +2597,13 @@ static void fnConfigureUSB(void)
     // Configure the control endpoint
     //
     tInterfaceParameters.Endpoint = 0;                                   // set USB default control endpoint for configuration
-    #if defined USB_HOST_SUPPORT                                         // {32} host mode rather than device mode
+    #if defined USB_HOST_SUPPORT                                         // host mode rather than device mode
     tInterfaceParameters.usConfig = USB_HOST_MODE;                       // configure host mode of operation
     #else
-        #if defined OLIMEX_LPC2378_STK                                   // {20} this board requires alternative USB pin mapping
+        #if defined OLIMEX_LPC2378_STK                                   // this board requires alternative USB pin mapping
     tInterfaceParameters.usConfig = (USB_FULL_SPEED | USB_ALT_PORT_MAPPING); // full-speed, rather than low-speed - use alternative pins
         #else
-            #if defined USB_HS_INTERFACE                                 // {27}
+            #if defined USB_HS_INTERFACE
     tInterfaceParameters.usConfig = USB_HIGH_SPEED;                      // user high speed interface
             #else
     tInterfaceParameters.usConfig = USB_FULL_SPEED;                      // full-speed, rather than low-speed
@@ -2504,12 +2613,12 @@ static void fnConfigureUSB(void)
     tInterfaceParameters.usb_callback = control_callback;                // call-back for control endpoint to enable class exchanges to be handled
     tInterfaceParameters.queue_sizes.TxQueueSize = 0;                    // no tx buffering on control endpoint
     tInterfaceParameters.queue_sizes.RxQueueSize = 0;                    // no rx buffering on control endpoint
-    #if defined _KINETIS                                                 // {18}{25}{26}{29}{30}
+    #if defined _KINETIS || defined _iMX
     tInterfaceParameters.ucClockSource = INTERNAL_USB_CLOCK;             // use system clock and dividers
     #else
     tInterfaceParameters.ucClockSource = EXTERNAL_USB_CLOCK;             // use 48MHz crystal directly as USB clock (recommended for lowest jitter)
     #endif
-    #if defined _LPC23XX || defined _LPC17XX                             // {14}
+    #if defined _LPC23XX || defined _LPC17XX
     tInterfaceParameters.ucEndPoints = 5;                                // due to fixed endpoint ordering in the LPC endpoints up to 5 are used
     #else
     tInterfaceParameters.ucEndPoints = NUMBER_OF_ENDPOINTS;              // number of endpoints, in addition to EP0, required by the configuratzion
